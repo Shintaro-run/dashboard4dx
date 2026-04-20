@@ -4624,33 +4624,15 @@ def generate_report_pdf(
 
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
 def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
-    """Two-stage modal for PDF export:
-      stage 1 ("select")    — user picks up to 30 Function IDs via a
-                              searchable multiselect; empty selection is
-                              blocked with an inline error.
-      stage 2 ("generate")  — kpi_df + defects_df are pre-filtered to the
-                              chosen IDs and generate_report_pdf runs
-                              inside a T-Rex runner popup. On completion
-                              a Download button appears in the dialog.
+    """Two-stage modal for PDF export, implemented without st.rerun()
+    because calling rerun from inside an @st.dialog body triggers the
+    'Could not find fragment with id ...' error in Streamlit 1.39.
 
-    Streamlit supplies the ✕ close button in the dialog chrome; closing
-    mid-generation abandons the run (Python has already finished by the
-    time the user clicks anyway — the stage 2 body runs synchronously."""
-    if not st.session_state.get("pdf_gen_confirmed"):
-        _render_pdf_select_stage(kpi_df)
-        return
-    _render_pdf_generate_stage(
-        kpi_df, st.session_state.get("pdf_selected_fids", []))
-
-
-def _render_pdf_select_stage(kpi_df: pd.DataFrame) -> None:
-    st.markdown(
-        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
-        f"{t('pdf_select_title')}</div>"
-        f"<div style='font-size:12px;color:#aaa;margin:0 0 14px;'>"
-        f"{t('pdf_select_caption')}</div>",
-        unsafe_allow_html=True,
-    )
+    Flow: render stage 1 (selection) inside an st.empty() container.
+    When the user clicks Start generation AND has a non-empty selection,
+    clear the slot and render stage 2 (runner + download) in its place,
+    all inside the same Python run. No rerun, no fragment id issues."""
+    # Build the picker options once.
     opts_df = (kpi_df[["機能ID", "機能名称"]]
                .drop_duplicates(subset=["機能ID"])
                .fillna({"機能名称": ""}))
@@ -4661,26 +4643,39 @@ def _render_pdf_select_stage(kpi_df: pd.DataFrame) -> None:
         lab = f"{r['機能ID']} · {nm}" if nm else str(r["機能ID"])
         label_to_fid[lab] = str(r["機能ID"])
         labels.append(lab)
-    chosen = st.multiselect(
-        t("pdf_select_label"),
-        options=labels,
-        max_selections=30,
-        key="pdf_fid_multiselect",
-    )
-    st.caption(t("pdf_select_count", n=len(chosen)))
-    err_slot = st.empty()
-    if st.button(t("pdf_btn_confirm"), type="primary",
-                 key="pdf_confirm_generate", use_container_width=True):
-        if not chosen:
-            err_slot.error(t("pdf_select_error_empty"))
-            return
-        st.session_state.pdf_selected_fids = [label_to_fid[c] for c in chosen]
-        st.session_state.pdf_gen_confirmed = True
-        st.rerun()
 
+    body = st.empty()
 
-def _render_pdf_generate_stage(kpi_df: pd.DataFrame,
-                                selected_fids: list[str]) -> None:
+    # --- Stage 1: selection -------------------------------------------------
+    with body.container():
+        st.markdown(
+            f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
+            f"{t('pdf_select_title')}</div>"
+            f"<div style='font-size:12px;color:#aaa;margin:0 0 14px;'>"
+            f"{t('pdf_select_caption')}</div>",
+            unsafe_allow_html=True,
+        )
+        chosen = st.multiselect(
+            t("pdf_select_label"),
+            options=labels,
+            max_selections=30,
+            key="pdf_fid_multiselect",
+        )
+        st.caption(t("pdf_select_count", n=len(chosen)))
+        err_slot = st.empty()
+        proceed = st.button(
+            t("pdf_btn_confirm"), type="primary",
+            key="pdf_confirm_generate", use_container_width=True,
+        )
+
+    if not proceed:
+        return
+    if not chosen:
+        err_slot.error(t("pdf_select_error_empty"))
+        return
+
+    # --- Stage 2: generate (replaces stage 1 in `body`) ---------------------
+    selected_fids = [label_to_fid[c] for c in chosen]
     # Filter kpi_df + defects_df so every chart sees only the chosen rows.
     # The per-chart _BAR_CHART_MAX_ROWS safety cap will not trigger here
     # because user selection is already ≤ 30.
@@ -4689,66 +4684,66 @@ def _render_pdf_generate_stage(kpi_df: pd.DataFrame,
     ddf = (defects_src[defects_src["機能ID"].isin(selected_fids)].copy()
            if defects_src is not None else None)
 
-    st.markdown(
-        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
-        f"{t('pdf_dialog_title')}</div>"
-        f"<div style='font-size:12px;color:#aaa;margin:0 0 10px;'>"
-        f"{t('pdf_dialog_subtitle')}"
-        f" · {t('pdf_select_count', n=len(selected_fids))}</div>",
-        unsafe_allow_html=True,
-    )
-    slot = st.empty()
-    result_slot = st.empty()
-    try:
-        def _cb(msg: str, step: int, total: int) -> None:
-            slot.markdown(
-                _render_pdf_runner_html(step, total, msg),
-                unsafe_allow_html=True,
-            )
-        pdf_bytes = generate_report_pdf(
-            kdf, progress_cb=_cb, defects_df=ddf)
-        st.session_state.report_pdf = pdf_bytes
-        st.session_state.report_pdf_lang = st.session_state.lang
-        slot.markdown(
-            _render_pdf_runner_html(
-                PDF_TOTAL_STEPS, PDF_TOTAL_STEPS, t("pdf_done"), done=True),
+    body.empty()
+    with body.container():
+        st.markdown(
+            f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
+            f"{t('pdf_dialog_title')}</div>"
+            f"<div style='font-size:12px;color:#aaa;margin:0 0 10px;'>"
+            f"{t('pdf_dialog_subtitle')}"
+            f" · {t('pdf_select_count', n=len(selected_fids))}</div>",
             unsafe_allow_html=True,
         )
-        with result_slot.container():
-            lang_tag = st.session_state.lang
-            fname = (
-                f"dashboard4dx_report_{date.today().strftime('%Y%m%d')}"
-                f"_{lang_tag}.pdf"
+        slot = st.empty()
+        result_slot = st.empty()
+        try:
+            def _cb(msg: str, step: int, total: int) -> None:
+                slot.markdown(
+                    _render_pdf_runner_html(step, total, msg),
+                    unsafe_allow_html=True,
+                )
+            pdf_bytes = generate_report_pdf(
+                kdf, progress_cb=_cb, defects_df=ddf)
+            st.session_state.report_pdf = pdf_bytes
+            st.session_state.report_pdf_lang = st.session_state.lang
+            slot.markdown(
+                _render_pdf_runner_html(
+                    PDF_TOTAL_STEPS, PDF_TOTAL_STEPS,
+                    t("pdf_done"), done=True),
+                unsafe_allow_html=True,
             )
-            st.download_button(
-                label="📄 " + t("pdf_btn_download"),
-                data=pdf_bytes,
-                file_name=fname,
-                mime="application/pdf",
-                key="pdf_download_dialog",
-                use_container_width=True,
+            with result_slot.container():
+                lang_tag = st.session_state.lang
+                fname = (
+                    f"dashboard4dx_report_{date.today().strftime('%Y%m%d')}"
+                    f"_{lang_tag}.pdf"
+                )
+                st.download_button(
+                    label="📄 " + t("pdf_btn_download"),
+                    data=pdf_bytes,
+                    file_name=fname,
+                    mime="application/pdf",
+                    key="pdf_download_dialog",
+                    use_container_width=True,
+                )
+            st.toast(t("pdf_done"), icon="📄")
+        except Exception as exc:
+            slot.empty()
+            st.session_state.pop("report_pdf", None)
+            detail = log_error(
+                category="pdf_export",
+                summary=str(exc),
+                exc=exc,
+                context={
+                    "lang": st.session_state.get("lang"),
+                    "rows": int(len(kdf)),
+                    "selected_fids": ",".join(selected_fids)[:200],
+                },
             )
-        st.toast(t("pdf_done"), icon="📄")
-    except Exception as exc:
-        slot.empty()
-        st.session_state.pop("report_pdf", None)
-        detail = log_error(
-            category="pdf_export",
-            summary=str(exc),
-            exc=exc,
-            context={
-                "lang": st.session_state.get("lang"),
-                "rows": int(len(kdf)),
-                "selected_fids": ",".join(selected_fids)[:200],
-            },
-        )
-        with result_slot.container():
-            st.error(t("pdf_error", err=exc))
-            with st.expander(t("log_show_detail"), expanded=False):
-                st.code(detail, language="text")
-    finally:
-        # Reset so re-opening the dialog starts back at selection.
-        st.session_state.pdf_gen_confirmed = False
+            with result_slot.container():
+                st.error(t("pdf_error", err=exc))
+                with st.expander(t("log_show_detail"), expanded=False):
+                    st.code(detail, language="text")
 
 
 def render_charts_tab() -> None:
@@ -4764,9 +4759,6 @@ def render_charts_tab() -> None:
     with pdf_btn_col:
         if st.button(t("pdf_btn_generate"),
                      key="pdf_generate", use_container_width=True):
-            # Fresh open → always start at stage 1 (selection).
-            st.session_state.pdf_gen_confirmed = False
-            st.session_state.pdf_selected_fids = []
             _open_pdf_dialog(kpi_df)
     with pdf_dl_col:
         if st.session_state.get("report_pdf"):
