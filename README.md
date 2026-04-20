@@ -26,8 +26,15 @@ A3-landscape PDF report.
 | 6 | Design page counts / 設計書ページ数 | manual form | entered inside the **Design pages** tab; auto-saved to `input/design_pages.json`. |
 
 **Function ID format:** 1–10 ASCII letters followed by 1–10 ASCII digits
-(`AUTH001`, `SYM1010`, etc.). Full-width letters/digits are normalised to
-half-width before matching.
+(`AUTH001`, `SYM1010`, `ADM01010`, etc.). Full-width letters/digits are
+normalised (NFKC) to half-width before matching. Cells may be:
+
+- bare `XXXX`,
+- labeled `機能ID：XXXX` / `機能ID:XXXX`, or
+- `XXXX：機能名` / `XXXX:name` (the ID followed by a colon and the title
+  in the same cell — common in real WBS / Redmine exports).
+
+Hyphenated forms (`AUTH-001`) and other separators are **not** recognised.
 
 A Function ID may legitimately appear with multiple Function names; every
 unique `(Function ID, Function name)` pair is kept and joined-data is

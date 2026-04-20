@@ -365,6 +365,10 @@ _FID_BARE_RE = re.compile(r"^[A-Za-z]{1,10}\d{1,10}$")
 # Labeled form: "機能ID：XXXX" / "機能ID:XXXX". Capture liberally and validate
 # against _FID_BARE_RE afterwards.
 _FID_LABELED_RE = re.compile(r"機能ID\s*[：:]\s*(\S+)")
+# "FID:name" / "FID：name" — a bare FID followed by a colon and trailing
+# title/text (all full-width chars are already NFKC-normalised to half-width
+# at the caller). Captures just the FID portion.
+_FID_PREFIX_RE = re.compile(r"^([A-Za-z]{1,10}\d{1,10})\s*:")
 
 
 # =============================================================================
@@ -381,10 +385,12 @@ def _col_to_idx(letter: str) -> int:
 def _normalize_fid(value) -> Optional[str]:
     """Extract a Function ID from a cell value.
 
-    Accepts '機能ID：XXXX', '機能ID:XXXX', or a bare 'XXXX' where XXXX is
-    1–10 ASCII letters followed by 1–10 ASCII digits (real-world format,
-    e.g. SYM1010 / AD44020 / F001). Full-width digits and letters are
-    normalized to half-width before matching.
+    Accepts (after NFKC-normalising full-width → half-width):
+      • '機能ID：XXXX' / '機能ID:XXXX'         (labeled)
+      • 'XXXX：何かの機能名' / 'XXXX:name'     (ID followed by colon + title)
+      • bare 'XXXX'
+    where XXXX is 1–10 ASCII letters followed by 1–10 ASCII digits
+    (e.g. SYM1010 / AD44020 / F001 / AUTH001 / ADM01010).
     Returns None for empty or non-ID-shaped strings.
     """
     if value is None:
@@ -392,7 +398,8 @@ def _normalize_fid(value) -> Optional[str]:
     s = str(value).strip()
     if not s:
         return None
-    # NFKC turns ＳＹＭ１０１０ → SYM1010 (full-width → half-width compat).
+    # NFKC turns ＳＹＭ１０１０ → SYM1010, and full-width colon ： → :,
+    # so downstream regexes only need to match the half-width form.
     s = unicodedata.normalize("NFKC", s)
 
     m = _FID_LABELED_RE.search(s)
@@ -400,7 +407,16 @@ def _normalize_fid(value) -> Optional[str]:
         cand = m.group(1).strip()
         # Trim trailing punctuation that may follow the ID in free-text cells.
         cand = cand.rstrip("、。,.;:")
-        return cand if _FID_BARE_RE.match(cand) else None
+        if _FID_BARE_RE.match(cand):
+            return cand
+        # Fall through: cand may be "XXXX:title" (labeled + titled).
+        m2 = _FID_PREFIX_RE.match(cand)
+        return m2.group(1) if m2 else None
+
+    # "XXXX：title" / "XXXX:title" (no '機能ID' label)
+    m_prefix = _FID_PREFIX_RE.match(s)
+    if m_prefix:
+        return m_prefix.group(1)
 
     return s if _FID_BARE_RE.match(s) else None
 
@@ -1300,10 +1316,11 @@ def _diagnose_defects_build_failure(
     if empty_fid:
         lines.append(f"rows with empty 機能ID cell: {empty_fid}")
     lines.append(
-        "expected formats: '機能ID：XXXX', '機能ID:XXXX', or bare "
-        "'XXXX' where XXXX = 1–10 ASCII letters + 1–10 ASCII digits "
-        "(full-width letters/digits are NFKC-normalised). "
-        "Hyphens (e.g. 'AUTH-001') or separators do NOT match.")
+        "expected formats: '機能ID：XXXX', '機能ID:XXXX', "
+        "'XXXX：機能名', 'XXXX:name', or bare 'XXXX' where "
+        "XXXX = 1–10 ASCII letters + 1–10 ASCII digits "
+        "(full-width letters/digits/colons are NFKC-normalised). "
+        "Hyphens (e.g. 'AUTH-001') and other separators do NOT match.")
     return "\n".join(lines)
 
 
