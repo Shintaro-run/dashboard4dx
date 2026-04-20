@@ -1999,6 +1999,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_actual_effort":   "Actual effort",
         "drilldown_progress":        "Progress (planned vs actual)",
         "drilldown_id_not_found":    "Function ID `{fid}` no longer in the master.",
+        "drilldown_strip_title":     "Source coverage for this Function ID",
+        "drilldown_source_unloaded": "(not loaded)",
+        "drilldown_source_manual":   "(manual entry)",
+        "src_design_label":          "Design pages",
         "sec1_title": "1. Drop your sources",
         "sec2_title": "Design page counts",
         "sec2_caption": (
@@ -2474,6 +2478,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_actual_effort":   "投入工数",
         "drilldown_progress":        "進捗（計画 vs 実績）",
         "drilldown_id_not_found":    "機能ID `{fid}` はマスタに存在しません。",
+        "drilldown_strip_title":     "この機能IDがどの入力にあるか",
+        "drilldown_source_unloaded": "（未ロード）",
+        "drilldown_source_manual":   "（手動入力）",
+        "src_design_label":          "設計書ページ数",
         "sec1_title": "1. ソースファイル投入",
         "sec2_title": "設計書ページ数",
         "sec2_caption": (
@@ -3374,6 +3382,7 @@ def render_upload_card(spec: dict) -> None:
         st.caption(f"{src_icon} {src_text} · `{origin_name}`{snap_text}")
 
         st.session_state.dfs[spec["key"]] = df
+        st.session_state.origin_names[spec["key"]] = origin_name or ""
         st.session_state.errs.pop(spec["key"], None)
 
 
@@ -3445,6 +3454,99 @@ def _selectable_table(df: pd.DataFrame, key: str, *,
     )
 
 
+DRILLDOWN_SOURCE_STRIP: list[tuple[str, str, str]] = [
+    # (session-dfs key, i18n label key, dino name)
+    # Design pages is a special case: state lives in design_pages_state,
+    # not in session_state.dfs.
+    ("master",  "src_master_label",  "bronto"),
+    ("wbs",     "src_wbs_label",     "raptor"),
+    ("defects", "src_defects_label", "spino"),
+    ("tests",   "src_tests_label",   "stego"),
+    ("code",    "src_code_label",    "diplo"),
+    ("design",  "src_design_label",  "ptero"),
+]
+
+_STRIP_COLORS = {"present": "#4ec78a", "absent": "#b48820",
+                 "unloaded": "#7a7f88"}
+_STRIP_BADGES = {"present": "✓", "absent": "⚠", "unloaded": "—"}
+_STRIP_BORDERS = {"present": "#2d6a4a", "absent": "#6b5220",
+                  "unloaded": "#3a3d42"}
+
+
+def _fid_presence_for_slot(slot: str, fid: str) -> tuple[str, str]:
+    """Return ('present'|'absent'|'unloaded', filename) for one source slot."""
+    if slot == "design":
+        pages = st.session_state.get("design_pages_state") or {}
+        if not pages:
+            return "unloaded", ""
+        val = pages.get(fid)
+        state = "present" if val and val > 0 else "absent"
+        return state, t("drilldown_source_manual")
+    df = st.session_state.dfs.get(slot)
+    fname = st.session_state.get("origin_names", {}).get(slot, "") or ""
+    if df is None or df.empty or "機能ID" not in df.columns:
+        return "unloaded", fname
+    state = "present" if fid in df["機能ID"].values else "absent"
+    return state, fname
+
+
+def render_drilldown_presence_strip(fid: str) -> None:
+    """Horizontal strip of compact cards — one per input source — showing
+    whether the selected Function ID has a row in each loaded source."""
+    cards_html: list[str] = []
+    for slot, label_key, dino in DRILLDOWN_SOURCE_STRIP:
+        state, fname = _fid_presence_for_slot(slot, fid)
+        color = _STRIP_COLORS[state]
+        border = _STRIP_BORDERS[state]
+        badge = _STRIP_BADGES[state]
+        label = t(label_key)
+        shown = fname or t("drilldown_source_unloaded")
+        shown_short = (shown if len(shown) <= 24
+                       else shown[:10] + "…" + shown[-12:])
+        svg_uri = dino_data_uri(dino, color=color)
+        file_style = (
+            "color:#ccc;" if state == "present"
+            else "color:#888;text-decoration:line-through;"
+            if state == "absent" and fname
+            else "color:#777;font-style:italic;"
+        )
+        tooltip = f"{label} · {shown}"
+        cards_html.append(
+            f'<div class="d4dx-pc-card" '
+            f'style="border-color:{border};" title="{tooltip}">'
+            f'<div class="d4dx-pc-head">'
+            f'<img class="d4dx-pc-dino" src="{svg_uri}" alt="{dino}">'
+            f'<span class="d4dx-pc-badge" '
+            f'style="color:{color};border-color:{color};">{badge}</span>'
+            f'</div>'
+            f'<div class="d4dx-pc-src">{label}</div>'
+            f'<div class="d4dx-pc-fname" style="{file_style}">{shown_short}</div>'
+            f'</div>'
+        )
+    st.markdown(
+        """
+<style>
+.d4dx-pc-strip { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 12px; }
+.d4dx-pc-card  { flex:1 1 120px; min-width:110px; max-width:160px;
+                 border:1px solid #3a3d42; border-radius:8px;
+                 padding:6px 8px; background:rgba(255,255,255,0.02); }
+.d4dx-pc-head  { display:flex; align-items:center; justify-content:space-between;
+                 margin-bottom:4px; }
+.d4dx-pc-dino  { width:22px; height:22px; flex:none; }
+.d4dx-pc-badge { font-size:11px; font-weight:700; width:16px; height:16px;
+                 display:inline-flex; align-items:center; justify-content:center;
+                 border:1px solid; border-radius:50%; flex:none; line-height:1; }
+.d4dx-pc-src   { font-weight:600; font-size:11px;
+                 white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.d4dx-pc-fname { font-family:"SF Mono",Menlo,monospace; font-size:9.5px;
+                 margin-top:1px; white-space:nowrap; overflow:hidden;
+                 text-overflow:ellipsis; }
+</style>
+""" + f'<div class="d4dx-pc-strip">{"".join(cards_html)}</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def render_drilldown_panel(kpi_df: pd.DataFrame,
                            defects_df: Optional[pd.DataFrame],
                            function_id: str) -> None:
@@ -3493,6 +3595,9 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                 for k in _DRILLDOWN_TABLE_KEYS:
                     st.session_state.pop(k, None)
                 st.rerun()
+
+        # ---- Per-source presence strip ----------------------------------
+        render_drilldown_presence_strip(function_id)
 
         # ---- Metric grid ------------------------------------------------
         def _f(v, fmt="{:.0f}"):
@@ -4726,6 +4831,7 @@ def _reset_slot_auto_load(slot: str) -> None:
     st.session_state.errs.pop(slot, None)
     st.session_state.last_ok_sig.pop(slot, None)
     st.session_state.last_err_sig.pop(slot, None)
+    st.session_state.setdefault("origin_names", {}).pop(slot, None)
     upload_key = f"upload_{slot}"
     if upload_key in st.session_state:
         # Clearing the file_uploader's stored value forces it back to empty.
@@ -4844,6 +4950,8 @@ def render_settings_tab() -> None:
                                     # dataframe so the upload card re-resolves
                                     # against whatever's left on disk.
                                     st.session_state.dfs.pop(slot, None)
+                                    st.session_state.setdefault(
+                                        "origin_names", {}).pop(slot, None)
                                     # Clear the ack checkbox so the next time
                                     # this popover opens, it starts unticked.
                                     st.session_state.pop(chk_key, None)
@@ -4956,6 +5064,7 @@ def main() -> None:
     st.session_state.setdefault("last_err_sig", {})
     st.session_state.setdefault("lang", DEFAULT_LANG)
     st.session_state.setdefault("skip_auto_load", {})
+    st.session_state.setdefault("origin_names", {})
 
     # --- Header row: title (left) + language switcher (right) ----------------
     title_col, lang_col = st.columns([10, 1], gap="small")
