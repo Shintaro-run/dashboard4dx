@@ -4420,11 +4420,21 @@ def generate_report_pdf(
     `defects_df` overrides the session-state defect dataframe; the caller
     passes a pre-filtered frame (matching the selected Function IDs) so
     the bug-trend chart stays consistent with the per-feature charts."""
+    logger = _get_logger()
+    logger.info(
+        "[pdf_export] enter generate_report_pdf: "
+        f"kpi_rows={len(kpi_df)} "
+        f"defect_rows={0 if defects_df is None else len(defects_df)} "
+        f"lang={st.session_state.get('lang')}"
+    )
     step_counter = [0]
     def _progress(msg: str) -> None:
         step_counter[0] += 1
+        logger.info(
+            f"[pdf_export] step {step_counter[0]}/{PDF_TOTAL_STEPS}: {msg}")
         if progress_cb is not None:
             progress_cb(msg, step_counter[0], PDF_TOTAL_STEPS)
+    t_start = time.time()
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A3, landscape
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -4435,6 +4445,9 @@ def generate_report_pdf(
         Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
         TableStyle,
     )
+    logger.info(
+        f"[pdf_export] reportlab imports done in "
+        f"{time.time() - t_start:.2f}s")
 
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     JP_FONT = "HeiseiKakuGo-W5"
@@ -4549,8 +4562,6 @@ def generate_report_pdf(
     # for an 11,000 px figure; the PDF caps displayed height at max_chart_h
     # anyway, so rendering beyond ~2,400 px only burns CPU/memory.
     max_render_h = 2400
-
-    logger = _get_logger()
 
     def embed_chart(fig: go.Figure, label: str = "") -> None:
         h_px = int(fig.layout.height) if fig.layout.height else default_px_h
@@ -4683,6 +4694,10 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     defects_src = st.session_state.dfs.get("defects")
     ddf = (defects_src[defects_src["機能ID"].isin(selected_fids)].copy()
            if defects_src is not None else None)
+    _get_logger().info(
+        f"[pdf_export] stage-2 enter: {len(selected_fids)} fids selected, "
+        f"kpi_rows={len(kdf)} defect_rows={0 if ddf is None else len(ddf)}"
+    )
 
     body.empty()
     with body.container():
