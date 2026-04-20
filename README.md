@@ -5,7 +5,7 @@ via a single **Function ID** key. Every byte of data stays on the machine runnin
 the app — no outbound network calls beyond `pip install`.
 
 - **Developer:** Shin & Shiobara
-- **Version:** 1.0.2
+- **Version:** 1.0.3
 - **License:** MIT
 
 ---
