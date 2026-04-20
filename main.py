@@ -4449,27 +4449,74 @@ def generate_report_pdf(
         f"[pdf_export] reportlab imports done in "
         f"{time.time() - t_start:.2f}s")
 
-    # Kaleido warm-up & offline-safe hardening. On Windows the FIRST
-    # fig.to_image() call launches a Chromium subprocess and (by default)
-    # tries to fetch MathJax from a CDN. In locked-down corporate networks
-    # that fetch can block for minutes — the client's log showed the
-    # session stalling exactly at chart (2/8) with no kaleido-render
-    # entry, matching this cold-start pattern. We disable MathJax and
-    # run a tiny warm-up render so the stall (if any) is traced HERE,
-    # separate from the first chart's render time.
+    # Kaleido warm-up & offline-safe hardening. On locked-down Windows
+    # boxes the FIRST fig.to_image() call stalls indefinitely because
+    # Chromium can't establish its sandbox / can't reach the MathJax CDN.
+    # The client's log stopped exactly at this boundary (reportlab imports
+    # done → silence), confirming the cold-start. We:
+    #   1. disable MathJax fetch,
+    #   2. ask Chromium to skip sandbox/GPU/shm,
+    #   3. run the warm-up in a subprocess with a 45 s timeout so that
+    #      if Chromium still can't launch we fail the PDF with a clear
+    #      error rather than hanging the dialog forever.
     try:
         import plotly.io as _pio
         try:
             _pio.kaleido.scope.mathjax = None
         except Exception as e:
-            logger.warning(f"[pdf_export] could not disable mathjax: {e}")
+            logger.warning(f"[pdf_export] mathjax disable failed: {e}")
+        try:
+            # Tuple on some versions, list on others. Preserve the type.
+            cur = list(getattr(_pio.kaleido.scope, "chromium_args", ()))
+            extra = [
+                "--no-sandbox",
+                "--disable-gpu",
+                "--disable-dev-shm-usage",
+                "--disable-software-rasterizer",
+                "--disable-features=VizDisplayCompositor",
+            ]
+            for a in extra:
+                if a not in cur:
+                    cur.append(a)
+            _pio.kaleido.scope.chromium_args = tuple(cur)
+            logger.info(f"[pdf_export] chromium_args set: {cur}")
+        except Exception as e:
+            logger.warning(f"[pdf_export] chromium_args tweak failed: {e}")
+
+        # Warm-up with a bounded wait via ThreadPoolExecutor — kaleido's
+        # fig.to_image is synchronous so we can't interrupt the Chromium
+        # child from the same thread, but the executor lets us surface
+        # a timeout error instead of hanging the dialog.
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
         t_warm = time.time()
         _warm_fig = go.Figure(data=[go.Scatter(x=[0, 1], y=[0, 1])])
         _warm_fig.update_layout(width=120, height=80,
                                 margin=dict(l=10, r=10, t=10, b=10))
-        _warm_fig.to_image(format="png", width=120, height=80, scale=1)
-        logger.info(
-            f"[pdf_export] kaleido warm-up done in {time.time()-t_warm:.2f}s")
+        with ThreadPoolExecutor(max_workers=1) as _ex:
+            _fut = _ex.submit(
+                _warm_fig.to_image,
+                format="png", width=120, height=80, scale=1,
+            )
+            try:
+                _fut.result(timeout=45)
+                logger.info(
+                    f"[pdf_export] kaleido warm-up done in "
+                    f"{time.time()-t_warm:.2f}s")
+            except _TO:
+                logger.error(
+                    "[pdf_export] kaleido warm-up TIMEOUT after 45s — "
+                    "Chromium subprocess could not launch. Likely a "
+                    "Windows sandbox / AV block. Skipping PDF charts "
+                    "would need a code change; raising for now."
+                )
+                raise RuntimeError(
+                    "Kaleido could not launch its Chromium subprocess "
+                    "within 45 seconds. This usually means Windows "
+                    "security policy (or antivirus) is blocking the "
+                    "bundled Chromium. Ask IT to allow the kaleido "
+                    "binary, or run the dashboard from a directory "
+                    "under your user profile."
+                )
     except Exception as e:
         logger.error(f"[pdf_export] kaleido warm-up FAILED: {e}")
         raise
@@ -5533,7 +5580,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.3</span>
+    <span class="ver">Ver1.0.4</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
