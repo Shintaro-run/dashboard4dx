@@ -1847,10 +1847,7 @@ DEFAULT_LANG = "en"
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
-        "intro_caption": (
-            "Local-only integrated dashboard. Drop sources below — each card "
-            "validates instantly and the dino reacts."
-        ),
+        "intro_caption": "Integrated dashboard for the management team",
         "main_tab_dashboard": "Dashboard",
         "main_tab_charts": "Charts",
         "main_tab_calendar": "Calendar",
@@ -2334,10 +2331,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "warn_defects_empty": "no '不具合管理' rows after filter",
     },
     "ja": {
-        "intro_caption": (
-            "ローカル完結の統合ダッシュボード。下のカードにファイルをドロップ"
-            "すると即時検証され、恐竜が反応します。"
-        ),
+        "intro_caption": "管理チーム用の統合ダッシュボードシステム",
         "main_tab_dashboard": "ダッシュボード",
         "main_tab_charts": "グラフ",
         "main_tab_calendar": "カレンダー",
@@ -5336,6 +5330,7 @@ def main() -> None:
             label_visibility="collapsed",
             horizontal=True,
         )
+    st.caption(t("intro_caption"))
 
     # --- Top-level tabs ------------------------------------------------------
     (tab_dashboard, tab_charts, tab_calendar, tab_design,
