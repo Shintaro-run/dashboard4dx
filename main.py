@@ -2235,6 +2235,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_progress": "Building report (this may take ~20–30 s)…",
         "pdf_done": "Report ready — click Download.",
         "pdf_error": "Could not build the report: {err}",
+        "pdf_step_cover":    "Building cover + KPI table…",
+        "pdf_step_chart":    "Rendering chart ({i}/{n}): {title}",
+        "pdf_step_gantt":    "Rendering schedule (Gantt)…",
+        "pdf_step_assemble": "Assembling PDF…",
+        "pdf_dialog_title":  "🦖 Generating PDF report",
+        "pdf_dialog_close":  "Close",
         "pdf_title": "dashboard4dx — Project Report",
         "pdf_generated_at": "Generated",
         "pdf_section_kpi": "Project-wide KPIs",
@@ -2699,6 +2705,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_progress": "レポート生成中（20〜30秒程度）…",
         "pdf_done": "生成完了 — ダウンロードボタンを押してください。",
         "pdf_error": "レポート生成に失敗しました: {err}",
+        "pdf_step_cover":    "表紙 + KPI 表を生成中…",
+        "pdf_step_chart":    "チャートを描画中 ({i}/{n}): {title}",
+        "pdf_step_gantt":    "スケジュール (Gantt) を描画中…",
+        "pdf_step_assemble": "PDF 組版中…",
+        "pdf_dialog_title":  "🦖 PDFレポート生成中",
+        "pdf_dialog_close":  "閉じる",
         "pdf_title": "dashboard4dx — プロジェクト報告",
         "pdf_generated_at": "生成日時",
         "pdf_section_kpi": "プロジェクト全体KPI",
@@ -4216,10 +4228,105 @@ def _md_to_pdf(text: str) -> str:
     return text
 
 
-def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
+PDF_TOTAL_STEPS = 11  # cover + 8 charts + gantt + assemble
+
+
+def _render_pdf_runner_html(step: int, total: int, msg: str,
+                            done: bool = False) -> str:
+    """Inner runner content for the st.dialog popup — a T-Rex sprinting
+    START → FINISH along a track, advancing one cactus-jump per completed
+    PDF-build step. The sprite position reflects step/total; a dust-puff
+    keyframe plays on each mount so each update *reads* as the dino dashing
+    forward. Pure HTML/CSS — no JS timer needed — which is important
+    because Streamlit replaces the placeholder element on every update.
+    Dialog chrome (border/shadow/title/✕) is provided by st.dialog."""
+    pct = 100 if done else int(round(step / max(total, 1) * 100))
+    color = "#4ec78a" if done else "#eeeeee"
+    trex_uri = dino_data_uri("trex", color=color)
+    cacti = "".join(
+        f'<div class="d4dx-pdf-cactus" style="left:{(i/total)*100:.1f}%;"></div>'
+        for i in range(1, total)
+    )
+    sub = ("🏁 " + msg) if done else f"{msg}  ·  {step}/{total}"
+    return f'''
+<style>
+.d4dx-pdf-track {{ position:relative; height:60px; margin:10px 12px 0 40px; }}
+.d4dx-pdf-track::before {{ content:""; position:absolute; left:0; right:0;
+                           top:40px; height:3px; background:#2c3138;
+                           border-radius:2px; }}
+.d4dx-pdf-bar   {{ position:absolute; left:0; top:40px; height:3px;
+                   background:#4ec78a; border-radius:2px; width:{pct}%;
+                   box-shadow:0 0 8px rgba(78,199,138,0.6); }}
+.d4dx-pdf-flag-s, .d4dx-pdf-flag-e {{ position:absolute; top:34px;
+                                      font-size:10px; font-weight:700;
+                                      color:#888; letter-spacing:1px; }}
+.d4dx-pdf-flag-s {{ left:-38px; }}
+.d4dx-pdf-flag-e {{ right:-24px; font-size:18px; top:28px; }}
+.d4dx-pdf-cactus {{ position:absolute; top:32px; width:4px; height:12px;
+                    background:#6a8e3a; border-radius:1px;
+                    transform:translateX(-2px); }}
+.d4dx-pdf-cactus::before {{ content:""; position:absolute; left:-3px; top:3px;
+                            width:3px; height:5px; background:#6a8e3a;
+                            border-radius:1px; }}
+.d4dx-pdf-cactus::after {{ content:""; position:absolute; right:-3px; top:3px;
+                           width:3px; height:5px; background:#6a8e3a;
+                           border-radius:1px; }}
+.d4dx-pdf-dino {{ position:absolute; top:6px; width:36px; height:36px;
+                  left:calc({pct}% - 18px);
+                  animation:d4dx-pdf-bounce 0.7s ease-in-out infinite;
+                  filter:drop-shadow(0 2px 2px rgba(0,0,0,0.3)); }}
+.d4dx-pdf-dino.done {{ animation:d4dx-pdf-cheer 0.9s ease-in-out infinite; }}
+.d4dx-pdf-dust {{ position:absolute; top:26px; width:16px; height:10px;
+                  left:calc({pct}% - 28px); opacity:0.9;
+                  animation:d4dx-pdf-dust 0.65s ease-out forwards;
+                  pointer-events:none; }}
+.d4dx-pdf-dust span {{ display:inline-block; width:4px; height:4px;
+                       margin-right:2px; border-radius:50%; background:#b48820; }}
+@keyframes d4dx-pdf-bounce {{
+  0%,100% {{ transform:translateY(0);    }}
+  45%     {{ transform:translateY(-6px) rotate(-3deg); }}
+  55%     {{ transform:translateY(-6px) rotate(3deg); }}
+}}
+@keyframes d4dx-pdf-cheer {{
+  0%,100% {{ transform:translateY(0) scale(1);    }}
+  50%     {{ transform:translateY(-5px) scale(1.12); }}
+}}
+@keyframes d4dx-pdf-dust {{
+  0%   {{ transform:translateX(0)    scale(1);   opacity:0.9; }}
+  100% {{ transform:translateX(-18px) scale(1.6); opacity:0;   }}
+}}
+.d4dx-pdf-caption {{ margin-top:18px; text-align:center; font-size:12.5px;
+                     color:#dcdcdc; font-family:"SF Mono",Menlo,monospace;
+                     letter-spacing:0.3px; }}
+</style>
+<div class="d4dx-pdf-track">
+  <span class="d4dx-pdf-flag-s">START</span>
+  {cacti}
+  <span class="d4dx-pdf-flag-e">🏁</span>
+  <div class="d4dx-pdf-bar"></div>
+  <div class="d4dx-pdf-dust"><span></span><span></span><span></span></div>
+  <img class="d4dx-pdf-dino {'done' if done else ''}" src="{trex_uri}"
+       alt="t-rex" width="36" height="36"/>
+</div>
+<div class="d4dx-pdf-caption">{sub}</div>
+'''
+
+
+def generate_report_pdf(
+    kpi_df: pd.DataFrame,
+    progress_cb: Optional[Callable[[str, int, int], None]] = None,
+) -> bytes:
     """Build a PDF report containing the project KPI summary plus every
     available chart and the Gantt schedule, with definition text. Tables of
-    raw data are intentionally excluded."""
+    raw data are intentionally excluded.
+
+    `progress_cb`, when provided, is called with (msg, step, total) at each
+    major step so the caller can animate a progress UI."""
+    step_counter = [0]
+    def _progress(msg: str) -> None:
+        step_counter[0] += 1
+        if progress_cb is not None:
+            progress_cb(msg, step_counter[0], PDF_TOTAL_STEPS)
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A3, landscape
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -4270,6 +4377,7 @@ def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
     story: list = []
 
     # --- Cover --------------------------------------------------------------
+    _progress(t("pdf_step_cover"))
     story.append(Paragraph(t("pdf_title"), title_style))
     story.append(Paragraph(
         f"{t('pdf_generated_at')}: "
@@ -4337,13 +4445,25 @@ def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
     img_px_w = 1800
     default_px_h = 720
     max_chart_h = 22 * cm  # leave room for title + definition above
+    # Hard cap the render height so kaleido never receives a figure so tall
+    # that Chromium stalls. A 431-row Gantt at 26 px/row would otherwise ask
+    # for an 11,000 px figure; the PDF caps displayed height at max_chart_h
+    # anyway, so rendering beyond ~2,400 px only burns CPU/memory.
+    max_render_h = 2400
 
     def embed_chart(fig: go.Figure) -> None:
         h_px = int(fig.layout.height) if fig.layout.height else default_px_h
-        # Generous margins via _style_for_pdf + automargin already handle
-        # label space; just render and scale.
+        if h_px > max_render_h:
+            # Match the plotly layout height to what we actually render so
+            # kaleido lays out labels for that viewport, avoiding mangled
+            # automargin calculations when we clamp externally.
+            fig.update_layout(height=max_render_h)
+            h_px = max_render_h
+        # Use scale=2 for small figures (sharper axis labels), scale=1 for
+        # tall ones (keeps pixel count manageable — 1800×2400×1 = 4.3 MP).
+        scale = 2 if h_px <= 1200 else 1
         png_bytes = fig.to_image(format="png", width=img_px_w, height=h_px,
-                                 scale=2)
+                                 scale=scale)
         aspect = h_px / img_px_w
         disp_w = inner_w
         disp_h = disp_w * aspect
@@ -4352,7 +4472,9 @@ def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
             disp_w = disp_h / aspect
         story.append(Image(io.BytesIO(png_bytes), width=disp_w, height=disp_h))
 
-    for title_key, help_key, builder in chart_specs:
+    n_charts = len(chart_specs)
+    for i, (title_key, help_key, builder) in enumerate(chart_specs, start=1):
+        _progress(t("pdf_step_chart", i=i, n=n_charts, title=t(title_key)))
         fig = builder()
         story.append(Paragraph(t(title_key), h2_style))
         story.append(Paragraph(t("pdf_chart_definition"), h3_style))
@@ -4366,6 +4488,7 @@ def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
         story.append(PageBreak())
 
     # --- Schedule (Gantt) ---------------------------------------------------
+    _progress(t("pdf_step_gantt"))
     story.append(Paragraph(t("pdf_section_schedule"), h2_style))
     story.append(Paragraph(t("gantt_title"), h2_style))
     story.append(Paragraph(t("pdf_chart_definition"), h3_style))
@@ -4384,10 +4507,73 @@ def generate_report_pdf(kpi_df: pd.DataFrame) -> bytes:
     story.append(Paragraph(t("pdf_chart_definition"), h3_style))
     story.append(Paragraph(_md_to_pdf(t("help_calendar_title")), body_style))
 
+    _progress(t("pdf_step_assemble"))
     doc.build(story)
     pdf = buf.getvalue()
     buf.close()
     return pdf
+
+
+@st.dialog(" ")  # title set via inner markdown so we can include the emoji
+def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
+    """Modal popup with the dino-runner progress track while the PDF is
+    built. Streamlit supplies the ✕ close button in the dialog chrome.
+    Generation runs synchronously inside the dialog body — placeholder
+    HTML is replaced on every callback so the T-Rex hops forward as each
+    step completes. On success, a Download button appears inside the
+    dialog so the user can grab the file without hunting for a button."""
+    st.markdown(
+        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 6px;'>"
+        f"{t('pdf_dialog_title')}</div>",
+        unsafe_allow_html=True,
+    )
+    slot = st.empty()
+    result_slot = st.empty()
+    try:
+        def _cb(msg: str, step: int, total: int) -> None:
+            slot.markdown(
+                _render_pdf_runner_html(step, total, msg),
+                unsafe_allow_html=True,
+            )
+        pdf_bytes = generate_report_pdf(kpi_df, progress_cb=_cb)
+        st.session_state.report_pdf = pdf_bytes
+        st.session_state.report_pdf_lang = st.session_state.lang
+        slot.markdown(
+            _render_pdf_runner_html(
+                PDF_TOTAL_STEPS, PDF_TOTAL_STEPS, t("pdf_done"), done=True),
+            unsafe_allow_html=True,
+        )
+        with result_slot.container():
+            lang_tag = st.session_state.lang
+            fname = (
+                f"dashboard4dx_report_{date.today().strftime('%Y%m%d')}"
+                f"_{lang_tag}.pdf"
+            )
+            st.download_button(
+                label="📄 " + t("pdf_btn_download"),
+                data=pdf_bytes,
+                file_name=fname,
+                mime="application/pdf",
+                key="pdf_download_dialog",
+                use_container_width=True,
+            )
+        st.toast(t("pdf_done"), icon="📄")
+    except Exception as exc:
+        slot.empty()
+        st.session_state.pop("report_pdf", None)
+        detail = log_error(
+            category="pdf_export",
+            summary=str(exc),
+            exc=exc,
+            context={
+                "lang": st.session_state.get("lang"),
+                "rows": int(len(kpi_df)),
+            },
+        )
+        with result_slot.container():
+            st.error(t("pdf_error", err=exc))
+            with st.expander(t("log_show_detail"), expanded=False):
+                st.code(detail, language="text")
 
 
 def render_charts_tab() -> None:
@@ -4403,25 +4589,7 @@ def render_charts_tab() -> None:
     with pdf_btn_col:
         if st.button(t("pdf_btn_generate"),
                      key="pdf_generate", use_container_width=True):
-            try:
-                with st.spinner(t("pdf_progress")):
-                    st.session_state.report_pdf = generate_report_pdf(kpi_df)
-                    st.session_state.report_pdf_lang = st.session_state.lang
-                st.toast(t("pdf_done"), icon="📄")
-            except Exception as exc:
-                st.session_state.pop("report_pdf", None)
-                detail = log_error(
-                    category="pdf_export",
-                    summary=str(exc),
-                    exc=exc,
-                    context={
-                        "lang": st.session_state.get("lang"),
-                        "rows": int(len(kpi_df)),
-                    },
-                )
-                st.error(t("pdf_error", err=exc))
-                with st.expander(t("log_show_detail"), expanded=False):
-                    st.code(detail, language="text")
+            _open_pdf_dialog(kpi_df)
     with pdf_dl_col:
         if st.session_state.get("report_pdf"):
             lang_tag = st.session_state.get("report_pdf_lang",
@@ -5168,7 +5336,6 @@ def main() -> None:
             label_visibility="collapsed",
             horizontal=True,
         )
-    st.caption(t("intro_caption"))
 
     # --- Top-level tabs ------------------------------------------------------
     (tab_dashboard, tab_charts, tab_calendar, tab_design,
