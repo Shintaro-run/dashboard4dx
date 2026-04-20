@@ -1024,6 +1024,163 @@ def _preflight_master(data: bytes) -> list[StepResult]:
     return steps
 
 
+class WbsDiagnosticError(RuntimeError):
+    """Carries a multi-line diagnostic dump explaining why 0 Function IDs
+    were extracted from the WBS. Shown verbatim in the on-screen detail
+    expander and written in full to the session log."""
+
+
+def _diagnose_wbs_fid_absence(data: bytes) -> str:
+    """Re-read the WBS in three modes and collect clues for why col E–I scan
+    from row 16 yielded zero Function IDs. Intended for on-screen + log dump
+    only (never raises — failures in sub-probes become in-line notes)."""
+    scan_idx = set(_col_to_idx(c) for c in WBS_FUNC_ID_COLS)       # {5..9}
+    sample_cols = set(range(1, 12))                                # A..K
+    lines: list[str] = []
+
+    def _val_repr(v) -> str:
+        s = repr(v)
+        return s if len(s) <= 60 else s[:57] + "…"
+
+    # -- Probe 1: read_only=True, data_only=True (= what load_wbs uses) -------
+    try:
+        wb = load_workbook(io.BytesIO(data), data_only=True,
+                           read_only=True, keep_vba=False)
+        ws = wb[WBS_SHEET]
+        try:
+            declared = ws.calculated_dimension
+        except Exception:
+            declared = "?"
+        lines.append(f"[probe1: read_only=True, data_only=True]")
+        lines.append(f"  declared dimension: {declared}")
+        lines.append(f"  max_row={ws.max_row}, max_col={ws.max_column}")
+
+        total = nonempty = ei_nonempty = 0
+        samples: list[str] = []
+        for row in ws.iter_rows(min_row=WBS_DATA_START_ROW):
+            total += 1
+            ne_cells = [c for c in row if c.value not in (None, "")]
+            if not ne_cells:
+                continue
+            nonempty += 1
+            if any(c.column in scan_idx for c in ne_cells):
+                ei_nonempty += 1
+            if len(samples) < 8:
+                row_num = ne_cells[0].row
+                parts = [f"{c.column_letter}={_val_repr(c.value)}"
+                         for c in row
+                         if c.value not in (None, "")
+                         and getattr(c, "column", 0) in sample_cols]
+                samples.append(f"    row {row_num}: " + " | ".join(parts))
+        lines.append(f"  rows iterated from {WBS_DATA_START_ROW}+: {total}")
+        lines.append(f"    - with any non-empty cell: {nonempty}")
+        lines.append(f"    - with non-empty in E–I : {ei_nonempty}")
+        if samples:
+            lines.append("  first non-empty rows (cols A–K):")
+            lines.extend(samples)
+        else:
+            lines.append("  (no non-empty rows visible in this mode)")
+        try:
+            wb.close()
+        except Exception:
+            pass
+    except Exception as e:
+        lines.append(f"[probe1] failed: {e}")
+
+    # -- Probe 2: read_only=False — escapes declared-dimension mis-hints ------
+    try:
+        wb2 = load_workbook(io.BytesIO(data), data_only=True,
+                            read_only=False, keep_vba=False)
+        ws2 = wb2[WBS_SHEET]
+        lines.append(f"[probe2: read_only=False, data_only=True]")
+        lines.append(f"  max_row={ws2.max_row}, max_col={ws2.max_column}")
+
+        total2 = nonempty2 = ei_nonempty2 = fid_count2 = 0
+        first_fid: tuple[int, str, str] | None = None   # (row, col, fid)
+        samples2: list[str] = []
+        for row in ws2.iter_rows(min_row=WBS_DATA_START_ROW):
+            total2 += 1
+            ne_cells = [c for c in row if c.value not in (None, "")]
+            if not ne_cells:
+                continue
+            nonempty2 += 1
+            ei_cells = [c for c in row if c.column in scan_idx]
+            any_ei = any(c.value not in (None, "") for c in ei_cells)
+            if any_ei:
+                ei_nonempty2 += 1
+                fid = None
+                for c in ei_cells:
+                    fid = _normalize_fid(c.value)
+                    if fid:
+                        if first_fid is None:
+                            first_fid = (c.row, c.column_letter, fid)
+                        break
+                if fid:
+                    fid_count2 += 1
+                elif len(samples2) < 8:
+                    row_num = ne_cells[0].row
+                    parts = [f"{c.column_letter}={_val_repr(c.value)}"
+                             for c in row
+                             if c.column in sample_cols
+                             and c.value not in (None, "")]
+                    samples2.append(f"    row {row_num}: "
+                                    + " | ".join(parts))
+        lines.append(f"  rows iterated from {WBS_DATA_START_ROW}+: {total2}")
+        lines.append(f"    - with any non-empty cell: {nonempty2}")
+        lines.append(f"    - with non-empty in E–I : {ei_nonempty2}")
+        lines.append(f"    - parsed as Function ID : {fid_count2}")
+        if first_fid:
+            lines.append(f"  first FID: row {first_fid[0]} "
+                         f"col {first_fid[1]} → {first_fid[2]}")
+        if samples2:
+            lines.append("  rows with E–I data but NO parsed FID (A–K):")
+            lines.extend(samples2)
+        try:
+            wb2.close()
+        except Exception:
+            pass
+    except Exception as e:
+        lines.append(f"[probe2] failed: {e}")
+
+    # -- Probe 3: data_only=False — detect formulas w/o cached values --------
+    try:
+        wb3 = load_workbook(io.BytesIO(data), data_only=False,
+                            read_only=False, keep_vba=False)
+        ws3 = wb3[WBS_SHEET]
+        lines.append(f"[probe3: data_only=False] — formula detection")
+        formula_hits: list[str] = []
+        cached_none_hits = 0
+        for row in ws3.iter_rows(min_row=WBS_DATA_START_ROW):
+            for c in row:
+                if c.column not in scan_idx:
+                    continue
+                if c.data_type == "f":
+                    if len(formula_hits) < 5:
+                        formula_hits.append(
+                            f"    row {c.row} col {c.column_letter}: "
+                            f"formula = {_val_repr(c.value)}")
+                    cached_none_hits += 1
+            if len(formula_hits) >= 5 and cached_none_hits >= 5:
+                break
+        if formula_hits:
+            lines.append(f"  formulas present in E–I "
+                         f"(≥{cached_none_hits} cells); first 5:")
+            lines.extend(formula_hits)
+            lines.append("  ⇒ if probe1 saw None but probe2 saw values, "
+                         "cached-value table is incomplete — "
+                         "open file in Excel and Save-As to refresh caches.")
+        else:
+            lines.append("  no formulas in E–I (cells are literal values)")
+        try:
+            wb3.close()
+        except Exception:
+            pass
+    except Exception as e:
+        lines.append(f"[probe3] failed: {e}")
+
+    return "\n".join(lines)
+
+
 def _preflight_wbs(data: bytes) -> list[StepResult]:
     steps: list[StepResult] = []
     try:
@@ -1043,21 +1200,111 @@ def _preflight_wbs(data: bytes) -> list[StepResult]:
     ws = wb[WBS_SHEET]
     scan_idx = [_col_to_idx(c) for c in WBS_FUNC_ID_COLS]
     fid_count = 0
-    for row in ws.iter_rows(min_row=WBS_DATA_START_ROW, values_only=True):
+    rows_seen = 0
+    first_fid_row: Optional[int] = None
+    for r_i, row in enumerate(
+            ws.iter_rows(min_row=WBS_DATA_START_ROW, values_only=True)):
+        rows_seen += 1
         if row is None:
             continue
         for i in scan_idx:
             if i - 1 < len(row) and _normalize_fid(row[i - 1]):
                 fid_count += 1
+                if first_fid_row is None:
+                    first_fid_row = WBS_DATA_START_ROW + r_i
                 break
+    try:
+        wb.close()
+    except Exception:
+        pass
+
     if fid_count == 0:
-        _step(steps, "step_wbs_fid", "error",
-              f"No Function IDs found in cols E–I from row "
-              f"{WBS_DATA_START_ROW}+")
+        diag = _diagnose_wbs_fid_absence(data)
+        msg = (f"no IDs in E–I from row {WBS_DATA_START_ROW}+ "
+               f"(scanned {rows_seen} rows in read_only mode) — "
+               f"see detailed log entry")
+        _step(steps, "step_wbs_fid", "error", msg,
+              exc=WbsDiagnosticError("\n" + diag))
         return steps
     _step(steps, "step_wbs_fid", "ok",
-          detail=f"{fid_count} rows with IDs (from row {WBS_DATA_START_ROW})")
+          detail=f"{fid_count} rows with IDs "
+                 f"(first at row {first_fid_row}, "
+                 f"from row {WBS_DATA_START_ROW})")
     return steps
+
+
+class DefectsDiagnosticError(RuntimeError):
+    """Carries a multi-line diagnostic explaining why the defect-CSV dry-run
+    produced zero usable rows. The same text is shown on-screen and logged
+    in full to the session log."""
+
+
+def _diagnose_defects_build_failure(
+    raw_df: pd.DataFrame,
+    stage: str,
+) -> str:
+    """Explain why the defect CSV would collapse to an empty DataFrame.
+
+    `stage` identifies which step produced the zero-row outcome:
+      'tracker' — tracker filter removed every row
+      'fid'     — tracker filter kept rows but none parsed as Function ID
+    """
+    lines: list[str] = []
+    lines.append(f"stage collapsing to 0 rows: {stage}")
+    lines.append(f"raw CSV rows: {len(raw_df)}")
+    lines.append(f"columns ({len(raw_df.columns)}): "
+                 f"{list(raw_df.columns)}")
+
+    tracker_col = DEFECT_COLS["tracker"]
+    fid_col = DEFECT_COLS["function_id"]
+    trackers = raw_df[tracker_col].astype(str).str.strip()
+    distinct = trackers.value_counts()
+    lines.append(f"tracker filter expects (exact, NFKC-insensitive): "
+                 f"{DEFECT_TRACKER_FILTER!r}")
+    lines.append(f"distinct tracker values in file: {distinct.size}")
+    for v, c in distinct.head(10).items():
+        marker = " ← match" if v == DEFECT_TRACKER_FILTER else ""
+        lines.append(f"  • {v!r}: {c} rows{marker}")
+
+    filtered = raw_df[trackers == DEFECT_TRACKER_FILTER]
+    lines.append(f"rows surviving tracker filter: {len(filtered)}")
+
+    if stage == "tracker":
+        similar = distinct[distinct.index.to_series()
+                           .str.contains("不具合", na=False)]
+        if len(similar):
+            lines.append("tracker values containing '不具合' "
+                         "(likely rename candidates):")
+            for v, c in similar.head(5).items():
+                lines.append(f"  • {v!r}: {c} rows")
+        else:
+            lines.append("no tracker value contains '不具合' — "
+                         "tracker column may be wired to a different "
+                         "field, or the export was pre-filtered.")
+        return "\n".join(lines)
+
+    # stage == 'fid'
+    raw_fids = filtered[fid_col].astype(str).str.strip()
+    parsed = raw_fids.map(_normalize_fid)
+    n_parsed = int(parsed.notna().sum())
+    lines.append(f"rows with parseable Function ID: "
+                 f"{n_parsed} / {len(filtered)}")
+    unparsed = raw_fids[parsed.isna() & (raw_fids != "")]
+    if not unparsed.empty:
+        top = unparsed.value_counts().head(10)
+        lines.append(f"top raw 機能ID values that failed to parse "
+                     f"({unparsed.nunique()} distinct):")
+        for v, c in top.items():
+            lines.append(f"  • {v!r}: {c} rows")
+    empty_fid = int((raw_fids == "").sum())
+    if empty_fid:
+        lines.append(f"rows with empty 機能ID cell: {empty_fid}")
+    lines.append(
+        "expected formats: '機能ID：XXXX', '機能ID:XXXX', or bare "
+        "'XXXX' where XXXX = 1–10 ASCII letters + 1–10 ASCII digits "
+        "(full-width letters/digits are NFKC-normalised). "
+        "Hyphens (e.g. 'AUTH-001') or separators do NOT match.")
+    return "\n".join(lines)
 
 
 def _preflight_defects(data: bytes) -> list[StepResult]:
@@ -1084,14 +1331,17 @@ def _preflight_defects(data: bytes) -> list[StepResult]:
         return steps
     _step(steps, "step_defects_columns", "ok")
 
-    filtered = df[df[DEFECT_COLS["tracker"]].str.strip()
+    filtered = df[df[DEFECT_COLS["tracker"]].astype(str).str.strip()
                   == DEFECT_TRACKER_FILTER]
     if filtered.empty:
-        _step(steps, "step_defects_filter", "warn",
-              detail=f"no rows match tracker = '{DEFECT_TRACKER_FILTER}'")
-    else:
-        _step(steps, "step_defects_filter", "ok",
-              detail=f"{len(filtered)} defect rows after filter")
+        diag = _diagnose_defects_build_failure(df, stage="tracker")
+        _step(steps, "step_defects_filter", "error",
+              f"0 rows match tracker = '{DEFECT_TRACKER_FILTER}' — "
+              f"see detailed log entry",
+              exc=DefectsDiagnosticError("\n" + diag))
+        return steps
+    _step(steps, "step_defects_filter", "ok",
+          detail=f"{len(filtered)} defect rows after filter")
 
     bad_dates = 0
     for v in filtered[DEFECT_COLS["actual_start"]]:
@@ -1102,6 +1352,23 @@ def _preflight_defects(data: bytes) -> list[StepResult]:
               detail=f"{bad_dates} 実開始日 cells not in MM/DD/YYYY")
     else:
         _step(steps, "step_defects_dates", "ok")
+
+    # Dry-run the FID extraction that load_defects performs last, so the
+    # "empty dataframe" failure from step_load_failed is pre-empted with a
+    # precise cause (top unparseable 機能ID samples + regex reminder).
+    parsed_fid = filtered[DEFECT_COLS["function_id"]].map(_normalize_fid)
+    n_fid = int(parsed_fid.notna().sum())
+    if n_fid == 0:
+        diag = _diagnose_defects_build_failure(df, stage="fid")
+        _step(steps, "step_defects_build", "error",
+              f"tracker filter kept {len(filtered)} rows but 0 had a "
+              f"parseable 機能ID — see detailed log entry",
+              exc=DefectsDiagnosticError("\n" + diag))
+        return steps
+    detail = f"{n_fid} rows will load"
+    if n_fid < len(filtered):
+        detail += f" ({len(filtered) - n_fid} dropped for unparseable 機能ID)"
+    _step(steps, "step_defects_build", "ok", detail=detail)
     return steps
 
 
@@ -1669,6 +1936,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_defects_columns": "Verify required columns",
         "step_defects_filter":  "Filter to '不具合管理'",
         "step_defects_dates":   "Parse MM/DD/YYYY dates",
+        "step_defects_build":   "Extract Function IDs (build dataframe)",
         "step_tests_min_cols":  "Verify ≥6 columns (A–F)",
         "step_tests_fid":       "Extract Function IDs from col A",
         "step_tests_numeric":   "Numeric values in C/D/E/F",
@@ -1679,7 +1947,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_load_ok":         "Build dataframe",
         "step_load_failed":     "Build dataframe (failed)",
         # ----- Crash popup -----
-        "popup_error_title": "🦖💥 Crashed into the cactus!",
+        "popup_error_title": "🦖💥 Ouch!",
         "popup_error_hint": (
             "Fix the issue above, then re-drop the file. "
             "(The previously imported file is unchanged.)"
@@ -2143,6 +2411,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_defects_columns": "必須列を確認",
         "step_defects_filter":  "「不具合管理」でフィルタ",
         "step_defects_dates":   "MM/DD/YYYY形式の日付を解析",
+        "step_defects_build":   "機能IDを抽出（データフレーム構築）",
         "step_tests_min_cols":  "6列以上(A〜F)を確認",
         "step_tests_fid":       "A列から機能IDを抽出",
         "step_tests_numeric":   "C/D/E/F列が数値であることを確認",
@@ -2153,7 +2422,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_load_ok":         "データフレームを構築",
         "step_load_failed":     "データフレーム構築に失敗",
         # ----- クラッシュポップアップ -----
-        "popup_error_title": "🦖💥 サボテンに激突！",
+        "popup_error_title": "🦖💥 Ouch!",
         "popup_error_hint": (
             "上記の問題を修正してから、もう一度ファイルをドロップしてください。"
             "（前回取り込んだファイルはそのまま残っています）"
