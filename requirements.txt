@@ -13,7 +13,9 @@ openpyxl==3.1.5
 
 # Charts
 plotly==5.24.1
-kaleido==0.2.1            # static-image (PNG) export of Plotly figures, used by the PDF report
+matplotlib==3.9.2         # pure-Python PNG rendering for the PDF report (kaleido
+                          # was replaced because its bundled Chromium failed to
+                          # launch on locked-down Windows boxes)
 
 # PDF report generation (uses built-in Heisei CJK font — no extra font file needed)
 reportlab==4.2.5

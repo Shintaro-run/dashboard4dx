@@ -5,7 +5,7 @@ via a single **Function ID** key. Every byte of data stays on the machine runnin
 the app — no outbound network calls beyond `pip install`.
 
 - **Developer:** Shin & Shiobara
-- **Version:** 1.0.4
+- **Version:** 1.0.5
 - **License:** MIT
 
 ---
@@ -243,7 +243,7 @@ Pinned in `requirements.txt`:
 | `numpy==2.1.3` | numeric ops |
 | `openpyxl==3.1.5` | xlsx / xlsm reader |
 | `plotly==5.24.1` | charts (Gantt, scatter, heatmap, etc.) |
-| `kaleido==0.2.1` | static PNG export of Plotly figures (PDF report) |
+| `matplotlib==3.9.2` | pure-Python PNG rendering for the PDF report |
 | `reportlab==4.2.5` | PDF generation, embedded CJK font |
 | `streamlit-calendar==1.3.1` | FullCalendar component |
 

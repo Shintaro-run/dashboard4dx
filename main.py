@@ -4249,6 +4249,408 @@ def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
 
 
 # =============================================================================
+# PDF chart builders (matplotlib)
+#
+# The on-screen Charts tab still uses Plotly (see _chart_* above). For the
+# PDF report we render the same data with matplotlib instead, because the
+# kaleido 0.2.1 Chromium subprocess fails to launch on locked-down
+# corporate Windows boxes — that was the entire v1.0.2…v1.0.4 investigation.
+# matplotlib is pure Python / bundled binary wheels, no subprocess, and so
+# always completes.
+# =============================================================================
+_MPL_READY = False
+_MPL_DPI = 140
+_MPL_WIDTH_IN = 14.0                                 # PDF A3 landscape fits ≈ 14"
+_MPL_CJK_CANDIDATES = [
+    # macOS
+    "Hiragino Sans", "Hiragino Maru Gothic Pro",
+    # Windows (Yu Gothic is default since 8.1)
+    "Yu Gothic", "Yu Gothic UI", "Meiryo", "MS Gothic", "MS UI Gothic",
+    # Linux / optional
+    "Noto Sans CJK JP", "Noto Sans JP", "IPAexGothic", "IPAPGothic",
+    # Fallback
+    "DejaVu Sans",
+]
+
+
+def _mpl_plt():
+    """Return matplotlib.pyplot after one-time headless backend + CJK-font
+    initialization. Backend is forced to Agg (no GUI) so this never needs
+    a display server."""
+    global _MPL_READY
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt  # noqa: E402
+    if not _MPL_READY:
+        from matplotlib import rcParams
+        import matplotlib.font_manager as fm
+        installed = {f.name for f in fm.fontManager.ttflist}
+        for c in _MPL_CJK_CANDIDATES:
+            if c in installed:
+                rcParams["font.family"] = c
+                _get_logger().info(f"[pdf_export] matplotlib font: {c}")
+                break
+        else:
+            _get_logger().warning(
+                "[pdf_export] no CJK font found; Japanese text may render "
+                "as tofu boxes in the PDF.")
+        rcParams["axes.unicode_minus"] = False
+        _MPL_READY = True
+    return plt
+
+
+def _mpl_save(fig) -> tuple[bytes, int, int]:
+    """Write the figure to PNG bytes and close it. Returns (bytes, w_px, h_px)
+    so the PDF layout can scale to its intrinsic aspect ratio."""
+    import io
+    plt = _mpl_plt()
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=_MPL_DPI, bbox_inches="tight",
+                facecolor="white")
+    w_in, h_in = fig.get_size_inches()
+    plt.close(fig)
+    return buf.getvalue(), int(w_in * _MPL_DPI), int(h_in * _MPL_DPI)
+
+
+def _mpl_bar_height_in(n_rows: int) -> float:
+    """Figure height in inches that fits `n_rows` horizontal-bar rows."""
+    return max(3.0, 0.32 * n_rows + 1.2)
+
+
+def _mpl_truncated_title(ax, shown: int, total: int) -> None:
+    ax.set_title(t("chart_truncated_note", shown=shown, total=total),
+                 fontsize=10, color="#b48820", loc="right")
+
+
+def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
+    if not {"actual_progress", "planned_progress"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["actual_progress", "planned_progress"]).copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["_gap"] = df["planned_progress"] - df["actual_progress"]
+    df = df.sort_values("_gap", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    n = len(df)
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
+    y = np.arange(n)
+    h = 0.38
+    ax.barh(y - h / 2, df["planned_progress"], height=h,
+            color="#9aa0a6", label=t("chart_progress_planned"))
+    ax.barh(y + h / 2, df["actual_progress"], height=h,
+            color="#4ec78a", label=t("chart_progress_actual"))
+    ax.set_yticks(y); ax.set_yticklabels(df["display"])
+    ax.set_xlabel("%")
+    ax.legend(loc="lower right", framealpha=0.9)
+    ax.grid(axis="x", linestyle=":", alpha=0.3)
+    if total > _BAR_CHART_MAX_ROWS:
+        _mpl_truncated_title(ax, n, total)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_test_coverage(kpi_df: pd.DataFrame):
+    if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
+    df = df.sort_values("_bad", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    n = len(df)
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
+    y = np.arange(n)
+    ok = df["OK"].fillna(0).values
+    ng = df["NG"].fillna(0).values
+    nr = df["未実施"].fillna(0).values
+    ax.barh(y, ok, color="#4ec78a", label=t("chart_label_ok"))
+    ax.barh(y, ng, left=ok, color="#f05050", label=t("chart_label_ng"))
+    ax.barh(y, nr, left=ok + ng, color="#bbbbbb",
+            label=t("chart_label_notrun"))
+    ax.set_yticks(y); ax.set_yticklabels(df["display"])
+    ax.legend(loc="lower right", framealpha=0.9)
+    ax.grid(axis="x", linestyle=":", alpha=0.3)
+    if total > _BAR_CHART_MAX_ROWS:
+        _mpl_truncated_title(ax, n, total)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_loc_vs_ng(kpi_df: pd.DataFrame):
+    if not {"LoC", "NG"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["LoC", "NG"]).copy()
+    if df.empty:
+        return None
+    if ("設計書ページ数" in df.columns
+            and df["設計書ページ数"].notna().any()):
+        raw = pd.to_numeric(df["設計書ページ数"], errors="coerce").fillna(5)
+        m = raw.max()
+        sizes = (raw / m * 240.0 + 20.0).values if m > 0 else 40.0
+    else:
+        sizes = 40.0
+    has_risk = "risk_score" in df.columns
+    colors = (df["risk_score"].fillna(0).values if has_risk else "#3aa872")
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 5), dpi=_MPL_DPI)
+    sc = ax.scatter(df["LoC"], df["NG"], s=sizes, c=colors,
+                    cmap="RdYlGn_r" if has_risk else None,
+                    vmin=0 if has_risk else None,
+                    vmax=1 if has_risk else None,
+                    alpha=0.85, edgecolors="#444", linewidth=0.5)
+    if has_risk:
+        fig.colorbar(sc, ax=ax, label="risk")
+    ax.set_xlabel("LoC"); ax.set_ylabel("NG")
+    ax.grid(True, linestyle=":", alpha=0.3)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_design_impl_gap(kpi_df: pd.DataFrame):
+    if not {"設計書ページ数", "LoC"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["設計書ページ数", "LoC"]).copy()
+    if df.empty:
+        return None
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 5), dpi=_MPL_DPI)
+    ax.scatter(df["設計書ページ数"], df["LoC"], s=40, c="#3aa872",
+               edgecolors="#444", linewidth=0.5, alpha=0.85)
+    comp = pd.to_numeric(df.get("complexity"), errors="coerce").dropna()
+    if len(comp):
+        avg = float(comp.mean())
+        xs = np.linspace(float(df["設計書ページ数"].min()),
+                         float(df["設計書ページ数"].max()), 50)
+        ax.plot(xs, avg * xs, ls="--", color="#888",
+                label=f"avg complexity = {avg:.1f}")
+        ax.legend(loc="best")
+    ax.set_xlabel("設計書ページ数"); ax.set_ylabel("LoC")
+    ax.grid(True, linestyle=":", alpha=0.3)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
+    risk_dims = [c for c in
+                 ["bug_density", "defect_rate", "delay_rate", "test_run_rate"]
+                 if c in kpi_df.columns]
+    if not risk_dims:
+        return None
+    agg = kpi_df.groupby("機能ID")[risk_dims].mean(numeric_only=True)
+    z_df = agg.copy()
+    for c in risk_dims:
+        s = z_df[c].fillna(0); m = s.max()
+        z_df[c] = s / m if m > 0 else 0
+        if c == "test_run_rate":
+            z_df[c] = 1 - z_df[c]
+    z_df = z_df.sort_values(by=risk_dims[0], ascending=False)
+    dim_label = {c: t(COLUMN_LABEL_KEYS.get(c, c)) for c in risk_dims}
+    if "test_run_rate" in dim_label:
+        dim_label["test_run_rate"] = (
+            f"{dim_label['test_run_rate']} ({t('chart_label_notrun')})"
+        )
+    y_labels = [dim_label[c] for c in risk_dims]
+    x_labels = list(z_df.index)
+    data = z_df.T.values
+    plt = _mpl_plt()
+    fig_h = max(3.0, 0.6 + 0.4 * len(y_labels))
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
+    im = ax.imshow(data, aspect="auto", cmap="RdYlGn_r", vmin=0, vmax=1)
+    ax.set_yticks(np.arange(len(y_labels)))
+    ax.set_yticklabels(y_labels)
+    ax.set_xticks(np.arange(len(x_labels)))
+    ax.set_xticklabels(x_labels, rotation=-30, ha="left", fontsize=9)
+    ax.set_xlabel("機能ID")
+    fig.colorbar(im, ax=ax, label="risk")
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_loc_trend():
+    snaps = load_all_snapshots_for_slot("code", load_code_counts)
+    if len(snaps) < 2:
+        return None
+    rows = []
+    for snap_date, _, df_snap in snaps:
+        tot = pd.to_numeric(df_snap["LoC"], errors="coerce").fillna(0).sum()
+        rows.append({"date": pd.Timestamp(snap_date), "value": int(tot)})
+    ts = pd.DataFrame(rows).sort_values("date")
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 4), dpi=_MPL_DPI)
+    ax.plot(ts["date"], ts["value"], marker="o", color="#4ec78a", linewidth=2)
+    ax.set_ylabel(t("chart_label_loc_total"))
+    ax.grid(True, linestyle=":", alpha=0.3)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_test_trend():
+    snaps = load_all_snapshots_for_slot("tests", load_test_counts)
+    if len(snaps) < 2:
+        return None
+    rows = []
+    for snap_date, _, df_snap in snaps:
+        tot = pd.to_numeric(df_snap["総テスト"], errors="coerce").fillna(0).sum()
+        run = pd.to_numeric(df_snap["実施済"], errors="coerce").fillna(0).sum()
+        rows.append({"date": pd.Timestamp(snap_date),
+                     "total": int(tot), "executed": int(run)})
+    ts = pd.DataFrame(rows).sort_values("date")
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 4), dpi=_MPL_DPI)
+    ax.plot(ts["date"], ts["total"], marker="o", color="#3aa872",
+            label=t("chart_label_total_tests"), linewidth=2)
+    ax.plot(ts["date"], ts["executed"], marker="s", color="#f5b400",
+            label=t("chart_label_executed"), linewidth=2)
+    ax.legend(loc="best")
+    ax.grid(True, linestyle=":", alpha=0.3)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
+    if defects_df is None or defects_df.empty:
+        return None
+    df = defects_df.copy()
+    df["実開始日"] = pd.to_datetime(df["実開始日"], errors="coerce")
+    df["実終了日"] = pd.to_datetime(df["実終了日"], errors="coerce")
+    opened = df.dropna(subset=["実開始日"]).copy()
+    if opened.empty:
+        return None
+    closed = df.dropna(subset=["実終了日"]).copy()
+    wk_opened = opened.set_index("実開始日").resample("W").size()
+    wk_closed = (closed.set_index("実終了日").resample("W").size()
+                 if len(closed) else pd.Series(dtype=int))
+    idx = wk_opened.index.union(wk_closed.index)
+    wk_opened = wk_opened.reindex(idx, fill_value=0)
+    wk_closed = wk_closed.reindex(idx, fill_value=0)
+    cumulative_open = (wk_opened - wk_closed).cumsum().clip(lower=0)
+    plt = _mpl_plt()
+    fig, ax1 = plt.subplots(figsize=(_MPL_WIDTH_IN, 4.5), dpi=_MPL_DPI)
+    # Bars as paired (opened / closed) per week
+    import matplotlib.dates as mdates
+    x_num = mdates.date2num(idx.to_pydatetime())
+    w = 2.8  # days
+    ax1.bar(x_num - w / 2, wk_opened.values, width=w, color="#f05050",
+            label=t("chart_label_opened"))
+    ax1.bar(x_num + w / 2, wk_closed.values, width=w, color="#4ec78a",
+            label=t("chart_label_closed"))
+    ax1.set_ylabel("weekly count")
+    ax2 = ax1.twinx()
+    ax2.plot(x_num, cumulative_open.values, marker="o", color="#f5b400",
+             linewidth=2, label=t("chart_label_open_cum"))
+    ax2.set_ylabel("open")
+    ax1.xaxis_date()
+    l1, lbl1 = ax1.get_legend_handles_labels()
+    l2, lbl2 = ax2.get_legend_handles_labels()
+    ax1.legend(l1 + l2, lbl1 + lbl2, loc="upper left")
+    ax1.grid(True, linestyle=":", alpha=0.3)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_gantt(kpi_df: pd.DataFrame, today_d: date):
+    label_planned = t("calendar_layer_planned")
+    label_actual = t("calendar_layer_actual")
+    rows: list[dict] = []
+    for _, row in kpi_df.iterrows():
+        fid = str(row.get("機能ID", ""))
+        name = row.get("機能名称") or ""
+        label = _clip_label(f"{fid} · {name}" if name else fid)
+        ps = _to_pydate(row.get("planned_start"))
+        pe = _to_pydate(row.get("planned_end"))
+        ase = _to_pydate(row.get("actual_start"))
+        aee = _to_pydate(row.get("actual_end"))
+        if ps and pe and pe >= ps:
+            rows.append({"ID": label, "Start": ps,
+                         "End": pe + timedelta(days=1),
+                         "Layer": label_planned})
+        if ase:
+            end = aee if aee else today_d
+            if end < ase:
+                end = ase
+            rows.append({"ID": label, "Start": ase,
+                         "End": end + timedelta(days=1),
+                         "Layer": label_actual})
+    if not rows:
+        return None
+    df_g = pd.DataFrame(rows)
+    total_ids = df_g["ID"].nunique()
+    if total_ids > _BAR_CHART_MAX_ROWS:
+        status = (
+            df_g.groupby("ID")
+                .agg(mn=("Start", "min"), mx=("End", "max"))
+                .reset_index()
+        )
+        status["crosses_today"] = (
+            (status["mn"] <= pd.Timestamp(today_d))
+            & (status["mx"] >= pd.Timestamp(today_d))
+        ).astype(int)
+        keep_ids = (status.sort_values(
+                        ["crosses_today", "mn"], ascending=[False, True])
+                          .head(_BAR_CHART_MAX_ROWS)["ID"].tolist())
+        df_g = df_g[df_g["ID"].isin(keep_ids)]
+
+    ids_in_order = list(dict.fromkeys(df_g["ID"].tolist()))
+    id_to_y = {i: idx for idx, i in enumerate(ids_in_order)}
+    n = len(ids_in_order)
+
+    import matplotlib.dates as mdates
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
+    bar_h = 0.38
+    for _, r in df_g.iterrows():
+        y = id_to_y[r["ID"]]
+        start_num = mdates.date2num(pd.Timestamp(r["Start"]).to_pydatetime())
+        end_num = mdates.date2num(pd.Timestamp(r["End"]).to_pydatetime())
+        width_num = max(end_num - start_num, 0.5)
+        if r["Layer"] == label_planned:
+            color = "#9aa0a6"; y_off = -bar_h / 2 - 0.02
+        else:
+            color = "#4ec78a"; y_off = bar_h / 2 + 0.02
+        ax.barh(y + y_off, width_num, height=bar_h, left=start_num,
+                color=color, edgecolor="none")
+    today_num = mdates.date2num(pd.Timestamp(today_d).to_pydatetime())
+    ax.axvline(today_num, color="#f5b400", linestyle="--", linewidth=1)
+    ax.text(today_num, -0.6, " " + t("gantt_today_label"),
+            color="#f5b400", fontsize=10, va="top")
+    ax.set_yticks(list(range(n)))
+    ax.set_yticklabels(ids_in_order)
+    ax.invert_yaxis()
+    ax.xaxis_date()
+    from matplotlib.patches import Patch
+    ax.legend(
+        handles=[Patch(color="#9aa0a6", label=label_planned),
+                 Patch(color="#4ec78a", label=label_actual)],
+        loc="lower right",
+    )
+    ax.grid(True, axis="x", linestyle=":", alpha=0.3)
+    if total_ids > _BAR_CHART_MAX_ROWS:
+        _mpl_truncated_title(ax, n, total_ids)
+    fig.autofmt_xdate()
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+# =============================================================================
 # PDF report builder
 # =============================================================================
 _PDF_EMOJI_MAP = {
@@ -4449,78 +4851,6 @@ def generate_report_pdf(
         f"[pdf_export] reportlab imports done in "
         f"{time.time() - t_start:.2f}s")
 
-    # Kaleido warm-up & offline-safe hardening. On locked-down Windows
-    # boxes the FIRST fig.to_image() call stalls indefinitely because
-    # Chromium can't establish its sandbox / can't reach the MathJax CDN.
-    # The client's log stopped exactly at this boundary (reportlab imports
-    # done → silence), confirming the cold-start. We:
-    #   1. disable MathJax fetch,
-    #   2. ask Chromium to skip sandbox/GPU/shm,
-    #   3. run the warm-up in a subprocess with a 45 s timeout so that
-    #      if Chromium still can't launch we fail the PDF with a clear
-    #      error rather than hanging the dialog forever.
-    try:
-        import plotly.io as _pio
-        try:
-            _pio.kaleido.scope.mathjax = None
-        except Exception as e:
-            logger.warning(f"[pdf_export] mathjax disable failed: {e}")
-        try:
-            # Tuple on some versions, list on others. Preserve the type.
-            cur = list(getattr(_pio.kaleido.scope, "chromium_args", ()))
-            extra = [
-                "--no-sandbox",
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--disable-software-rasterizer",
-                "--disable-features=VizDisplayCompositor",
-            ]
-            for a in extra:
-                if a not in cur:
-                    cur.append(a)
-            _pio.kaleido.scope.chromium_args = tuple(cur)
-            logger.info(f"[pdf_export] chromium_args set: {cur}")
-        except Exception as e:
-            logger.warning(f"[pdf_export] chromium_args tweak failed: {e}")
-
-        # Warm-up with a bounded wait via ThreadPoolExecutor — kaleido's
-        # fig.to_image is synchronous so we can't interrupt the Chromium
-        # child from the same thread, but the executor lets us surface
-        # a timeout error instead of hanging the dialog.
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _TO
-        t_warm = time.time()
-        _warm_fig = go.Figure(data=[go.Scatter(x=[0, 1], y=[0, 1])])
-        _warm_fig.update_layout(width=120, height=80,
-                                margin=dict(l=10, r=10, t=10, b=10))
-        with ThreadPoolExecutor(max_workers=1) as _ex:
-            _fut = _ex.submit(
-                _warm_fig.to_image,
-                format="png", width=120, height=80, scale=1,
-            )
-            try:
-                _fut.result(timeout=45)
-                logger.info(
-                    f"[pdf_export] kaleido warm-up done in "
-                    f"{time.time()-t_warm:.2f}s")
-            except _TO:
-                logger.error(
-                    "[pdf_export] kaleido warm-up TIMEOUT after 45s — "
-                    "Chromium subprocess could not launch. Likely a "
-                    "Windows sandbox / AV block. Skipping PDF charts "
-                    "would need a code change; raising for now."
-                )
-                raise RuntimeError(
-                    "Kaleido could not launch its Chromium subprocess "
-                    "within 45 seconds. This usually means Windows "
-                    "security policy (or antivirus) is blocking the "
-                    "bundled Chromium. Ask IT to allow the kaleido "
-                    "binary, or run the dashboard from a directory "
-                    "under your user profile."
-                )
-    except Exception as e:
-        logger.error(f"[pdf_export] kaleido warm-up FAILED: {e}")
-        raise
-
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     JP_FONT = "HeiseiKakuGo-W5"
     # A3 landscape gives ~42 cm × 29.7 cm — twice the usable width of A4
@@ -4603,79 +4933,58 @@ def generate_report_pdf(
     if defects_df is None:
         defects_df = st.session_state.dfs.get("defects")
 
-    chart_specs: list[tuple[str, str, Callable[[], Optional[go.Figure]]]] = [
+    # Each builder returns (png_bytes, intrinsic_w_px, intrinsic_h_px) or None.
+    # These are matplotlib-rendered; see _mpl_chart_* above.
+    chart_specs: list[tuple[str, str,
+                             Callable[[], Optional[tuple[bytes, int, int]]]]] = [
         ("chart_progress_gap",    "help_chart_progress_gap",
-         lambda: _chart_progress_gap(kpi_df)),
+         lambda: _mpl_chart_progress_gap(kpi_df)),
         ("chart_test_coverage",   "help_chart_test_coverage",
-         lambda: _chart_test_coverage(kpi_df)),
+         lambda: _mpl_chart_test_coverage(kpi_df)),
         ("chart_loc_vs_ng",       "help_chart_loc_vs_ng",
-         lambda: _chart_loc_vs_ng(kpi_df)),
+         lambda: _mpl_chart_loc_vs_ng(kpi_df)),
         ("chart_design_impl_gap", "help_chart_design_impl_gap",
-         lambda: _chart_design_impl_gap(kpi_df)),
+         lambda: _mpl_chart_design_impl_gap(kpi_df)),
         ("chart_risk_heatmap",    "help_chart_risk_heatmap",
-         lambda: _chart_risk_heatmap(kpi_df)),
-        ("chart_loc_trend",       "help_chart_loc_trend",  _chart_loc_trend),
-        ("chart_test_trend",      "help_chart_test_trend", _chart_test_trend),
+         lambda: _mpl_chart_risk_heatmap(kpi_df)),
+        ("chart_loc_trend",       "help_chart_loc_trend",  _mpl_chart_loc_trend),
+        ("chart_test_trend",      "help_chart_test_trend", _mpl_chart_test_trend),
         ("chart_bug_trend",       "help_chart_bug_trend",
-         lambda: _chart_bug_trend(defects_df)),
+         lambda: _mpl_chart_bug_trend(defects_df)),
     ]
 
     story.append(Paragraph(t("pdf_section_charts"), h2_style))
 
-    # Image sizing: kaleido renders at the figure's intrinsic height (set by
-    # each chart builder per row count, etc.) so tall charts like the Gantt
-    # don't get squashed. The PDF embed then scales the result to fit
-    # `inner_w` wide, capped at `max_chart_h` tall so it still fits the page.
-    img_px_w = 1800
-    default_px_h = 720
-    max_chart_h = 22 * cm  # leave room for title + definition above
-    # Hard cap the render height so kaleido never receives a figure so tall
-    # that Chromium stalls. A 431-row Gantt at 26 px/row would otherwise ask
-    # for an 11,000 px figure; the PDF caps displayed height at max_chart_h
-    # anyway, so rendering beyond ~2,400 px only burns CPU/memory.
-    max_render_h = 2400
+    max_chart_h = 22 * cm  # leaves room for section title + definition above
 
-    def embed_chart(fig: go.Figure, label: str = "") -> None:
-        h_px = int(fig.layout.height) if fig.layout.height else default_px_h
-        if h_px > max_render_h:
-            # Match the plotly layout height to what we actually render so
-            # kaleido lays out labels for that viewport, avoiding mangled
-            # automargin calculations when we clamp externally.
-            fig.update_layout(height=max_render_h)
-            h_px = max_render_h
-        # Use scale=2 for small figures (sharper axis labels), scale=1 for
-        # tall ones (keeps pixel count manageable — 1800×2400×1 = 4.3 MP).
-        scale = 2 if h_px <= 1200 else 1
+    def embed_chart(png: bytes, w_px: int, h_px: int, label: str = "") -> None:
         t0 = time.time()
-        png_bytes = fig.to_image(format="png", width=img_px_w, height=h_px,
-                                 scale=scale)
-        dt = time.time() - t0
-        logger.info(
-            f"[pdf_export] kaleido render: {label or '?'} — "
-            f"h={h_px}px scale={scale} size={len(png_bytes)//1024}KB "
-            f"elapsed={dt:.2f}s"
-        )
-        aspect = h_px / img_px_w
+        aspect = h_px / w_px if w_px else 0.5
         disp_w = inner_w
         disp_h = disp_w * aspect
         if disp_h > max_chart_h:
             disp_h = max_chart_h
             disp_w = disp_h / aspect
-        story.append(Image(io.BytesIO(png_bytes), width=disp_w, height=disp_h))
+        story.append(Image(io.BytesIO(png), width=disp_w, height=disp_h))
+        logger.info(
+            f"[pdf_export] chart embedded: {label or '?'} — "
+            f"intrinsic={w_px}x{h_px}px size={len(png)//1024}KB "
+            f"elapsed={time.time()-t0:.2f}s"
+        )
 
     n_charts = len(chart_specs)
     for i, (title_key, help_key, builder) in enumerate(chart_specs, start=1):
         _progress(t("pdf_step_chart", i=i, n=n_charts, title=t(title_key)))
-        fig = builder()
+        result = builder()
         story.append(Paragraph(t(title_key), h2_style))
         story.append(Paragraph(t("pdf_chart_definition"), h3_style))
         story.append(Paragraph(_md_to_pdf(t(help_key)), body_style))
         story.append(Spacer(1, 6))
-        if fig is None:
+        if result is None:
             story.append(Paragraph(t("pdf_no_chart"), caption_style))
         else:
-            _style_for_pdf(fig)
-            embed_chart(fig, label=title_key)
+            png_bytes, w_px, h_px = result
+            embed_chart(png_bytes, w_px, h_px, label=title_key)
         story.append(PageBreak())
 
     # --- Schedule (Gantt) ---------------------------------------------------
@@ -4685,12 +4994,12 @@ def generate_report_pdf(
     story.append(Paragraph(t("pdf_chart_definition"), h3_style))
     story.append(Paragraph(_md_to_pdf(t("help_gantt_title")), body_style))
     story.append(Spacer(1, 6))
-    fig = _chart_gantt(kpi_df, today_d)
-    if fig is None:
+    result = _mpl_chart_gantt(kpi_df, today_d)
+    if result is None:
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
     else:
-        _style_for_pdf(fig)
-        embed_chart(fig, label="gantt_title")
+        png_bytes, w_px, h_px = result
+        embed_chart(png_bytes, w_px, h_px, label="gantt_title")
     # Calendar visual itself is FullCalendar (not exportable); explain that the
     # Gantt above + the calendar's data definition cover the same source data.
     story.append(Spacer(1, 10))
@@ -5580,7 +5889,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.4</span>
+    <span class="ver">Ver1.0.5</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
