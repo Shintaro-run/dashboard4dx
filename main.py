@@ -4535,17 +4535,22 @@ def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
         return None
     closed = df.dropna(subset=["実終了日"]).copy()
     wk_opened = opened.set_index("実開始日").resample("W").size()
+    # Ensure wk_closed carries a DatetimeIndex even when empty, so the union
+    # below stays a DatetimeIndex (otherwise .to_pydatetime() / date2num fail).
     wk_closed = (closed.set_index("実終了日").resample("W").size()
-                 if len(closed) else pd.Series(dtype=int))
-    idx = wk_opened.index.union(wk_closed.index)
+                 if len(closed)
+                 else pd.Series(dtype=int,
+                                index=pd.DatetimeIndex([], name="実終了日")))
+    idx = pd.DatetimeIndex(wk_opened.index.union(wk_closed.index))
     wk_opened = wk_opened.reindex(idx, fill_value=0)
     wk_closed = wk_closed.reindex(idx, fill_value=0)
     cumulative_open = (wk_opened - wk_closed).cumsum().clip(lower=0)
     plt = _mpl_plt()
     fig, ax1 = plt.subplots(figsize=(_MPL_WIDTH_IN, 4.5), dpi=_MPL_DPI)
-    # Bars as paired (opened / closed) per week
+    # Bars as paired (opened / closed) per week — date2num accepts a
+    # DatetimeIndex directly (no .to_pydatetime() round-trip needed).
     import matplotlib.dates as mdates
-    x_num = mdates.date2num(idx.to_pydatetime())
+    x_num = mdates.date2num(idx)
     w = 2.8  # days
     ax1.bar(x_num - w / 2, wk_opened.values, width=w, color="#f05050",
             label=t("chart_label_opened"))
@@ -4619,8 +4624,8 @@ def _mpl_chart_gantt(kpi_df: pd.DataFrame, today_d: date):
     bar_h = 0.38
     for _, r in df_g.iterrows():
         y = id_to_y[r["ID"]]
-        start_num = mdates.date2num(pd.Timestamp(r["Start"]).to_pydatetime())
-        end_num = mdates.date2num(pd.Timestamp(r["End"]).to_pydatetime())
+        start_num = mdates.date2num(pd.Timestamp(r["Start"]))
+        end_num = mdates.date2num(pd.Timestamp(r["End"]))
         width_num = max(end_num - start_num, 0.5)
         if r["Layer"] == label_planned:
             color = "#9aa0a6"; y_off = -bar_h / 2 - 0.02
@@ -4628,7 +4633,7 @@ def _mpl_chart_gantt(kpi_df: pd.DataFrame, today_d: date):
             color = "#4ec78a"; y_off = bar_h / 2 + 0.02
         ax.barh(y + y_off, width_num, height=bar_h, left=start_num,
                 color=color, edgecolor="none")
-    today_num = mdates.date2num(pd.Timestamp(today_d).to_pydatetime())
+    today_num = mdates.date2num(pd.Timestamp(today_d))
     ax.axvline(today_num, color="#f5b400", linestyle="--", linewidth=1)
     ax.text(today_num, -0.6, " " + t("gantt_today_label"),
             color="#f5b400", fontsize=10, va="top")
@@ -5889,7 +5894,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.5</span>
+    <span class="ver">Ver1.0.6</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
