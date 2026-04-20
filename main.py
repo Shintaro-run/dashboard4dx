@@ -10,6 +10,7 @@ import io
 import json
 import logging
 import re
+import time
 import traceback
 import unicodedata
 from dataclasses import dataclass, field
@@ -2238,10 +2239,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_assemble": "Assembling PDF…",
         "pdf_dialog_title":  "🦖 Generating PDF report",
         "pdf_dialog_subtitle": (
-            "Per-feature bar charts render up to the worst 60 rows."
+            "Per-feature bar charts render only the selected features."
         ),
         "pdf_dialog_close":  "Close",
         "chart_truncated_note": "Showing worst {shown} of {total} features",
+        "pdf_select_title":   "🦖 Select features for the PDF report",
+        "pdf_select_caption": (
+            "Pick up to 30 Function IDs. Per-feature bar charts and the "
+            "Gantt in the report will only include these rows."
+        ),
+        "pdf_select_label":   "Features (max 30)",
+        "pdf_select_count":   "{n} / 30 selected",
+        "pdf_select_error_empty": (
+            "Please select at least one feature before generating."
+        ),
+        "pdf_btn_confirm":    "Start generation",
         "pdf_title": "dashboard4dx — Project Report",
         "pdf_generated_at": "Generated",
         "pdf_section_kpi": "Project-wide KPIs",
@@ -2708,9 +2720,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_gantt":    "スケジュール (Gantt) を描画中…",
         "pdf_step_assemble": "PDF 組版中…",
         "pdf_dialog_title":  "🦖 PDFレポート生成中",
-        "pdf_dialog_subtitle": "ワーストレコードから最大で60行を生成します",
+        "pdf_dialog_subtitle": "選択された機能IDのみがレポートに含まれます",
         "pdf_dialog_close":  "閉じる",
         "chart_truncated_note": "ワースト {shown} 件 / 全 {total} 件を表示",
+        "pdf_select_title":   "🦖 PDFレポートに含める機能IDを選択",
+        "pdf_select_caption": (
+            "最大30件まで選択できます。選ばれた機能IDのみが各チャートと "
+            "Gantt に含まれます。"
+        ),
+        "pdf_select_label":   "機能ID（最大30件）",
+        "pdf_select_count":   "{n} / 30 件選択中",
+        "pdf_select_error_empty": (
+            "最低1件以上、機能IDを選択してください。"
+        ),
+        "pdf_btn_confirm":    "生成開始",
         "pdf_title": "dashboard4dx — プロジェクト報告",
         "pdf_generated_at": "生成日時",
         "pdf_section_kpi": "プロジェクト全体KPI",
@@ -3912,7 +3935,15 @@ _INLINE_MARGIN_HEATMAP = dict(l=60, r=40, t=20, b=80)
 # collapse hard, so we show the worst N (sorted by the chart's native
 # metric) and annotate the truncation. Management-report audiences care
 # about the tail, not an unreadable all-hands scroll.
-_BAR_CHART_MAX_ROWS = 60
+_BAR_CHART_MAX_ROWS = 30
+# Per-label max length — long 'ADM01010 · MBOM自動生成・更新（…）' strings
+# force Chromium to run many glyph-metric queries when automargin retries,
+# so clip them here. The drill-down panel still has the full name.
+_BAR_LABEL_MAX_CHARS = 36
+
+
+def _clip_label(s: str) -> str:
+    return s if len(s) <= _BAR_LABEL_MAX_CHARS else s[: _BAR_LABEL_MAX_CHARS - 1] + "…"
 
 
 def _truncate_note_annotation(shown: int, total: int) -> dict:
@@ -3932,7 +3963,8 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["actual_progress", "planned_progress"]).copy()
     if df.empty:
         return None
-    df["display"] = df["機能ID"] + " · " + df["機能名称"].fillna("")
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
     # Sort: most-behind first so head(N) keeps the worst offenders.
     df["_gap"] = df["planned_progress"] - df["actual_progress"]
     df = df.sort_values("_gap", ascending=False)
@@ -3963,7 +3995,8 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
     if df.empty:
         return None
-    df["display"] = df["機能ID"] + " · " + df["機能名称"].fillna("")
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
     # Worst-first by NG then 未実施 so head(N) is the attention list.
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
@@ -4149,7 +4182,7 @@ def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
     for _, row in kpi_df.iterrows():
         fid = str(row.get("機能ID", ""))
         name = row.get("機能名称") or ""
-        label = f"{fid} · {name}" if name else fid
+        label = _clip_label(f"{fid} · {name}" if name else fid)
         ps = _to_pydate(row.get("planned_start"))
         pe = _to_pydate(row.get("planned_end"))
         ase = _to_pydate(row.get("actual_start"))
@@ -4246,20 +4279,21 @@ def _style_for_pdf(fig: go.Figure) -> go.Figure:
         font=dict(family=_PDF_CHART_FONT, size=12, color="#222"),
         plot_bgcolor="white",
         paper_bgcolor="white",
-        # Generous initial margins so automargin always has room to grow.
-        # Long labels like "USER010 · Profile Edit (Admin)" need ~200 px
-        # on the left; without this the on-screen 10-px margin starves
-        # the kaleido renderer and labels get clipped or shrunk.
-        margin=dict(l=220, r=40, t=50, b=60),
+        # Fixed margin large enough for clipped CJK labels (36 chars ≈ 290 px
+        # at 11-pt CJK). automargin is DISABLED below because its iterative
+        # refit pass fires repeatedly per label on tall charts (60 rows ×
+        # CJK fallback font chain) and is the dominant cause of kaleido
+        # stalling for minutes on the client's real dataset.
+        margin=dict(l=300, r=40, t=50, b=60),
         legend=dict(font=dict(family=_PDF_CHART_FONT, size=11, color="#222")),
     )
     fig.update_xaxes(
-        automargin=True,
+        automargin=False,
         tickfont=dict(family=_PDF_CHART_FONT, size=11, color="#222"),
         title_font=dict(family=_PDF_CHART_FONT, size=12, color="#222"),
     )
     fig.update_yaxes(
-        automargin=True,
+        automargin=False,
         tickfont=dict(family=_PDF_CHART_FONT, size=11, color="#222"),
         title_font=dict(family=_PDF_CHART_FONT, size=12, color="#222"),
     )
@@ -4375,13 +4409,17 @@ def _render_pdf_runner_html(step: int, total: int, msg: str,
 def generate_report_pdf(
     kpi_df: pd.DataFrame,
     progress_cb: Optional[Callable[[str, int, int], None]] = None,
+    defects_df: Optional[pd.DataFrame] = None,
 ) -> bytes:
     """Build a PDF report containing the project KPI summary plus every
     available chart and the Gantt schedule, with definition text. Tables of
     raw data are intentionally excluded.
 
     `progress_cb`, when provided, is called with (msg, step, total) at each
-    major step so the caller can animate a progress UI."""
+    major step so the caller can animate a progress UI.
+    `defects_df` overrides the session-state defect dataframe; the caller
+    passes a pre-filtered frame (matching the selected Function IDs) so
+    the bug-trend chart stays consistent with the per-feature charts."""
     step_counter = [0]
     def _progress(msg: str) -> None:
         step_counter[0] += 1
@@ -4477,7 +4515,8 @@ def generate_report_pdf(
 
     # --- Chart sections -----------------------------------------------------
     today_d = date.today()
-    defects_df = st.session_state.dfs.get("defects")
+    if defects_df is None:
+        defects_df = st.session_state.dfs.get("defects")
 
     chart_specs: list[tuple[str, str, Callable[[], Optional[go.Figure]]]] = [
         ("chart_progress_gap",    "help_chart_progress_gap",
@@ -4511,7 +4550,9 @@ def generate_report_pdf(
     # anyway, so rendering beyond ~2,400 px only burns CPU/memory.
     max_render_h = 2400
 
-    def embed_chart(fig: go.Figure) -> None:
+    logger = _get_logger()
+
+    def embed_chart(fig: go.Figure, label: str = "") -> None:
         h_px = int(fig.layout.height) if fig.layout.height else default_px_h
         if h_px > max_render_h:
             # Match the plotly layout height to what we actually render so
@@ -4522,8 +4563,15 @@ def generate_report_pdf(
         # Use scale=2 for small figures (sharper axis labels), scale=1 for
         # tall ones (keeps pixel count manageable — 1800×2400×1 = 4.3 MP).
         scale = 2 if h_px <= 1200 else 1
+        t0 = time.time()
         png_bytes = fig.to_image(format="png", width=img_px_w, height=h_px,
                                  scale=scale)
+        dt = time.time() - t0
+        logger.info(
+            f"[pdf_export] kaleido render: {label or '?'} — "
+            f"h={h_px}px scale={scale} size={len(png_bytes)//1024}KB "
+            f"elapsed={dt:.2f}s"
+        )
         aspect = h_px / img_px_w
         disp_w = inner_w
         disp_h = disp_w * aspect
@@ -4544,7 +4592,7 @@ def generate_report_pdf(
             story.append(Paragraph(t("pdf_no_chart"), caption_style))
         else:
             _style_for_pdf(fig)
-            embed_chart(fig)
+            embed_chart(fig, label=title_key)
         story.append(PageBreak())
 
     # --- Schedule (Gantt) ---------------------------------------------------
@@ -4559,7 +4607,7 @@ def generate_report_pdf(
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
     else:
         _style_for_pdf(fig)
-        embed_chart(fig)
+        embed_chart(fig, label="gantt_title")
     # Calendar visual itself is FullCalendar (not exportable); explain that the
     # Gantt above + the calendar's data definition cover the same source data.
     story.append(Spacer(1, 10))
@@ -4576,17 +4624,77 @@ def generate_report_pdf(
 
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
 def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
-    """Modal popup with the dino-runner progress track while the PDF is
-    built. Streamlit supplies the ✕ close button in the dialog chrome.
-    Generation runs synchronously inside the dialog body — placeholder
-    HTML is replaced on every callback so the T-Rex hops forward as each
-    step completes. On success, a Download button appears inside the
-    dialog so the user can grab the file without hunting for a button."""
+    """Two-stage modal for PDF export:
+      stage 1 ("select")    — user picks up to 30 Function IDs via a
+                              searchable multiselect; empty selection is
+                              blocked with an inline error.
+      stage 2 ("generate")  — kpi_df + defects_df are pre-filtered to the
+                              chosen IDs and generate_report_pdf runs
+                              inside a T-Rex runner popup. On completion
+                              a Download button appears in the dialog.
+
+    Streamlit supplies the ✕ close button in the dialog chrome; closing
+    mid-generation abandons the run (Python has already finished by the
+    time the user clicks anyway — the stage 2 body runs synchronously."""
+    if not st.session_state.get("pdf_gen_confirmed"):
+        _render_pdf_select_stage(kpi_df)
+        return
+    _render_pdf_generate_stage(
+        kpi_df, st.session_state.get("pdf_selected_fids", []))
+
+
+def _render_pdf_select_stage(kpi_df: pd.DataFrame) -> None:
+    st.markdown(
+        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
+        f"{t('pdf_select_title')}</div>"
+        f"<div style='font-size:12px;color:#aaa;margin:0 0 14px;'>"
+        f"{t('pdf_select_caption')}</div>",
+        unsafe_allow_html=True,
+    )
+    opts_df = (kpi_df[["機能ID", "機能名称"]]
+               .drop_duplicates(subset=["機能ID"])
+               .fillna({"機能名称": ""}))
+    label_to_fid: dict[str, str] = {}
+    labels: list[str] = []
+    for _, r in opts_df.iterrows():
+        nm = str(r["機能名称"]).strip()
+        lab = f"{r['機能ID']} · {nm}" if nm else str(r["機能ID"])
+        label_to_fid[lab] = str(r["機能ID"])
+        labels.append(lab)
+    chosen = st.multiselect(
+        t("pdf_select_label"),
+        options=labels,
+        max_selections=30,
+        key="pdf_fid_multiselect",
+    )
+    st.caption(t("pdf_select_count", n=len(chosen)))
+    err_slot = st.empty()
+    if st.button(t("pdf_btn_confirm"), type="primary",
+                 key="pdf_confirm_generate", use_container_width=True):
+        if not chosen:
+            err_slot.error(t("pdf_select_error_empty"))
+            return
+        st.session_state.pdf_selected_fids = [label_to_fid[c] for c in chosen]
+        st.session_state.pdf_gen_confirmed = True
+        st.rerun()
+
+
+def _render_pdf_generate_stage(kpi_df: pd.DataFrame,
+                                selected_fids: list[str]) -> None:
+    # Filter kpi_df + defects_df so every chart sees only the chosen rows.
+    # The per-chart _BAR_CHART_MAX_ROWS safety cap will not trigger here
+    # because user selection is already ≤ 30.
+    kdf = kpi_df[kpi_df["機能ID"].isin(selected_fids)].copy()
+    defects_src = st.session_state.dfs.get("defects")
+    ddf = (defects_src[defects_src["機能ID"].isin(selected_fids)].copy()
+           if defects_src is not None else None)
+
     st.markdown(
         f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
         f"{t('pdf_dialog_title')}</div>"
         f"<div style='font-size:12px;color:#aaa;margin:0 0 10px;'>"
-        f"{t('pdf_dialog_subtitle')}</div>",
+        f"{t('pdf_dialog_subtitle')}"
+        f" · {t('pdf_select_count', n=len(selected_fids))}</div>",
         unsafe_allow_html=True,
     )
     slot = st.empty()
@@ -4597,7 +4705,8 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
                 _render_pdf_runner_html(step, total, msg),
                 unsafe_allow_html=True,
             )
-        pdf_bytes = generate_report_pdf(kpi_df, progress_cb=_cb)
+        pdf_bytes = generate_report_pdf(
+            kdf, progress_cb=_cb, defects_df=ddf)
         st.session_state.report_pdf = pdf_bytes
         st.session_state.report_pdf_lang = st.session_state.lang
         slot.markdown(
@@ -4629,13 +4738,17 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
             exc=exc,
             context={
                 "lang": st.session_state.get("lang"),
-                "rows": int(len(kpi_df)),
+                "rows": int(len(kdf)),
+                "selected_fids": ",".join(selected_fids)[:200],
             },
         )
         with result_slot.container():
             st.error(t("pdf_error", err=exc))
             with st.expander(t("log_show_detail"), expanded=False):
                 st.code(detail, language="text")
+    finally:
+        # Reset so re-opening the dialog starts back at selection.
+        st.session_state.pdf_gen_confirmed = False
 
 
 def render_charts_tab() -> None:
@@ -4651,6 +4764,9 @@ def render_charts_tab() -> None:
     with pdf_btn_col:
         if st.button(t("pdf_btn_generate"),
                      key="pdf_generate", use_container_width=True):
+            # Fresh open → always start at stage 1 (selection).
+            st.session_state.pdf_gen_confirmed = False
+            st.session_state.pdf_selected_fids = []
             _open_pdf_dialog(kpi_df)
     with pdf_dl_col:
         if st.session_state.get("report_pdf"):
