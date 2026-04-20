@@ -2237,7 +2237,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_gantt":    "Rendering schedule (Gantt)…",
         "pdf_step_assemble": "Assembling PDF…",
         "pdf_dialog_title":  "🦖 Generating PDF report",
+        "pdf_dialog_subtitle": (
+            "Per-feature bar charts render up to the worst 60 rows."
+        ),
         "pdf_dialog_close":  "Close",
+        "chart_truncated_note": "Showing worst {shown} of {total} features",
         "pdf_title": "dashboard4dx — Project Report",
         "pdf_generated_at": "Generated",
         "pdf_section_kpi": "Project-wide KPIs",
@@ -2704,7 +2708,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_gantt":    "スケジュール (Gantt) を描画中…",
         "pdf_step_assemble": "PDF 組版中…",
         "pdf_dialog_title":  "🦖 PDFレポート生成中",
+        "pdf_dialog_subtitle": "ワーストレコードから最大で60行を生成します",
         "pdf_dialog_close":  "閉じる",
+        "chart_truncated_note": "ワースト {shown} 件 / 全 {total} 件を表示",
         "pdf_title": "dashboard4dx — プロジェクト報告",
         "pdf_generated_at": "生成日時",
         "pdf_section_kpi": "プロジェクト全体KPI",
@@ -3901,6 +3907,25 @@ _INLINE_MARGIN_DEFAULT = dict(l=60, r=20, t=20, b=40)
 _INLINE_MARGIN_HEATMAP = dict(l=60, r=40, t=20, b=80)
 
 
+# Max rows any per-Function-ID bar chart will display. Beyond this, both
+# on-screen readability (431 crammed labels) and kaleido PDF rendering time
+# collapse hard, so we show the worst N (sorted by the chart's native
+# metric) and annotate the truncation. Management-report audiences care
+# about the tail, not an unreadable all-hands scroll.
+_BAR_CHART_MAX_ROWS = 60
+
+
+def _truncate_note_annotation(shown: int, total: int) -> dict:
+    """Small top-right annotation used when a per-feature bar chart has
+    been trimmed to the worst N entries for legibility."""
+    return dict(
+        text=t("chart_truncated_note", shown=shown, total=total),
+        xref="paper", yref="paper", x=1.0, y=1.02, xanchor="right",
+        yanchor="bottom", showarrow=False,
+        font=dict(size=10, color="#b48820"),
+    )
+
+
 def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if not {"actual_progress", "planned_progress"}.issubset(kpi_df.columns):
         return None
@@ -3908,7 +3933,13 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if df.empty:
         return None
     df["display"] = df["機能ID"] + " · " + df["機能名称"].fillna("")
-    df = df.sort_values("planned_progress")
+    # Sort: most-behind first so head(N) keeps the worst offenders.
+    df["_gap"] = df["planned_progress"] - df["actual_progress"]
+    df = df.sort_values("_gap", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]  # reverse so worst shows at the top of the bar chart
     fig = go.Figure()
     fig.add_bar(name=t("chart_progress_planned"),
                 y=df["display"], x=df["planned_progress"],
@@ -3921,6 +3952,8 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       xaxis_title="%", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
+    if total > _BAR_CHART_MAX_ROWS:
+        fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
 
@@ -3931,7 +3964,13 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if df.empty:
         return None
     df["display"] = df["機能ID"] + " · " + df["機能名称"].fillna("")
-    df = df.sort_values("OK", ascending=True)
+    # Worst-first by NG then 未実施 so head(N) is the attention list.
+    df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
+    df = df.sort_values("_bad", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
     fig = go.Figure()
     fig.add_bar(name=t("chart_label_ok"),
                 y=df["display"], x=df["OK"].fillna(0),
@@ -3946,6 +3985,8 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       height=max(280, 28 * len(df)),
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
+    if total > _BAR_CHART_MAX_ROWS:
+        fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
 
@@ -4129,6 +4170,28 @@ def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
     if not rows:
         return None
     df_g = pd.DataFrame(rows)
+    # Cap the row count for the same reason as the other per-feature charts:
+    # a 431-feature Gantt is unreadable and makes kaleido stall. Pick the
+    # features that span today (most time-relevant), breaking ties by
+    # earliest actual/planned start.
+    total_ids = df_g["ID"].nunique()
+    if total_ids > _BAR_CHART_MAX_ROWS:
+        today_ts0 = pd.Timestamp(today_d)
+        status = (
+            df_g.groupby("ID")
+                .agg(mn=("Start", "min"), mx=("End", "max"))
+                .reset_index()
+        )
+        status["crosses_today"] = (
+            (status["mn"] <= today_ts0) & (status["mx"] >= today_ts0)
+        ).astype(int)
+        keep_ids = (
+            status.sort_values(
+                ["crosses_today", "mn"], ascending=[False, True])
+                  .head(_BAR_CHART_MAX_ROWS)["ID"]
+                  .tolist()
+        )
+        df_g = df_g[df_g["ID"].isin(keep_ids)]
     fig = px.timeline(df_g, x_start="Start", x_end="End", y="ID",
                       color="Layer",
                       color_discrete_map={label_planned: "#9aa0a6",
@@ -4146,6 +4209,9 @@ def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
                       legend_title_text="")
     fig.update_yaxes(automargin=True)
     fig.update_xaxes(automargin=True)
+    if total_ids > _BAR_CHART_MAX_ROWS:
+        fig.add_annotation(**_truncate_note_annotation(
+            df_g["ID"].nunique(), total_ids))
     return fig
 
 
@@ -4517,8 +4583,10 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     step completes. On success, a Download button appears inside the
     dialog so the user can grab the file without hunting for a button."""
     st.markdown(
-        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 6px;'>"
-        f"{t('pdf_dialog_title')}</div>",
+        f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
+        f"{t('pdf_dialog_title')}</div>"
+        f"<div style='font-size:12px;color:#aaa;margin:0 0 10px;'>"
+        f"{t('pdf_dialog_subtitle')}</div>",
         unsafe_allow_html=True,
     )
     slot = st.empty()
