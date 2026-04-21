@@ -2126,6 +2126,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
         "chart_progress_actual": "actual",
+        "chart_progress_over_marker": "⚠ over",
         "chart_test_coverage": "Test coverage (OK / NG / not run)",
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
         "chart_test_density_threshold_label": "threshold",
@@ -2553,7 +2554,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 Progress: planned vs actual**\n\n"
             "Paired horizontal bars per Function ID.\n\n"
             "📂 Source: WBS columns **V** (actual %) and **AA** (planned %).\n\n"
-            "💡 Wider gap with the planned bar above means slipping schedule."
+            "💡 Wider gap with the planned bar above means slipping schedule.\n\n"
+            "⚠ Bars where actual > planned are colored orange and tagged "
+            "with ⚠ — actual exceeding the plan can flag over-reporting."
         ),
         "help_chart_test_coverage": (
             "**🦕 Test coverage**\n\n"
@@ -2729,6 +2732,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
         "chart_progress_actual": "実績",
+        "chart_progress_over_marker": "⚠ 超過",
         "chart_test_coverage": "テストカバレッジ (OK / NG / 未実施)",
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
@@ -3134,7 +3138,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 進捗: 計画 vs 実績**\n\n"
             "機能ID別に計画進捗率と実績進捗率を横棒で並べて比較。\n\n"
             "📂 出典: WBS **V列**（実績）と **AA列**（計画）。\n\n"
-            "💡 計画バーが実績バーより長い＝遅延傾向。"
+            "💡 計画バーが実績バーより長い＝遅延傾向。\n\n"
+            "⚠ 実績 > 計画 の機能IDは実績バーをオレンジ＋⚠超過マーカーで"
+            "強調表示します（過剰報告の兆候）。"
         ),
         "help_chart_test_coverage": (
             "**🦕 テストカバレッジ**\n\n"
@@ -4449,13 +4455,23 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if total > _BAR_CHART_MAX_ROWS:
         df = df.head(_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]  # reverse so worst shows at the top of the bar chart
+    over = df["actual_progress"] > df["planned_progress"]
+    actual_colors = np.where(over, "#f5b400", "#4ec78a")
+    actual_lines = np.where(over, "#a06a00", "#4ec78a")
+    over_marker = t("chart_progress_over_marker")
+    over_text = [over_marker if o else "" for o in over]
     fig = go.Figure()
     fig.add_bar(name=t("chart_progress_planned"),
                 y=df["display"], x=df["planned_progress"],
                 orientation="h", marker_color="#9aa")
     fig.add_bar(name=t("chart_progress_actual"),
                 y=df["display"], x=df["actual_progress"],
-                orientation="h", marker_color="#4ec78a")
+                orientation="h",
+                marker_color=actual_colors.tolist(),
+                marker_line=dict(color=actual_lines.tolist(), width=1),
+                text=over_text, textposition="outside",
+                textfont=dict(color="#a06a00", size=11),
+                cliponaxis=False)
     fig.update_layout(barmode="group",
                       height=max(280, 28 * len(df)),
                       xaxis_title="%", yaxis_title=None,
@@ -5109,10 +5125,21 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
         figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
     y = np.arange(n)
     h = 0.38
+    over = (df["actual_progress"] > df["planned_progress"]).values
+    actual_colors = np.where(over, "#f5b400", "#4ec78a")
+    actual_lines = np.where(over, "#a06a00", "#4ec78a")
     ax.barh(y - h / 2, df["planned_progress"], height=h,
             color="#9aa0a6", label=t("chart_progress_planned"))
     ax.barh(y + h / 2, df["actual_progress"], height=h,
-            color="#4ec78a", label=t("chart_progress_actual"))
+            color=actual_colors.tolist(),
+            edgecolor=actual_lines.tolist(),
+            linewidth=0.6,
+            label=t("chart_progress_actual"))
+    over_marker = t("chart_progress_over_marker")
+    for yi, val, is_over in zip(y, df["actual_progress"].values, over):
+        if is_over:
+            ax.text(val + 1, yi + h / 2, over_marker,
+                    color="#a06a00", fontsize=8, va="center", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(df["display"])
     ax.set_xlabel("%")
     ax.legend(loc="lower right", framealpha=0.9)
@@ -6932,7 +6959,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.23</span>
+    <span class="ver">Ver1.0.24</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
