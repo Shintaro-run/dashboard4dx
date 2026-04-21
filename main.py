@@ -357,6 +357,12 @@ WBS_FUNC_ID_COLS = ("E", "F", "G", "H", "I")  # scan range for 機能ID
 # 年/月/日) so the year of each per-task 月/日 can be resolved.
 WBS_PHASE_START_CELL = ("J", 6)  # merged J6:L6
 WBS_PHASE_END_CELL = ("N", 6)    # merged N6:O6
+# Sub-task marker column. A data row (row 16+) without its own 機能ID is
+# treated as a sub-task of the most recent valid parent only when this
+# column contains this mark character. Any other row without 機能ID is
+# skipped entirely.
+WBS_SUBTASK_MARK_COL = "L"
+WBS_SUBTASK_MARK = "●"
 
 MASTER_SHEET = "機能一覧"
 MASTER_FID_COL = "F"
@@ -1004,7 +1010,17 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
             rec[k] = _to_percent_scale(rec[k])
         return rec
 
+    try:
+        attach_after_dup = bool(
+            st.session_state.get("wbs_attach_after_dup", False)
+        )
+    except Exception:
+        attach_after_dup = False
+
+    mark_col_idx0 = _col_to_idx(WBS_SUBTASK_MARK_COL) - 1
+
     out = []
+    seen_fids: set[str] = set()
     parent_fid: Optional[str] = None
     parent_fid_col: Optional[int] = None  # 1-based column index
 
@@ -1023,25 +1039,41 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
                     break
 
         if fid:
+            if fid in seen_fids:
+                # Duplicate Function ID — the first occurrence wins; this row
+                # and its following sub-tasks are skipped. By default the
+                # "active parent" is invalidated so following sub-task rows
+                # are skipped too; the wbs_attach_after_dup setting flips
+                # this to re-attach orphaned sub-tasks to the last valid
+                # parent instead.
+                if not attach_after_dup:
+                    parent_fid = None
+                    parent_fid_col = None
+                continue
+            seen_fids.add(fid)
             parent_fid = fid
             parent_fid_col = fid_col
             out.append(_build_rec(row, fid, label=None, is_sub=False))
             continue
 
-        # No 機能ID on this row → candidate sub-task row.
+        # No 機能ID on this row → only treated as a sub-task if the marker
+        # column (L, fixed) is "●". Every other row without a 機能ID is
+        # intentionally skipped (notes, spacers, separators, etc.).
         if parent_fid is None or parent_fid_col is None:
             continue
-        sub_cell_idx = parent_fid_col  # (parent_fid_col + 1) 1-based == this 0-based idx
+        mark_val = row[mark_col_idx0] if mark_col_idx0 < len(row) else None
+        if mark_val is None:
+            continue
+        if str(mark_val).strip() != WBS_SUBTASK_MARK:
+            continue
+        sub_cell_idx = parent_fid_col  # column right of the parent's 機能ID
         if sub_cell_idx >= len(row):
             continue
         label_raw = row[sub_cell_idx]
-        if label_raw is None:
-            continue
-        label = str(label_raw).strip()
+        label = str(label_raw).strip() if label_raw is not None else ""
         if not label:
             continue
         rec = _build_rec(row, parent_fid, label=label, is_sub=True)
-        # Require at least one date to treat this as a real schedule row.
         if not any(rec[k] is not None for k in date_keys):
             continue
         out.append(rec)
@@ -2122,6 +2154,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "`input/<date>/<slot>/`. Resetting just stops that auto-load for "
             "this session — the historical files are kept for trend analysis."
         ),
+        "settings_wbs_title": "WBS parsing behavior",
+        "settings_wbs_caption": (
+            "Controls how the loader handles duplicate Function IDs. "
+            "Only the **first** row with a given 機能ID is kept; subsequent "
+            "rows (and their `●` sub-task breakdowns in L column) are "
+            "skipped by default so downstream KPIs use a single source "
+            "of truth per ID."
+        ),
+        "settings_wbs_attach_after_dup": (
+            "Re-attach sub-tasks after a duplicate to the last valid parent"
+        ),
+        "settings_wbs_attach_after_dup_caption": (
+            "When **off** (default): ● rows that follow a duplicate 機能ID "
+            "row are also skipped. Turn **on** to treat those ● rows as "
+            "additional sub-tasks of the most recent valid parent 機能ID "
+            "instead. Useful when a duplicate row is an accidental re-entry "
+            "but its breakdown rows carry legitimate extra schedule detail."
+        ),
         "settings_pages_title": "Auto-load of design page counts",
         "settings_pages_caption": (
             "Same idea for `input/design_pages.json`: reset clears the in-"
@@ -2627,6 +2677,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "起動時に各カードは `input/<日付>/<種別>/` 配下の最新ファイルを"
             "自動取り込みします。リセットしてもファイルは削除されず、"
             "今セッション中の自動取込だけを止めます（傾向分析のため履歴は保持）。"
+        ),
+        "settings_wbs_title": "WBS 解析の挙動",
+        "settings_wbs_caption": (
+            "重複した機能IDを持つ行の扱いを制御します。"
+            "**最初に出現した行のみ**有効とし、以降の同一機能IDの行と、"
+            "その直下の L列「●」のサブタスク行は既定でスキップされます "
+            "（1機能IDあたり1ソースに保つため）。"
+        ),
+        "settings_wbs_attach_after_dup": (
+            "重複後のサブタスクを直前の有効な親に付け替える"
+        ),
+        "settings_wbs_attach_after_dup_caption": (
+            "**OFF（既定）**: 重複機能IDに続く ● 行もまとめてスキップ。\n\n"
+            "**ON**: 重複機能IDの行だけ捨て、後続の ● 行は直前の"
+            "有効な親機能IDの追加サブタスクとして取り込む。"
+            "重複行が誤入力でも、そのサブ行には正当なスケジュール詳細が"
+            "書かれている場合に使います。"
         ),
         "settings_pages_title": "設計書ページ数の自動取込",
         "settings_pages_caption": (
@@ -6165,6 +6232,17 @@ def render_settings_tab() -> None:
                     height=preview_height,
                 )
 
+    # ----- WBS parsing behavior -----
+    st.divider()
+    st.subheader(t("settings_wbs_title"))
+    st.caption(t("settings_wbs_caption"))
+    st.checkbox(
+        t("settings_wbs_attach_after_dup"),
+        key="wbs_attach_after_dup",
+        help=t("settings_wbs_attach_after_dup_caption"),
+    )
+    st.caption(t("settings_wbs_attach_after_dup_caption"))
+
     # ----- Session log location -----
     st.divider()
     st.subheader(t("log_section_title"))
@@ -6285,7 +6363,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.15</span>
+    <span class="ver">Ver1.0.16</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

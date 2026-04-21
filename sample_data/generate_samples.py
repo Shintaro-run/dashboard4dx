@@ -140,9 +140,16 @@ def make_wbs() -> Path:
     appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA.
 
     Some Function IDs also carry sub-task breakdown rows: rows *without* a
-    Function ID, where the column right of the parent's Function ID column
-    holds a task label (設計 / 実装 / etc.) and P..V/AA carry that sub-task's
-    own schedule. These rows belong to the most recent Function ID above.
+    Function ID where L column is "●" (fixed marker). In those rows the
+    column right of the parent's Function ID column holds a task label
+    (設計 / 実装 / etc.) and P..V/AA carry that sub-task's own schedule.
+
+    For exercising loader behavior the sample also includes a small number
+    of intentionally-skipped shapes:
+      - A duplicate Function ID row after its first valid occurrence (should
+        be skipped by the loader; by default its following ● rows also skip).
+      - A row with no Function ID and no ● in L (a noise / spacer row, also
+        skipped — exercises the "●-gated" sub-task filter).
     """
     wb = Workbook()
     ws = wb.active
@@ -164,6 +171,7 @@ def make_wbs() -> Path:
     ws.merge_cells("N6:O6")
     ws["A14"] = "Section"
     ws["E14"] = "Phase / Function"
+    ws["L14"] = "●印"
     ws["P14"] = "予定工数"
     ws["Q14"] = "開始予定日"
     ws["R14"] = "終了予定日"
@@ -238,6 +246,7 @@ def make_wbs() -> Path:
             remaining_actual -= s_actual_effort
 
             ws[f"A{row}"] = "Task"
+            ws[f"L{row}"] = "●"
             ws[f"{sub_col}{row}"] = sub_label
             ws[f"P{row}"] = s_planned_effort
             ws[f"Q{row}"] = _fmt_md(s_start_plan)
@@ -250,6 +259,41 @@ def make_wbs() -> Path:
                            else random.randint(10, 70))
             _write_percent(ws, f"AA{row}", random.randint(60, 100))
             row += 1
+
+    # ----- Loader edge-cases ---------------------------------------------------
+    # A noise / spacer row with no Function ID and no ● marker. The loader
+    # must skip this (sub-task candidacy is gated on L="●").
+    ws[f"A{row}"] = "(note)"
+    ws[f"F{row}"] = "※ 以下は重複機能IDのテストケース"
+    row += 1
+
+    # Duplicate Function ID: AUTH001 appears again well below its first
+    # occurrence. The loader keeps only the first; this row and its ● rows
+    # below are skipped (default). With the "attach_after_dup" setting ON,
+    # the ● rows re-attach to the previously valid parent instead of dying.
+    dup_fid = "AUTH001"
+    ws[f"A{row}"] = "Feature"
+    ws[f"G{row}"] = f"機能ID:{dup_fid}"
+    ws[f"P{row}"] = 12.3
+    ws[f"Q{row}"] = _fmt_md(date(2026, 4, 15))
+    ws[f"R{row}"] = _fmt_md(date(2026, 4, 25))
+    ws[f"S{row}"] = _fmt_md(date(2026, 4, 15))
+    ws[f"U{row}"] = 8.0
+    _write_percent(ws, f"V{row}", 55)
+    _write_percent(ws, f"AA{row}", 70)
+    row += 1
+    for sub in ("追加レビュー", "追加修正"):
+        ws[f"A{row}"] = "Task"
+        ws[f"L{row}"] = "●"
+        ws[f"H{row}"] = sub  # sub_col = G+1 = H
+        ws[f"P{row}"] = 6.0
+        ws[f"Q{row}"] = _fmt_md(date(2026, 4, 15))
+        ws[f"R{row}"] = _fmt_md(date(2026, 4, 20))
+        ws[f"S{row}"] = _fmt_md(date(2026, 4, 15))
+        ws[f"U{row}"] = 4.0
+        _write_percent(ws, f"V{row}", 40)
+        _write_percent(ws, f"AA{row}", 60)
+        row += 1
 
     # Save as .xlsm — openpyxl can write the file with a macro-enabled extension
     # even without an actual VBA project; the loader reads it just fine.
