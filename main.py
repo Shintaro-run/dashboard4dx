@@ -198,6 +198,49 @@ def find_latest_for_slot(slot: str) -> Optional[Path]:
 # Stored at the root of input/ (next to the daily snapshot folders) since it's
 # a single piece of slowly-changing user state, not a dated snapshot.
 DESIGN_PAGES_FILE = INPUT_DIR / "design_pages.json"
+USER_SETTINGS_FILE = INPUT_DIR / "user_settings.json"
+
+# Keys in session_state whose value is user-facing and should survive
+# an app restart. Everything else (dfs cache, signatures, error state,
+# …) is deliberately volatile.
+_PERSISTENT_SETTING_KEYS: tuple[str, ...] = (
+    "test_density_threshold",
+    "incident_rate_threshold_pct",
+    "wbs_attach_after_dup",
+    "lang",
+)
+
+
+def load_user_settings() -> dict:
+    """Best-effort read of the persisted user-settings JSON. Returns ``{}``
+    on missing/invalid file so a fresh install still boots with defaults."""
+    if not USER_SETTINGS_FILE.exists():
+        return {}
+    try:
+        with USER_SETTINGS_FILE.open(encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return {}
+
+
+def save_user_settings() -> None:
+    """Persist the currently-set user-facing settings to disk. Called by
+    widget ``on_change`` callbacks so each adjustment is durable; silent
+    on IO errors since settings persistence is best-effort."""
+    try:
+        payload = {
+            k: st.session_state[k]
+            for k in _PERSISTENT_SETTING_KEYS
+            if k in st.session_state
+        }
+        _ensure_input_dir()
+        with USER_SETTINGS_FILE.open("w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 
 def load_design_pages() -> dict[str, int]:
@@ -7156,6 +7199,7 @@ def render_settings_tab() -> None:
         t("settings_wbs_attach_after_dup"),
         key="wbs_attach_after_dup",
         help=t("settings_wbs_attach_after_dup_caption"),
+        on_change=save_user_settings,
     )
     st.caption(t("settings_wbs_attach_after_dup_caption"))
 
@@ -7168,6 +7212,7 @@ def render_settings_tab() -> None:
         min_value=0.0, step=0.5, format="%.2f",
         key="test_density_threshold",
         help=t("settings_test_density_threshold_caption"),
+        on_change=save_user_settings,
     )
     st.caption(t("settings_test_density_threshold_caption"))
     st.number_input(
@@ -7175,6 +7220,7 @@ def render_settings_tab() -> None:
         min_value=0.0, max_value=100.0, step=1.0, format="%.2f",
         key="incident_rate_threshold_pct",
         help=t("settings_incident_rate_threshold_caption"),
+        on_change=save_user_settings,
     )
     # The setter uses the visible % field; the chart code reads the
     # underlying fraction via `incident_rate_threshold` (= pct/100).
@@ -7325,15 +7371,27 @@ def main() -> None:
     st.session_state.setdefault("errs", {})
     st.session_state.setdefault("last_ok_sig", {})
     st.session_state.setdefault("last_err_sig", {})
-    st.session_state.setdefault("lang", DEFAULT_LANG)
     st.session_state.setdefault("skip_auto_load", {})
     st.session_state.setdefault("origin_names", {})
-    st.session_state.setdefault("test_density_threshold",
-                                TEST_DENSITY_THRESHOLD_DEFAULT)
-    st.session_state.setdefault("incident_rate_threshold",
-                                INCIDENT_RATE_THRESHOLD_DEFAULT)
-    st.session_state.setdefault("incident_rate_threshold_pct",
-                                INCIDENT_RATE_THRESHOLD_DEFAULT * 100.0)
+
+    # User-facing preferences survive app restarts by seeding session
+    # state from input/user_settings.json. Changes get flushed back to
+    # disk via save_user_settings() on_change callbacks on each widget.
+    _saved = load_user_settings()
+    st.session_state.setdefault(
+        "lang", _saved.get("lang", DEFAULT_LANG))
+    st.session_state.setdefault(
+        "test_density_threshold",
+        _saved.get("test_density_threshold",
+                   TEST_DENSITY_THRESHOLD_DEFAULT))
+    pct = _saved.get("incident_rate_threshold_pct",
+                     INCIDENT_RATE_THRESHOLD_DEFAULT * 100.0)
+    st.session_state.setdefault("incident_rate_threshold_pct", pct)
+    st.session_state.setdefault(
+        "incident_rate_threshold", float(pct) / 100.0)
+    st.session_state.setdefault(
+        "wbs_attach_after_dup",
+        bool(_saved.get("wbs_attach_after_dup", False)))
 
     # --- Header row: title (left) + language switcher (right) ----------------
     title_col, lang_col = st.columns([10, 1], gap="small")
@@ -7424,7 +7482,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.29</span>
+    <span class="ver">Ver1.0.30</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -7436,6 +7494,7 @@ def main() -> None:
             key="lang",
             label_visibility="collapsed",
             horizontal=True,
+            on_change=save_user_settings,
         )
     st.caption(t("intro_caption"))
 
