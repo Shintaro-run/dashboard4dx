@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 from openpyxl import load_workbook
 
@@ -2115,18 +2116,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density_below_marker": "⚠ low",
         "chart_overview_compare": "Function ID overview: 4-metric comparison",
         "chart_overview_compare_filter": "Filter by Function ID",
-        "chart_overview_compare_filter_help": "Empty = all. KPI cards and the heatmap recompute on the filtered set.",
+        "chart_overview_compare_filter_help": "Empty = all. KPI cards and the chart recompute on the filtered set.",
         "chart_overview_compare_total_prefix": "Total",
         "chart_overview_compare_fids_suffix": "Function IDs in scope",
-        "chart_overview_compare_colorbar": "normalized",
         "chart_overview_compare_empty": "No Function IDs match the current filter.",
         "help_chart_overview_compare": (
             "**🦕 4-metric overview comparison**\n\n"
-            "Heatmap of 設計書ページ数 / LoC / 総テスト / 不具合件数 per "
-            "Function ID, each min-max normalized so vastly different "
-            "magnitudes are visually comparable. Hover for absolute values.\n\n"
+            "Four side-by-side horizontal bar panels showing 設計書ページ数 / "
+            "LoC / 総テスト / 障害件数（Redmine） per Function ID — each on "
+            "its own X scale so absolute values stay readable, with a shared "
+            "Y axis so the eye can track each FID across all four panels.\n\n"
             "📂 Source: design pages (manual), code counts (LoC), test counts "
-            "(総テスト), defect tracker (defect_total)."
+            "(総テスト), Redmine defect tracker (defect_total)."
         ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "(size: design pages, color: risk score)",
@@ -2677,18 +2678,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density_below_marker": "⚠ 不足",
         "chart_overview_compare": "機能ID俯瞰比較（4指標）",
         "chart_overview_compare_filter": "機能IDで絞り込む",
-        "chart_overview_compare_filter_help": "未選択で全件。フィルタ後の集計と再正規化でカードとヒートマップが更新されます。",
+        "chart_overview_compare_filter_help": "未選択で全件。フィルタ後の集計でカードとチャートが更新されます。",
         "chart_overview_compare_total_prefix": "合計",
         "chart_overview_compare_fids_suffix": "件の機能ID",
-        "chart_overview_compare_colorbar": "正規化",
         "chart_overview_compare_empty": "現在のフィルタに合致する機能IDがありません。",
         "help_chart_overview_compare": (
             "**🦕 機能ID俯瞰比較（4指標）**\n\n"
-            "設計書ページ数 / LoC / 総テスト / 不具合件数 を機能ID別に min-max "
-            "正規化したヒートマップ。桁違いの指標どうしを視覚的に比較できます。"
-            "ホバーで絶対値を表示。\n\n"
+            "設計書ページ数 / LoC / 総テスト / 障害件数（Redmine） を機能ID別に "
+            "横棒グラフ4つで並列表示。各指標は独立したX軸スケールで絶対値が読める一方、"
+            "Y軸の機能IDは共有しているので、横にスライドして同じ機能IDの4指標を比較できます。\n\n"
             "📂 出典: 設計書ページ数（手動入力）, コード行数（LoC）, "
-            "テスト集計（総テスト）, 不具合トラッカ（defect_total）。"
+            "テスト集計（総テスト）, Redmine 障害一覧（defect_total）。"
         ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "（サイズ: 設計ページ数、色: リスクスコア）",
@@ -4368,66 +4368,65 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
-_OVERVIEW_COMPARE_METRICS: list[tuple[str, str]] = [
-    ("設計書ページ数", "設計書ページ数"),
-    ("LoC",            "LoC"),
-    ("総テスト",        "総テスト"),
-    ("defect_total",   "不具合件数"),
+_OVERVIEW_COMPARE_METRICS: list[tuple[str, str, str]] = [
+    # (df column, panel title, bar color)
+    ("設計書ページ数", "設計書ページ数",     "#9aa0a6"),
+    ("LoC",            "LoC",                "#7aaef0"),
+    ("総テスト",        "総テスト",            "#4ec78a"),
+    ("defect_total",   "障害件数（Redmine）", "#f05050"),
 ]
 
 
-def _format_compare_cell(col: str, v: float) -> str:
-    if pd.isna(v):
-        return "—"
-    if col == "LoC":
-        return f"{int(v):,}"
-    return f"{int(v)}"
-
-
 def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
-    """Per-機能ID heatmap of {設計書ページ数, LoC, 総テスト, 不具合件数}.
+    """Small-multiples horizontal bars: 機能ID × {設計書ページ数, LoC,
+    総テスト, 障害件数（Redmine）}.
 
-    Each metric is min-max normalized to 0..1 so columns with vastly
-    different magnitudes (LoC in thousands vs defects in single digits)
-    can be compared at a glance. Hover surfaces the absolute value.
+    Four side-by-side panels share a single Y axis (Function IDs) so each
+    column's absolute magnitude stays readable on its own scale, while the
+    eye still tracks each Function ID across all four metrics.
     """
-    available = [(c, lbl) for c, lbl in _OVERVIEW_COMPARE_METRICS
+    available = [(c, lbl, color)
+                 for c, lbl, color in _OVERVIEW_COMPARE_METRICS
                  if c in kpi_df.columns]
     if not available:
         return None
-    grp_cols = [c for c, _ in available]
+    grp_cols = [c for c, _, _ in available]
     df = (kpi_df.groupby("機能ID", as_index=False)
           .agg(**{c: (c, "mean") for c in grp_cols}))
     df = df.dropna(subset=grp_cols, how="all")
     if df.empty:
         return None
-    raw = df[grp_cols].astype(float)
-    z = raw.copy()
-    for c in grp_cols:
-        m = z[c].max(skipna=True)
-        if pd.notna(m) and m > 0:
-            z[c] = z[c] / m
-    z = z.fillna(0.0)
-    y_labels = [lbl for _, lbl in available]
-    x_labels = df["機能ID"].tolist()
-    cd_rows = [[_format_compare_cell(c, raw[c].iloc[i])
-                for i in range(len(df))]
-               for c, _ in available]
-    customdata = np.array(cd_rows, dtype=object)
-    fig = go.Figure(data=go.Heatmap(
-        z=z[grp_cols].T.values,
-        x=x_labels, y=y_labels,
-        customdata=customdata,
-        hovertemplate="<b>%{x}</b><br>%{y}: %{customdata}<extra></extra>",
-        colorscale="Blues", zmin=0, zmax=1,
-        hoverongaps=False,
-        colorbar=dict(title=dict(text=t("chart_overview_compare_colorbar"),
-                                 side="right")),
-    ))
-    fig.update_layout(height=max(280, 50 * len(y_labels) + 80),
-                      margin=_INLINE_MARGIN_HEATMAP)
-    fig.update_xaxes(tickangle=-30, automargin=True)
-    fig.update_yaxes(automargin=True)
+    df = df.sort_values("機能ID", ascending=True)
+    fids = df["機能ID"].tolist()
+    n_panels = len(available)
+    titles = [lbl for _, lbl, _ in available]
+    fig = make_subplots(rows=1, cols=n_panels,
+                        shared_yaxes=True,
+                        horizontal_spacing=0.04,
+                        subplot_titles=titles)
+    for i, (col, lbl, color) in enumerate(available, start=1):
+        vals = pd.to_numeric(df[col], errors="coerce").astype(float).tolist()
+        fig.add_trace(
+            go.Bar(
+                y=fids, x=vals, orientation="h",
+                marker_color=color, showlegend=False,
+                hovertemplate=(
+                    f"<b>%{{y}}</b><br>{lbl}: "
+                    + ("%{x:,.0f}" if col != "LoC" else "%{x:,}")
+                    + "<extra></extra>"
+                ),
+            ),
+            row=1, col=i,
+        )
+    fig.update_layout(
+        height=max(320, 24 * len(fids) + 100),
+        margin=dict(l=140, r=20, t=60, b=40),
+        bargap=0.2,
+    )
+    # Reverse on the (shared) y-axis so the alphabetically-first Function ID
+    # sits at the top — matches every other per-FID chart in this file.
+    fig.update_yaxes(autorange="reversed", automargin=True)
+    fig.update_xaxes(automargin=True, rangemode="tozero")
     return fig
 
 
@@ -5791,14 +5790,14 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
 
 
 def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
-    """Section: 機能ID-filterable KPI cards + 4-metric comparison heatmap.
+    """Section: 機能ID-filterable KPI cards + 4-metric comparison chart.
 
     Filter is empty by default — KPI cards then show the totals across
     every Function ID in the master. Selecting one or more FIDs narrows
-    both the cards and the heatmap (and re-normalizes the heatmap so the
-    colors stay meaningful within the filtered set).
+    both the cards and the small-multiples bar chart below.
     """
-    available = [(c, lbl) for c, lbl in _OVERVIEW_COMPARE_METRICS
+    available = [(c, lbl, color)
+                 for c, lbl, color in _OVERVIEW_COMPARE_METRICS
                  if c in kpi_df.columns]
     if not available:
         return
@@ -5817,14 +5816,14 @@ def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
         return
     # Aggregate to one row per 機能ID so duplicate (機能ID, 機能名称) pairs in
     # the master don't double-count their joined LoC / tests / defect counts.
-    grp_cols = [c for c, _ in available]
+    grp_cols = [c for c, _, _ in available]
     df = (df.groupby("機能ID", as_index=False)
           .agg(**{c: (c, "mean") for c in grp_cols}))
     cards = st.columns(len(available), gap="small")
     n_fids = len(df)
     fids_help = f"{n_fids} {t('chart_overview_compare_fids_suffix')}"
     total_prefix = t("chart_overview_compare_total_prefix")
-    for (col, lbl), card in zip(available, cards):
+    for (col, lbl, _color), card in zip(available, cards):
         s = pd.to_numeric(df[col], errors="coerce").dropna()
         v = float(s.sum()) if len(s) else None
         card.metric(f"{total_prefix} {lbl}",
@@ -6698,7 +6697,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.19</span>
+    <span class="ver">Ver1.0.20</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
