@@ -2046,6 +2046,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_actual_period":   "Actual period",
         "drilldown_planned_effort":  "Planned effort",
         "drilldown_actual_effort":   "Actual effort",
+        "drilldown_planned_progress": "Progress (planned)",
+        "drilldown_actual_progress":  "Progress (actual)",
         "drilldown_progress":        "Progress (planned vs actual)",
         "drilldown_id_not_found":    "Function ID `{fid}` no longer in the master.",
         "drilldown_strip_title":     "Source coverage for this Function ID",
@@ -2548,6 +2550,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_actual_period":   "実績期間",
         "drilldown_planned_effort":  "予定工数",
         "drilldown_actual_effort":   "投入工数",
+        "drilldown_planned_progress": "進捗率（計画）",
+        "drilldown_actual_progress":  "進捗率（実績）",
         "drilldown_progress":        "進捗（計画 vs 実績）",
         "drilldown_id_not_found":    "機能ID `{fid}` はマスタに存在しません。",
         "drilldown_strip_title":     "この機能IDがどの入力にあるか",
@@ -3724,10 +3728,12 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                            help=t("help_delay_days"))
 
         prog_cols = st.columns(2, gap="small")
-        prog_cols[0].metric(t("metric_test_run_rate") + " (planned)",
-                            _f(row.get("planned_progress"), "{:.0f}%"))
-        prog_cols[1].metric(t("metric_test_run_rate") + " (actual)",
-                            _f(row.get("actual_progress"), "{:.0f}%"))
+        prog_cols[0].metric(t("drilldown_planned_progress"),
+                            _f(row.get("planned_progress"), "{:.0f}%"),
+                            help=t("help_planned_progress"))
+        prog_cols[1].metric(t("drilldown_actual_progress"),
+                            _f(row.get("actual_progress"), "{:.0f}%"),
+                            help=t("help_actual_progress"))
 
         # Tests
         st.markdown(f"#### {t('drilldown_section_tests')}")
@@ -6105,7 +6111,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.11</span>
+    <span class="ver">Ver1.0.12</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
