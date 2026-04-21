@@ -4521,7 +4521,16 @@ _INLINE_MARGIN_HEATMAP = dict(l=60, r=40, t=20, b=80)
 # collapse hard, so we show the worst N (sorted by the chart's native
 # metric) and annotate the truncation. Management-report audiences care
 # about the tail, not an unreadable all-hands scroll.
+# PDF / matplotlib charts keep a hard cap on per-FID bars — reportlab's
+# page area can't render 400 labels legibly and the build time blows up.
+# The dashboard (Plotly) side runs uncapped: the sidebar's global 機能ID
+# filter lets the user narrow scope when the full set is too large to
+# read comfortably.
 _BAR_CHART_MAX_ROWS = 30
+# Big-enough ceiling that no realistic dashboard dataset hits it, while
+# still keeping the browser from locking up on a pathological 10k+ row
+# scroll. If this ever trips, the sidebar filter is the intended escape.
+_INLINE_BAR_CHART_MAX_ROWS = 10_000
 # Per-label max length — long 'ADM01010 · MBOM自動生成・更新（…）' strings
 # force Chromium to run many glyph-metric queries when automargin retries,
 # so clip them here. The drill-down panel still has the full name.
@@ -4555,8 +4564,8 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df["_gap"] = df["planned_progress"] - df["actual_progress"]
     df = df.sort_values("_gap", ascending=False)
     total = len(df)
-    if total > _BAR_CHART_MAX_ROWS:
-        df = df.head(_BAR_CHART_MAX_ROWS)
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
+        df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]  # reverse so worst shows at the top of the bar chart
     over = df["actual_progress"] > df["planned_progress"]
     actual_colors = np.where(over, "#f5b400", "#4ec78a")
@@ -4580,7 +4589,7 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       xaxis_title="%", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
-    if total > _BAR_CHART_MAX_ROWS:
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
@@ -4688,8 +4697,8 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     # the other "attention list" charts in this file.
     df = df.sort_values("test_density", ascending=True)
     total = len(df)
-    if total > _BAR_CHART_MAX_ROWS:
-        df = df.head(_BAR_CHART_MAX_ROWS)
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
+        df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
     threshold = _test_density_threshold()
     densities = df["test_density"].astype(float)
@@ -4731,7 +4740,7 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       xaxis_title="tests / page", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
-    if total > _BAR_CHART_MAX_ROWS:
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
@@ -4751,8 +4760,8 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                      + df["機能名称"].fillna("")).map(_clip_label)
     df = df.sort_values("incident_rate", ascending=False)
     total = len(df)
-    if total > _BAR_CHART_MAX_ROWS:
-        df = df.head(_BAR_CHART_MAX_ROWS)
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
+        df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
     threshold = _incident_rate_threshold()
     rates = df["incident_rate"].astype(float)
@@ -4798,7 +4807,7 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       xaxis_title="%", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
-    if total > _BAR_CHART_MAX_ROWS:
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
@@ -4815,8 +4824,8 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
     total = len(df)
-    if total > _BAR_CHART_MAX_ROWS:
-        df = df.head(_BAR_CHART_MAX_ROWS)
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
+        df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
     ok_vals = df["OK"].fillna(0).astype(int)
     ng_vals = df["NG"].fillna(0).astype(int)
@@ -4853,7 +4862,7 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                       height=max(280, 28 * len(df)),
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
-    if total > _BAR_CHART_MAX_ROWS:
+    if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
     return fig
 
@@ -7251,7 +7260,7 @@ def main() -> None:
         page_title="dashboard4dx",
         page_icon=str(favicon_path),
         layout="wide",
-        initial_sidebar_state="collapsed",
+        initial_sidebar_state="expanded",
     )
     _inject_styles()
 
@@ -7359,7 +7368,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.26</span>
+    <span class="ver">Ver1.0.28</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
