@@ -2113,6 +2113,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
         "chart_test_density_threshold_label": "threshold",
         "chart_test_density_below_marker": "⚠ low",
+        "chart_overview_compare": "Function ID overview: 4-metric comparison",
+        "chart_overview_compare_filter": "Filter by Function ID",
+        "chart_overview_compare_filter_help": "Empty = all. KPI cards and the heatmap recompute on the filtered set.",
+        "chart_overview_compare_total_prefix": "Total",
+        "chart_overview_compare_fids_suffix": "Function IDs in scope",
+        "chart_overview_compare_colorbar": "normalized",
+        "chart_overview_compare_empty": "No Function IDs match the current filter.",
+        "help_chart_overview_compare": (
+            "**🦕 4-metric overview comparison**\n\n"
+            "Heatmap of 設計書ページ数 / LoC / 総テスト / 不具合件数 per "
+            "Function ID, each min-max normalized so vastly different "
+            "magnitudes are visually comparable. Hover for absolute values.\n\n"
+            "📂 Source: design pages (manual), code counts (LoC), test counts "
+            "(総テスト), defect tracker (defect_total)."
+        ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "(size: design pages, color: risk score)",
         "chart_design_impl_gap": "Design pages × LoC",
@@ -2660,6 +2675,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
         "chart_test_density_below_marker": "⚠ 不足",
+        "chart_overview_compare": "機能ID俯瞰比較（4指標）",
+        "chart_overview_compare_filter": "機能IDで絞り込む",
+        "chart_overview_compare_filter_help": "未選択で全件。フィルタ後の集計と再正規化でカードとヒートマップが更新されます。",
+        "chart_overview_compare_total_prefix": "合計",
+        "chart_overview_compare_fids_suffix": "件の機能ID",
+        "chart_overview_compare_colorbar": "正規化",
+        "chart_overview_compare_empty": "現在のフィルタに合致する機能IDがありません。",
+        "help_chart_overview_compare": (
+            "**🦕 機能ID俯瞰比較（4指標）**\n\n"
+            "設計書ページ数 / LoC / 総テスト / 不具合件数 を機能ID別に min-max "
+            "正規化したヒートマップ。桁違いの指標どうしを視覚的に比較できます。"
+            "ホバーで絶対値を表示。\n\n"
+            "📂 出典: 設計書ページ数（手動入力）, コード行数（LoC）, "
+            "テスト集計（総テスト）, 不具合トラッカ（defect_total）。"
+        ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "（サイズ: 設計ページ数、色: リスクスコア）",
         "chart_design_impl_gap": "設計ページ数 × LoC",
@@ -4338,6 +4368,69 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+_OVERVIEW_COMPARE_METRICS: list[tuple[str, str]] = [
+    ("設計書ページ数", "設計書ページ数"),
+    ("LoC",            "LoC"),
+    ("総テスト",        "総テスト"),
+    ("defect_total",   "不具合件数"),
+]
+
+
+def _format_compare_cell(col: str, v: float) -> str:
+    if pd.isna(v):
+        return "—"
+    if col == "LoC":
+        return f"{int(v):,}"
+    return f"{int(v)}"
+
+
+def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
+    """Per-機能ID heatmap of {設計書ページ数, LoC, 総テスト, 不具合件数}.
+
+    Each metric is min-max normalized to 0..1 so columns with vastly
+    different magnitudes (LoC in thousands vs defects in single digits)
+    can be compared at a glance. Hover surfaces the absolute value.
+    """
+    available = [(c, lbl) for c, lbl in _OVERVIEW_COMPARE_METRICS
+                 if c in kpi_df.columns]
+    if not available:
+        return None
+    grp_cols = [c for c, _ in available]
+    df = (kpi_df.groupby("機能ID", as_index=False)
+          .agg(**{c: (c, "mean") for c in grp_cols}))
+    df = df.dropna(subset=grp_cols, how="all")
+    if df.empty:
+        return None
+    raw = df[grp_cols].astype(float)
+    z = raw.copy()
+    for c in grp_cols:
+        m = z[c].max(skipna=True)
+        if pd.notna(m) and m > 0:
+            z[c] = z[c] / m
+    z = z.fillna(0.0)
+    y_labels = [lbl for _, lbl in available]
+    x_labels = df["機能ID"].tolist()
+    cd_rows = [[_format_compare_cell(c, raw[c].iloc[i])
+                for i in range(len(df))]
+               for c, _ in available]
+    customdata = np.array(cd_rows, dtype=object)
+    fig = go.Figure(data=go.Heatmap(
+        z=z[grp_cols].T.values,
+        x=x_labels, y=y_labels,
+        customdata=customdata,
+        hovertemplate="<b>%{x}</b><br>%{y}: %{customdata}<extra></extra>",
+        colorscale="Blues", zmin=0, zmax=1,
+        hoverongaps=False,
+        colorbar=dict(title=dict(text=t("chart_overview_compare_colorbar"),
+                                 side="right")),
+    ))
+    fig.update_layout(height=max(280, 50 * len(y_labels) + 80),
+                      margin=_INLINE_MARGIN_HEATMAP)
+    fig.update_xaxes(tickangle=-30, automargin=True)
+    fig.update_yaxes(automargin=True)
+    return fig
+
+
 TEST_DENSITY_THRESHOLD_DEFAULT = 10.0
 
 
@@ -5697,6 +5790,51 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
                     st.code(detail, language="text")
 
 
+def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
+    """Section: 機能ID-filterable KPI cards + 4-metric comparison heatmap.
+
+    Filter is empty by default — KPI cards then show the totals across
+    every Function ID in the master. Selecting one or more FIDs narrows
+    both the cards and the heatmap (and re-normalizes the heatmap so the
+    colors stay meaningful within the filtered set).
+    """
+    available = [(c, lbl) for c, lbl in _OVERVIEW_COMPARE_METRICS
+                 if c in kpi_df.columns]
+    if not available:
+        return
+    section_header("chart_overview_compare", "help_chart_overview_compare")
+    fids = sorted(str(x) for x in kpi_df["機能ID"].dropna().unique())
+    selected = st.multiselect(
+        t("chart_overview_compare_filter"), options=fids, default=[],
+        key="overview_compare_fids",
+        help=t("chart_overview_compare_filter_help"),
+    )
+    df = kpi_df.copy()
+    if selected:
+        df = df[df["機能ID"].astype(str).isin(selected)]
+    if df.empty:
+        st.info(t("chart_overview_compare_empty"))
+        return
+    # Aggregate to one row per 機能ID so duplicate (機能ID, 機能名称) pairs in
+    # the master don't double-count their joined LoC / tests / defect counts.
+    grp_cols = [c for c, _ in available]
+    df = (df.groupby("機能ID", as_index=False)
+          .agg(**{c: (c, "mean") for c in grp_cols}))
+    cards = st.columns(len(available), gap="small")
+    n_fids = len(df)
+    fids_help = f"{n_fids} {t('chart_overview_compare_fids_suffix')}"
+    total_prefix = t("chart_overview_compare_total_prefix")
+    for (col, lbl), card in zip(available, cards):
+        s = pd.to_numeric(df[col], errors="coerce").dropna()
+        v = float(s.sum()) if len(s) else None
+        card.metric(f"{total_prefix} {lbl}",
+                    f"{int(v):,}" if v is not None else "—",
+                    help=fids_help)
+    fig = _chart_overview_compare(df)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True)
+
+
 def render_charts_tab() -> None:
     """Tab — visualizations of the current KPI dataframe and time-series
     derived from saved snapshots in input/."""
@@ -5733,6 +5871,8 @@ def render_charts_tab() -> None:
     # builder already sets a sensible margin + `automargin=True` so long
     # Function-ID labels (e.g. "USER010 · Profile Edit (Admin)") don't get
     # clipped at typical viewport widths.
+    _render_overview_compare(kpi_df)
+
     fig = _chart_progress_gap(kpi_df)
     if fig is not None:
         section_header("chart_progress_gap", "help_chart_progress_gap")
@@ -6558,7 +6698,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.18</span>
+    <span class="ver">Ver1.0.19</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
