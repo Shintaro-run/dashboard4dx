@@ -2167,6 +2167,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_defect_class_col_class": "問題分類",
         "chart_defect_class_col_count": "Count",
         "chart_defect_class_col_share": "Share",
+        "global_fid_filter_title": "Function ID filter",
+        "global_fid_filter_label": "Function IDs",
+        "global_fid_filter_help": "Empty = every Function ID. Applied to Overview compare, Calendar, and Charts (Redmine 問題分類).",
+        "global_fid_filter_scope_all": "Scope: all Function IDs",
+        "global_fid_filter_scope_n": "Scope: {n} Function ID(s)",
+        "global_fid_filter_upload_hint": "Upload the Function ID master to unlock the filter.",
+        "kpi_missing_header": "**Cannot compute — missing inputs:**",
+        "source_label_tests":   "Test counts CSV",
+        "source_label_code":    "Code (LoC) XLSX",
+        "source_label_design":  "Design pages (manual)",
+        "source_label_defects": "Redmine defect CSV",
+        "source_label_wbs":     "WBS XLSM",
         "chart_no_design_pages": "Enter design page counts in the Design pages tab to populate this chart.",
         "chart_no_history": "Need at least two snapshots to draw a trend.",
         "chart_no_defects": "Defect tracker not loaded.",
@@ -2327,6 +2339,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_close": "Close drill-down",
         "drilldown_section_wbs":     "Schedule (WBS)",
         "drilldown_section_defects": "Defects",
+        "drilldown_section_trend": "Trend (across snapshots)",
+        "drilldown_section_trend_caption": (
+            "Per-Function-ID history of test counts and LoC, reconstructed "
+            "from every timestamped snapshot under `input/`."
+        ),
         "drilldown_section_tests":   "Tests",
         "drilldown_section_code":    "Code & Design",
         "drilldown_section_scores":  "Composite scores",
@@ -2792,6 +2809,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_defect_class_col_class": "問題分類",
         "chart_defect_class_col_count": "件数",
         "chart_defect_class_col_share": "割合",
+        "global_fid_filter_title": "機能IDフィルタ",
+        "global_fid_filter_label": "機能ID",
+        "global_fid_filter_help": "未選択で全機能ID。Overview比較 / カレンダー / Charts（Redmine 問題分類）に適用されます。",
+        "global_fid_filter_scope_all": "対象: 全機能ID",
+        "global_fid_filter_scope_n": "対象: {n} 件の機能ID",
+        "global_fid_filter_upload_hint": "機能IDマスタを取り込むとフィルタが使えます。",
+        "kpi_missing_header": "**計算不可 — 未入力:**",
+        "source_label_tests":   "テスト集計CSV",
+        "source_label_code":    "コード行数XLSX",
+        "source_label_design":  "設計書ページ数（手動入力）",
+        "source_label_defects": "Redmine 障害CSV",
+        "source_label_wbs":     "WBS XLSM",
         "chart_no_design_pages": "設計書ページ数タブで値を入力するとこのグラフが表示されます。",
         "chart_no_history": "推移グラフには2つ以上のスナップショットが必要です。",
         "chart_no_defects": "不具合管理が未取込です。",
@@ -2948,6 +2977,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_close": "ドリルダウンを閉じる",
         "drilldown_section_wbs":     "スケジュール (WBS)",
         "drilldown_section_defects": "不具合",
+        "drilldown_section_trend": "トレンド（スナップショット横断）",
+        "drilldown_section_trend_caption": (
+            "`input/` 配下のタイムスタンプ付きスナップショットを機能ID別に"
+            "再構成した、テスト件数と LoC の推移。"
+        ),
         "drilldown_section_tests":   "テスト",
         "drilldown_section_code":    "コード/設計",
         "drilldown_section_scores":  "合成スコア",
@@ -4161,6 +4195,19 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
             d = _to_pydate(v)
             return d.isoformat() if d else "—"
 
+        def _derived(kpi_name: str, base_help: str,
+                     formatter: Callable[[object], str]) -> tuple[str, str]:
+            """Return ``(value_str, help_str)`` for a derived KPI metric.
+
+            If any required source column is missing for this row the value
+            becomes ``"?"`` and the help text lists which input is blank,
+            so the user knows exactly which resource to fill in.
+            """
+            missing = _missing_inputs_for(row, kpi_name)
+            if missing:
+                return "?", _compose_missing_help(base_help, missing)
+            return formatter(row.get(kpi_name)), base_help
+
         # Schedule (WBS)
         st.markdown(f"#### {t('drilldown_section_wbs')}")
         wbs_cols = st.columns(5, gap="small")
@@ -4174,9 +4221,9 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                            _f(row.get("planned_effort"), "{:.1f}"))
         wbs_cols[3].metric(t("drilldown_actual_effort"),
                            _f(row.get("actual_effort"), "{:.1f}"))
-        wbs_cols[4].metric(t("col_delay_days"),
-                           _f(row.get("delay_days"), "{:.0f}"),
-                           help=t("help_delay_days"))
+        _v, _h = _derived("delay_days", t("help_delay_days"),
+                          lambda v: _f(v, "{:.0f}"))
+        wbs_cols[4].metric(t("col_delay_days"), _v, help=_h)
 
         prog_cols = st.columns(2, gap="small")
         prog_cols[0].metric(t("drilldown_planned_progress"),
@@ -4195,17 +4242,30 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
         t_cols[3].metric(t("col_test_ng"), _f(row.get("NG"), "{:.0f}"),
                          help=t("help_test_ng"))
         t_cols[4].metric("未実施", _f(row.get("未実施"), "{:.0f}"))
-        t_cols[5].metric(t("col_test_run_rate"), _pct(row.get("test_run_rate")))
-        t_cols[6].metric(t("col_test_pass_rate"), _pct(row.get("test_pass_rate")))
+        _v, _h = _derived("test_run_rate",
+                          t("help_test_run_rate"), _pct)
+        t_cols[5].metric(t("col_test_run_rate"), _v, help=_h)
+        _v, _h = _derived("test_pass_rate",
+                          t("help_test_pass_rate"), _pct)
+        t_cols[6].metric(t("col_test_pass_rate"), _v, help=_h)
 
         # Code & Design
         st.markdown(f"#### {t('drilldown_section_code')}")
         c_cols = st.columns(5, gap="small")
         c_cols[0].metric("LoC", _f(row.get("LoC"), "{:,.0f}"))
         c_cols[1].metric("設計書ページ数", _f(row.get("設計書ページ数"), "{:.0f}"))
-        c_cols[2].metric(t("col_complexity"), _f(row.get("complexity"), "{:.1f}"))
-        c_cols[3].metric(t("col_test_density"), _f(row.get("test_density"), "{:.2f}"))
-        c_cols[4].metric(t("col_bug_density"), _f(row.get("bug_density"), "{:.3f}"))
+        _v, _h = _derived("complexity",
+                          t("help_complexity"),
+                          lambda v: _f(v, "{:.1f}"))
+        c_cols[2].metric(t("col_complexity"), _v, help=_h)
+        _v, _h = _derived("test_density",
+                          t("help_test_density"),
+                          lambda v: _f(v, "{:.2f}"))
+        c_cols[3].metric(t("col_test_density"), _v, help=_h)
+        _v, _h = _derived("bug_density",
+                          t("help_bug_density"),
+                          lambda v: _f(v, "{:.3f}"))
+        c_cols[4].metric(t("col_bug_density"), _v, help=_h)
 
         # Composite scores
         st.markdown(f"#### {t('drilldown_section_scores')}")
@@ -4226,12 +4286,11 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
         d_cols[1].metric(t("col_defect_unresolved"),
                          _f(row.get("defect_unresolved"), "{:.0f}"),
                          help=t("help_defect_unresolved"))
-        d_cols[2].metric(t("col_defect_rate"),
-                         _pct(row.get("defect_rate")),
-                         help=t("help_defect_rate"))
-        d_cols[3].metric(t("col_incident_rate"),
-                         _pct(row.get("incident_rate")),
-                         help=t("help_incident_rate"))
+        _v, _h = _derived("defect_rate", t("help_defect_rate"), _pct)
+        d_cols[2].metric(t("col_defect_rate"), _v, help=_h)
+        _v, _h = _derived("incident_rate",
+                          t("help_incident_rate"), _pct)
+        d_cols[3].metric(t("col_incident_rate"), _v, help=_h)
 
         if defects_df is not None and not defects_df.empty:
             related = defects_df[defects_df["機能ID"] == function_id].copy()
@@ -4250,6 +4309,13 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                 )
         else:
             st.caption(t("drilldown_no_defects"))
+
+        # ---- Per-FID trend (snapshots) ----------------------------------
+        trend_fig = _chart_fid_trend(function_id)
+        if trend_fig is not None:
+            st.markdown(f"#### {t('drilldown_section_trend')}")
+            st.caption(t("drilldown_section_trend_caption"))
+            st.plotly_chart(trend_fig, use_container_width=True)
 
 
 def render_dashboard_tab() -> None:
@@ -5034,6 +5100,79 @@ def _chart_defect_class(defects_df: Optional[pd.DataFrame]
     )])
     fig.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20),
                       legend_title_text="")
+    return fig
+
+
+def _collect_fid_history(function_id: str) -> pd.DataFrame:
+    """Walk every saved tests/code snapshot under ``input/`` and extract the
+    row for ``function_id``. Returns a long-ish dataframe indexed by
+    snapshot date with columns {総テスト, 実施済, OK, NG, 未実施, LoC}
+    (only those that were present). Missing cells stay NaN so the chart
+    silently omits them.
+    """
+    rows: dict[date, dict] = {}
+    for snap_date, _, df_snap in load_all_snapshots_for_slot(
+        "tests", load_test_counts
+    ):
+        sub = df_snap[df_snap["機能ID"] == function_id]
+        if sub.empty:
+            continue
+        r = sub.iloc[0]
+        bucket = rows.setdefault(snap_date, {})
+        for c in ("総テスト", "実施済", "OK", "NG", "未実施"):
+            if c in sub.columns:
+                v = r.get(c)
+                bucket[c] = float(v) if pd.notna(v) else None
+    for snap_date, _, df_snap in load_all_snapshots_for_slot(
+        "code", load_code_counts
+    ):
+        sub = df_snap[df_snap["機能ID"] == function_id]
+        if sub.empty:
+            continue
+        r = sub.iloc[0]
+        bucket = rows.setdefault(snap_date, {})
+        if "LoC" in sub.columns and pd.notna(r.get("LoC")):
+            bucket["LoC"] = float(r["LoC"])
+    if not rows:
+        return pd.DataFrame()
+    df = pd.DataFrame(
+        [{"date": d, **vals} for d, vals in rows.items()]
+    ).sort_values("date").reset_index(drop=True)
+    return df
+
+
+def _chart_fid_trend(function_id: str) -> Optional[go.Figure]:
+    """Per-Function-ID trend: NG / 実施済 / 総テスト on the left axis
+    (counts) and LoC on the right axis (lines of code). Returns None when
+    fewer than two snapshots have data for this FID."""
+    df = _collect_fid_history(function_id)
+    if len(df) < 2:
+        return None
+    fig = go.Figure()
+    if "NG" in df.columns and df["NG"].notna().any():
+        fig.add_scatter(name="NG", x=df["date"], y=df["NG"],
+                        mode="lines+markers", line=dict(color="#f05050"))
+    if "実施済" in df.columns and df["実施済"].notna().any():
+        fig.add_scatter(name="実施済", x=df["date"], y=df["実施済"],
+                        mode="lines+markers", line=dict(color="#4ec78a"))
+    if "総テスト" in df.columns and df["総テスト"].notna().any():
+        fig.add_scatter(name="総テスト", x=df["date"], y=df["総テスト"],
+                        mode="lines+markers", line=dict(color="#7aaef0"))
+    if "LoC" in df.columns and df["LoC"].notna().any():
+        fig.add_scatter(name="LoC", x=df["date"], y=df["LoC"],
+                        mode="lines+markers", yaxis="y2",
+                        line=dict(color="#f5b400", dash="dot"))
+    # Need at least one trace worth charting
+    if not fig.data:
+        return None
+    fig.update_layout(
+        height=300, margin=dict(l=60, r=60, t=30, b=40),
+        yaxis=dict(title="tests (count)", automargin=True),
+        yaxis2=dict(title="LoC", overlaying="y", side="right",
+                    automargin=True, showgrid=False),
+        legend_title_text="",
+    )
+    fig.update_xaxes(automargin=True)
     return fig
 
 
@@ -6132,34 +6271,21 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
 _DEFECT_CLASS_TOP_N = 3
 
 
-def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame],
-                                   kpi_df: Optional[pd.DataFrame]) -> None:
+def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame]
+                                   ) -> None:
     """Section: Function-ID-filterable Redmine 問題分類 pie + Top-N table.
 
-    Filter is empty by default — pie reflects every Redmine fault row.
-    Selecting one or more 機能IDs narrows both the pie and the Top-N table
-    (and re-percentages within the filtered subset).
+    Filter comes from the sidebar's global Function ID selection — pie
+    reflects every Redmine fault row when it is empty, and narrows to
+    the selected subset when any IDs are chosen (re-percentages within
+    that subset).
     """
     if defects_df is None or defects_df.empty:
         return
     if "問題分類" not in defects_df.columns:
         return
     section_header("chart_defect_class", "help_chart_defect_class")
-    fid_options = sorted(
-        str(x) for x in defects_df["機能ID"].dropna().unique()
-    )
-    if kpi_df is not None and not kpi_df.empty and "機能ID" in kpi_df.columns:
-        # Show every master 機能ID even when it has zero faults, so the
-        # filter dropdown matches the rest of the dashboard's vocabulary.
-        fid_options = sorted(
-            set(fid_options)
-            | {str(x) for x in kpi_df["機能ID"].dropna().unique()}
-        )
-    selected = st.multiselect(
-        t("chart_defect_class_filter"), options=fid_options, default=[],
-        key="defect_class_fids",
-        help=t("chart_defect_class_filter_help"),
-    )
+    selected = _get_global_fids()
     df = defects_df
     if selected:
         df = defects_df[defects_df["機能ID"].astype(str).isin(selected)]
@@ -6209,12 +6335,7 @@ def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
     if not available:
         return
     section_header("chart_overview_compare", "help_chart_overview_compare")
-    fids = sorted(str(x) for x in kpi_df["機能ID"].dropna().unique())
-    selected = st.multiselect(
-        t("chart_overview_compare_filter"), options=fids, default=[],
-        key="overview_compare_fids",
-        help=t("chart_overview_compare_filter_help"),
-    )
+    selected = _get_global_fids()
     df = kpi_df.copy()
     if selected:
         df = df[df["機能ID"].astype(str).isin(selected)]
@@ -6353,7 +6474,7 @@ def render_charts_tab() -> None:
         section_header("chart_bug_trend", "help_chart_bug_trend")
         st.caption(t("chart_no_defects"))
 
-    _render_defect_class_breakdown(defects_df, kpi_df)
+    _render_defect_class_breakdown(defects_df)
 
 
 _CALENDAR_CSS = """
@@ -6411,11 +6532,7 @@ def render_calendar_tab() -> None:
     section_header("calendar_title", "help_calendar_title")
     st.caption(t("calendar_caption"))
 
-    all_fids = sorted(str(x) for x in kpi_df["機能ID"].dropna().unique())
-    selected_fids = st.multiselect(
-        t("calendar_filter_fid"), options=all_fids, default=[],
-        key="cal_filter_fids", help=t("calendar_filter_fid_help"),
-    )
+    selected_fids = _get_global_fids()
 
     layer_cols = st.columns(4)
     with layer_cols[0]:
@@ -7015,6 +7132,119 @@ def render_settings_tab() -> None:
     st.markdown(t("log_file_caption", path=str(rel_log)))
 
 
+# -----------------------------------------------------------------------------
+# Derived-KPI input map. Keys are kpi_df columns that are COMPUTED from other
+# columns; each value is a list of (input_column, source_key) tuples naming
+# the raw inputs the computation depends on. `source_key` maps to a
+# human-facing source label (test spec / WBS / Redmine / code / design).
+#
+# Used by the drilldown to show "?" + a tooltip naming the missing inputs
+# instead of a blank "—" whenever a derived metric can't be computed —
+# so the user knows exactly which resource to fill in.
+# -----------------------------------------------------------------------------
+_DERIVED_KPI_INPUTS: dict[str, list[tuple[str, str]]] = {
+    "bug_density":    [("NG", "tests"), ("LoC", "code")],
+    "test_density":   [("総テスト", "tests"), ("設計書ページ数", "design")],
+    "complexity":     [("LoC", "code"), ("設計書ページ数", "design")],
+    "test_run_rate":  [("実施済", "tests"), ("総テスト", "tests")],
+    "test_pass_rate": [("OK", "tests"), ("実施済", "tests")],
+    "defect_rate":    [("NG", "tests"), ("総テスト", "tests")],
+    "incident_rate":  [("defect_total", "defects"), ("実施済", "tests")],
+    "delay_days":     [("planned_end", "wbs")],
+    "delay_rate":     [("planned_start", "wbs"), ("planned_end", "wbs")],
+}
+
+_SOURCE_LABEL_KEYS: dict[str, str] = {
+    "tests":   "source_label_tests",
+    "code":    "source_label_code",
+    "design":  "source_label_design",
+    "defects": "source_label_defects",
+    "wbs":     "source_label_wbs",
+}
+
+
+def _missing_inputs_for(row, kpi_name: str) -> list[tuple[str, str]]:
+    """Return the list of (column, source_key) entries whose value is blank
+    for this row. Empty list means the KPI can be computed."""
+    spec = _DERIVED_KPI_INPUTS.get(kpi_name)
+    if not spec:
+        return []
+    missing = []
+    for col, src in spec:
+        v = row.get(col)
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            missing.append((col, src))
+    return missing
+
+
+def _compose_missing_help(base_help: str,
+                          missing: list[tuple[str, str]]) -> str:
+    """Append a localized "inputs missing" block under the existing help
+    tooltip text, naming each blank input + its source file."""
+    if not missing:
+        return base_help
+    lines = [t("kpi_missing_header")]
+    for col, src in missing:
+        src_key = _SOURCE_LABEL_KEYS.get(src)
+        src_label = t(src_key) if src_key else src
+        lines.append(f"- `{col}` — {src_label}")
+    block = "\n".join(lines)
+    if base_help:
+        return f"{base_help}\n\n---\n{block}"
+    return block
+
+
+def _get_global_fids() -> list[str]:
+    """Return the session-wide Function ID filter selection, as strings.
+    Empty list means "no filter" (every Function ID is in scope)."""
+    try:
+        return [str(x) for x in
+                st.session_state.get("global_fid_filter", [])]
+    except Exception:
+        return []
+
+
+def _apply_global_fid_filter(df: Optional[pd.DataFrame]
+                             ) -> Optional[pd.DataFrame]:
+    """Narrow a dataframe to the sidebar's Function ID selection when the
+    user has picked any IDs, otherwise return the frame untouched."""
+    if df is None or df.empty:
+        return df
+    if "機能ID" not in df.columns:
+        return df
+    selected = _get_global_fids()
+    if not selected:
+        return df
+    return df[df["機能ID"].astype(str).isin(selected)]
+
+
+def _render_global_fid_filter() -> None:
+    """Sidebar widget that all tabs share for narrowing by Function ID.
+
+    Rendered LAST in main() so that tabs have already populated
+    `st.session_state.dfs` via auto-load; on the next rerun the widget
+    sees the freshly loaded master and offers every ID as a choice.
+    """
+    with st.sidebar:
+        st.subheader(t("global_fid_filter_title"))
+        master = st.session_state.dfs.get("master")
+        if master is None or master.empty:
+            st.caption(t("global_fid_filter_upload_hint"))
+            return
+        options = sorted(str(x) for x in master["機能ID"].dropna().unique())
+        st.multiselect(
+            t("global_fid_filter_label"),
+            options=options, default=[],
+            key="global_fid_filter",
+            help=t("global_fid_filter_help"),
+        )
+        n = len(_get_global_fids())
+        if n == 0:
+            st.caption(t("global_fid_filter_scope_all"))
+        else:
+            st.caption(t("global_fid_filter_scope_n", n=n))
+
+
 def main() -> None:
     favicon_path = ensure_favicon()
     st.set_page_config(
@@ -7129,7 +7359,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.25</span>
+    <span class="ver">Ver1.0.26</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -7163,6 +7393,10 @@ def main() -> None:
         render_design_pages_tab()
     with tab_settings:
         render_settings_tab()
+
+    # Rendered last so the Function ID list reflects whatever auto-load just
+    # populated in session_state during the tabs above.
+    _render_global_fid_filter()
 
 
 if __name__ == "__main__":
