@@ -2111,6 +2111,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_actual": "actual",
         "chart_test_coverage": "Test coverage (OK / NG / not run)",
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
+        "chart_test_density_threshold_label": "threshold",
+        "chart_test_density_below_marker": "⚠ low",
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "(size: design pages, color: risk score)",
         "chart_design_impl_gap": "Design pages × LoC",
@@ -2174,6 +2176,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "additional sub-tasks of the most recent valid parent 機能ID "
             "instead. Useful when a duplicate row is an accidental re-entry "
             "but its breakdown rows carry legitimate extra schedule detail."
+        ),
+        "settings_charts_title": "Chart thresholds",
+        "settings_charts_caption": (
+            "Tunable thresholds used as warning lines on the per-Function-ID "
+            "charts. Bars below the configured value are flagged in red and "
+            "carry a small marker."
+        ),
+        "settings_test_density_threshold": "Test density warning threshold (tests / page)",
+        "settings_test_density_threshold_caption": (
+            "Default 10. Function IDs whose 総テスト ÷ 設計書ページ数 falls "
+            "below this value are highlighted on the test density chart."
         ),
         "settings_pages_title": "Auto-load of design page counts",
         "settings_pages_caption": (
@@ -2645,6 +2658,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_actual": "実績",
         "chart_test_coverage": "テストカバレッジ (OK / NG / 未実施)",
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
+        "chart_test_density_threshold_label": "閾値",
+        "chart_test_density_below_marker": "⚠ 不足",
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "（サイズ: 設計ページ数、色: リスクスコア）",
         "chart_design_impl_gap": "設計ページ数 × LoC",
@@ -2706,6 +2721,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "有効な親機能IDの追加サブタスクとして取り込む。"
             "重複行が誤入力でも、そのサブ行には正当なスケジュール詳細が"
             "書かれている場合に使います。"
+        ),
+        "settings_charts_title": "チャート閾値",
+        "settings_charts_caption": (
+            "機能ID別チャートで警告線として使う閾値。"
+            "閾値未満のバーは赤色＋マーカーで強調されます。"
+        ),
+        "settings_test_density_threshold": "テスト密度の警告閾値（テスト/ページ）",
+        "settings_test_density_threshold_caption": (
+            "既定値 10。総テスト ÷ 設計書ページ数 がこの値を下回る機能IDは、"
+            "テスト密度チャートで赤＋⚠マーカーで強調表示されます。"
         ),
         "settings_pages_title": "設計書ページ数の自動取込",
         "settings_pages_caption": (
@@ -4313,6 +4338,24 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+TEST_DENSITY_THRESHOLD_DEFAULT = 10.0
+
+
+def _test_density_threshold() -> float:
+    """Read the user-configured test density threshold (Settings tab) and
+    fall back to the default when running outside Streamlit (tests, batch
+    invocation) so chart helpers stay safe to call standalone."""
+    try:
+        v = st.session_state.get("test_density_threshold",
+                                 TEST_DENSITY_THRESHOLD_DEFAULT)
+    except Exception:
+        v = TEST_DENSITY_THRESHOLD_DEFAULT
+    try:
+        return float(v) if v is not None else TEST_DENSITY_THRESHOLD_DEFAULT
+    except (TypeError, ValueError):
+        return TEST_DENSITY_THRESHOLD_DEFAULT
+
+
 def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if not {"test_density", "総テスト", "設計書ページ数"}.issubset(kpi_df.columns):
         return None
@@ -4329,22 +4372,42 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if total > _BAR_CHART_MAX_ROWS:
         df = df.head(_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
+    threshold = _test_density_threshold()
+    densities = df["test_density"].astype(float)
+    below = densities < threshold
+    bar_colors = np.where(below, "#f05050", "#7aaef0")
+    bar_lines = np.where(below, "#a02020", "#7aaef0")
     customdata = np.column_stack([
         df["総テスト"].fillna(0).astype(int),
         df["設計書ページ数"].fillna(0).astype(float),
-        df["test_density"].astype(float),
+        densities,
     ])
+    below_marker = t("chart_test_density_below_marker")
     hover_tmpl = (
         "<b>%{y}</b><br>"
         "総テスト: %{customdata[0]}  "
         "設計書ページ数: %{customdata[1]:.0f}<br>"
         f"{t('col_test_density')}: %{{customdata[2]:.2f}}"
+        f" (閾値: {threshold:g})"
         "<extra></extra>"
     )
     fig = go.Figure()
-    fig.add_bar(y=df["display"], x=df["test_density"],
-                orientation="h", marker_color="#7aaef0",
-                customdata=customdata, hovertemplate=hover_tmpl)
+    fig.add_bar(
+        y=df["display"], x=densities,
+        orientation="h",
+        marker_color=bar_colors.tolist(),
+        marker_line=dict(color=bar_lines.tolist(), width=1),
+        customdata=customdata, hovertemplate=hover_tmpl,
+        text=[below_marker if b else "" for b in below],
+        textposition="outside",
+        textfont=dict(color="#a02020", size=11),
+    )
+    fig.add_vline(
+        x=threshold, line_width=1, line_dash="dash", line_color="#a02020",
+        annotation_text=f"{t('chart_test_density_threshold_label')} {threshold:g}",
+        annotation_position="top right",
+        annotation_font=dict(color="#a02020", size=11),
+    )
     fig.update_layout(height=max(280, 28 * len(df)),
                       xaxis_title="tests / page", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
@@ -4811,7 +4874,14 @@ def _mpl_chart_test_density(kpi_df: pd.DataFrame):
     fig, ax = plt.subplots(
         figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
     y = np.arange(n)
-    ax.barh(y, df["test_density"].values, color="#7aaef0")
+    densities = df["test_density"].values.astype(float)
+    threshold = _test_density_threshold()
+    colors = ["#f05050" if d < threshold else "#7aaef0" for d in densities]
+    ax.barh(y, densities, color=colors)
+    ax.axvline(threshold, color="#a02020", linestyle="--", linewidth=1)
+    ax.text(threshold, n - 0.5,
+            f" {t('chart_test_density_threshold_label')} {threshold:g}",
+            color="#a02020", fontsize=9, va="bottom", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(df["display"])
     ax.set_xlabel("tests / page")
     ax.grid(axis="x", linestyle=":", alpha=0.3)
@@ -6354,6 +6424,18 @@ def render_settings_tab() -> None:
     )
     st.caption(t("settings_wbs_attach_after_dup_caption"))
 
+    # ----- Chart thresholds -----
+    st.divider()
+    st.subheader(t("settings_charts_title"))
+    st.caption(t("settings_charts_caption"))
+    st.number_input(
+        t("settings_test_density_threshold"),
+        min_value=0.0, step=0.5, format="%.2f",
+        key="test_density_threshold",
+        help=t("settings_test_density_threshold_caption"),
+    )
+    st.caption(t("settings_test_density_threshold_caption"))
+
     # ----- Session log location -----
     st.divider()
     st.subheader(t("log_section_title"))
@@ -6384,6 +6466,8 @@ def main() -> None:
     st.session_state.setdefault("lang", DEFAULT_LANG)
     st.session_state.setdefault("skip_auto_load", {})
     st.session_state.setdefault("origin_names", {})
+    st.session_state.setdefault("test_density_threshold",
+                                TEST_DENSITY_THRESHOLD_DEFAULT)
 
     # --- Header row: title (left) + language switcher (right) ----------------
     title_col, lang_col = st.columns([10, 1], gap="small")
@@ -6474,7 +6558,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.17</span>
+    <span class="ver">Ver1.0.18</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
