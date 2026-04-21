@@ -4571,18 +4571,27 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     actual_colors = np.where(over, "#f5b400", "#4ec78a")
     actual_lines = np.where(over, "#a06a00", "#4ec78a")
     over_marker = t("chart_progress_over_marker")
-    over_text = [over_marker if o else "" for o in over]
+    planned_vals = df["planned_progress"].astype(float)
+    actual_vals = df["actual_progress"].astype(float)
+    planned_text = [f"{v:.0f}%" for v in planned_vals]
+    actual_text = [
+        f"{v:.0f}% {over_marker}" if o else f"{v:.0f}%"
+        for v, o in zip(actual_vals, over)
+    ]
     fig = go.Figure()
     fig.add_bar(name=t("chart_progress_planned"),
-                y=df["display"], x=df["planned_progress"],
-                orientation="h", marker_color="#9aa")
+                y=df["display"], x=planned_vals,
+                orientation="h", marker_color="#9aa",
+                text=planned_text, textposition="outside",
+                textfont=dict(color="#6c6c6c", size=10),
+                cliponaxis=False)
     fig.add_bar(name=t("chart_progress_actual"),
-                y=df["display"], x=df["actual_progress"],
+                y=df["display"], x=actual_vals,
                 orientation="h",
                 marker_color=actual_colors.tolist(),
                 marker_line=dict(color=actual_lines.tolist(), width=1),
-                text=over_text, textposition="outside",
-                textfont=dict(color="#a06a00", size=11),
+                text=actual_text, textposition="outside",
+                textfont=dict(color="#a06a00", size=10),
                 cliponaxis=False)
     fig.update_layout(barmode="group",
                       height=max(280, 28 * len(df)),
@@ -4631,11 +4640,20 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
                         horizontal_spacing=0.04,
                         subplot_titles=titles)
     for i, (col, lbl, color) in enumerate(available, start=1):
-        vals = pd.to_numeric(df[col], errors="coerce").astype(float).tolist()
+        raw = pd.to_numeric(df[col], errors="coerce").astype(float)
+        vals = raw.tolist()
+        bar_text = [
+            "" if pd.isna(v) else (f"{int(v):,}" if col == "LoC"
+                                   else f"{int(v)}")
+            for v in vals
+        ]
         fig.add_trace(
             go.Bar(
                 y=fids, x=vals, orientation="h",
                 marker_color=color, showlegend=False,
+                text=bar_text, textposition="outside",
+                textfont=dict(color="#555555", size=10),
+                cliponaxis=False,
                 hovertemplate=(
                     f"<b>%{{y}}</b><br>{lbl}: "
                     + ("%{x:,.0f}" if col != "LoC" else "%{x:,}")
@@ -4719,6 +4737,11 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         f" (閾値: {threshold:g})"
         "<extra></extra>"
     )
+    bar_texts = [
+        f"{v:.2f} {below_marker}" if b else f"{v:.2f}"
+        for v, b in zip(densities, below)
+    ]
+    text_colors = ["#a02020" if b else "#555555" for b in below]
     fig = go.Figure()
     fig.add_bar(
         y=df["display"], x=densities,
@@ -4726,9 +4749,10 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         marker_color=bar_colors.tolist(),
         marker_line=dict(color=bar_lines.tolist(), width=1),
         customdata=customdata, hovertemplate=hover_tmpl,
-        text=[below_marker if b else "" for b in below],
+        text=bar_texts,
         textposition="outside",
-        textfont=dict(color="#a02020", size=11),
+        textfont=dict(color=text_colors, size=10),
+        cliponaxis=False,
     )
     fig.add_vline(
         x=threshold, line_width=1, line_dash="dash", line_color="#a02020",
@@ -4782,16 +4806,23 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         f" (閾値: {threshold * 100:g}%)"
         "<extra></extra>"
     )
+    pct_vals = rates * 100.0
+    bar_texts = [
+        f"{v:.1f}% {above_marker}" if a else f"{v:.1f}%"
+        for v, a in zip(pct_vals, above)
+    ]
+    text_colors = ["#a02020" if a else "#555555" for a in above]
     fig = go.Figure()
     fig.add_bar(
-        y=df["display"], x=rates * 100.0,
+        y=df["display"], x=pct_vals,
         orientation="h",
         marker_color=bar_colors.tolist(),
         marker_line=dict(color=bar_lines.tolist(), width=1),
         customdata=customdata, hovertemplate=hover_tmpl,
-        text=[above_marker if a else "" for a in above],
+        text=bar_texts,
         textposition="outside",
-        textfont=dict(color="#a02020", size=11),
+        textfont=dict(color=text_colors, size=10),
+        cliponaxis=False,
     )
     fig.add_vline(
         x=threshold * 100.0,
@@ -4845,18 +4876,32 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         f"{t('chart_label_coverage')}: %{{customdata[4]:.1f}}%"
         "<extra></extra>"
     )
+    def _seg_text(values):
+        # Blank the label when the segment is 0 so a bunch of "0" labels
+        # doesn't litter the stack.
+        return [(str(int(v)) if v else "") for v in values]
+
     fig = go.Figure()
     fig.add_bar(name=t("chart_label_ok"),
                 y=df["display"], x=ok_vals,
                 orientation="h", marker_color="#4ec78a",
+                text=_seg_text(ok_vals), textposition="inside",
+                insidetextanchor="middle",
+                textfont=dict(color="#0f3d22", size=10),
                 customdata=customdata, hovertemplate=hover_tmpl)
     fig.add_bar(name=t("chart_label_ng"),
                 y=df["display"], x=ng_vals,
                 orientation="h", marker_color="#f05050",
+                text=_seg_text(ng_vals), textposition="inside",
+                insidetextanchor="middle",
+                textfont=dict(color="#3d0b0b", size=10),
                 customdata=customdata, hovertemplate=hover_tmpl)
     fig.add_bar(name=t("chart_label_notrun"),
                 y=df["display"], x=nr_vals,
                 orientation="h", marker_color="#bbbbbb",
+                text=_seg_text(nr_vals), textposition="inside",
+                insidetextanchor="middle",
+                textfont=dict(color="#333333", size=10),
                 customdata=customdata, hovertemplate=hover_tmpl)
     fig.update_layout(barmode="stack",
                       height=max(280, 28 * len(df)),
@@ -5048,13 +5093,24 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
         f"{t('chart_label_closed')}: %{{y}}<br>"
         "%{customdata[0]}<extra></extra>"
     )
+    def _week_bar_text(values):
+        return [("" if (v is None or v == 0) else str(int(v))) for v in values]
+
     fig = go.Figure()
     fig.add_bar(name=t("chart_label_opened"), x=idx, y=wk_opened,
                 marker_color="#f05050",
+                text=_week_bar_text(wk_opened.values),
+                textposition="outside",
+                textfont=dict(color="#6c6c6c", size=10),
+                cliponaxis=False,
                 customdata=np.array(opened_fid_text).reshape(-1, 1),
                 hovertemplate=hover_opened)
     fig.add_bar(name=t("chart_label_closed"), x=idx, y=wk_closed,
                 marker_color="#4ec78a",
+                text=_week_bar_text(wk_closed.values),
+                textposition="outside",
+                textfont=dict(color="#6c6c6c", size=10),
+                cliponaxis=False,
                 customdata=np.array(closed_fid_text).reshape(-1, 1),
                 hovertemplate=hover_closed)
     fig.add_scatter(name=t("chart_label_open_cum"), x=idx,
@@ -7368,7 +7424,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.28</span>
+    <span class="ver">Ver1.0.29</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
