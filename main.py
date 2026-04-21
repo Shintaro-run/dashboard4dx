@@ -2590,7 +2590,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_chart_risk_heatmap": (
             "**🦕 Risk dimensions heatmap**\n\n"
             "Function ID × five risk dimensions (Defect density – test spec, "
-            "Defect rate – test spec, delay_rate, test_run_rate inverted, "
+            "Fault rate (Redmine), delay_rate, test_run_rate inverted, "
             "Test density inverted), each min-max normalized.\n\n"
             "💡 Red rows are concerning across multiple dimensions."
         ),
@@ -3168,7 +3168,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_risk_heatmap": (
             "**🦕 リスク要素ヒートマップ**\n\n"
-            "機能ID × 5要素（不具合密度（テスト仕様書）／不具合率（テスト仕様書）／"
+            "機能ID × 5要素（不具合密度（テスト仕様書）／障害発生率（Redmine）／"
             "遅延率／実施率の反転／テスト密度の反転）、データセット内 min-max 正規化。\n\n"
             "💡 赤い行ほど複数次元で危険。"
         ),
@@ -4790,7 +4790,7 @@ _RISK_HEATMAP_INVERTED_DIMS = ("test_run_rate", "test_density")
 
 def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     risk_dims = [c for c in
-                 ["bug_density", "defect_rate", "delay_rate",
+                 ["bug_density", "incident_rate", "delay_rate",
                   "test_run_rate", "test_density"]
                  if c in kpi_df.columns]
     if not risk_dims:
@@ -5284,7 +5284,7 @@ def _mpl_chart_design_impl_gap(kpi_df: pd.DataFrame):
 
 def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
     risk_dims = [c for c in
-                 ["bug_density", "defect_rate", "delay_rate",
+                 ["bug_density", "incident_rate", "delay_rate",
                   "test_run_rate", "test_density"]
                  if c in kpi_df.columns]
     if not risk_dims:
@@ -6127,7 +6127,7 @@ def render_charts_tab() -> None:
         # Per-row legend (Plotly axis labels can't carry tooltips themselves).
         with st.expander(t("chart_risk_dims_legend")):
             risk_dims = [c for c in
-                         ["bug_density", "defect_rate",
+                         ["bug_density", "incident_rate",
                           "delay_rate", "test_run_rate", "test_density"]
                          if c in kpi_df.columns]
             for c in risk_dims:
@@ -6932,7 +6932,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.22</span>
+    <span class="ver">Ver1.0.23</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
