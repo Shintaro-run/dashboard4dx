@@ -126,6 +126,15 @@ def _write_percent(ws, coord: str, pct: int) -> None:
     cell.number_format = "0%"
 
 
+def _fmt_md(d):
+    """Format a date as ``MM/DD`` — matches the real WBS convention where
+    per-task dates omit the year and the phase anchors on row 6 (J6 / N6)
+    carry the absolute 年/月/日 so the year can be reconstructed."""
+    if d is None:
+        return None
+    return f"{d.month:02d}/{d.day:02d}"
+
+
 def make_wbs() -> Path:
     """Build a WBS that mimics the real format: data starts row 16, Function ID
     appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA.
@@ -142,6 +151,17 @@ def make_wbs() -> Path:
     # Rows 1-15: arbitrary header / metadata noise
     ws["A1"] = "WBS Sample"
     ws["A2"] = "Generated for dashboard4dx demo"
+    # Phase anchors (row 6). Real WBS files store the phase start/end here
+    # as 年/月/日; per-task dates (Q/R/S/T) are written later as 月/日 only
+    # and the loader resolves the year from this window.
+    phase_start = date(2026, 1, 1)
+    phase_end = date(2026, 5, 31)
+    ws["I6"] = "期間"
+    ws["J6"] = phase_start.strftime("%Y/%m/%d")
+    ws.merge_cells("J6:L6")
+    ws["M6"] = "〜"
+    ws["N6"] = phase_end.strftime("%Y/%m/%d")
+    ws.merge_cells("N6:O6")
     ws["A14"] = "Section"
     ws["E14"] = "Phase / Function"
     ws["P14"] = "予定工数"
@@ -183,10 +203,10 @@ def make_wbs() -> Path:
         planned_pct = random.randint(60, 100)
 
         ws[f"P{row}"] = planned_effort
-        ws[f"Q{row}"] = start_plan
-        ws[f"R{row}"] = end_plan
-        ws[f"S{row}"] = start_actual
-        ws[f"T{row}"] = end_actual
+        ws[f"Q{row}"] = _fmt_md(start_plan)
+        ws[f"R{row}"] = _fmt_md(end_plan)
+        ws[f"S{row}"] = _fmt_md(start_actual)
+        ws[f"T{row}"] = _fmt_md(end_actual)
         ws[f"U{row}"] = actual_effort
         _write_percent(ws, f"V{row}", actual_pct)
         _write_percent(ws, f"AA{row}", planned_pct)
@@ -220,10 +240,10 @@ def make_wbs() -> Path:
             ws[f"A{row}"] = "Task"
             ws[f"{sub_col}{row}"] = sub_label
             ws[f"P{row}"] = s_planned_effort
-            ws[f"Q{row}"] = s_start_plan
-            ws[f"R{row}"] = s_end_plan
-            ws[f"S{row}"] = s_start_actual
-            ws[f"T{row}"] = s_end_actual
+            ws[f"Q{row}"] = _fmt_md(s_start_plan)
+            ws[f"R{row}"] = _fmt_md(s_end_plan)
+            ws[f"S{row}"] = _fmt_md(s_start_actual)
+            ws[f"T{row}"] = _fmt_md(s_end_actual)
             ws[f"U{row}"] = s_actual_effort
             _write_percent(ws, f"V{row}",
                            random.randint(70, 100) if s_end_actual

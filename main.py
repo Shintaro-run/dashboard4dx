@@ -352,6 +352,11 @@ def _human_size(n: float) -> str:
 WBS_SHEET = "メイン"
 WBS_DATA_START_ROW = 16
 WBS_FUNC_ID_COLS = ("E", "F", "G", "H", "I")  # scan range for 機能ID
+# Phase date anchors. Real WBS files write row dates as 月/日 only (no year)
+# and put the absolute phase start/end in these merged row-6 cells (as
+# 年/月/日) so the year of each per-task 月/日 can be resolved.
+WBS_PHASE_START_CELL = ("J", 6)  # merged J6:L6
+WBS_PHASE_END_CELL = ("N", 6)    # merged N6:O6
 
 MASTER_SHEET = "機能一覧"
 MASTER_FID_COL = "F"
@@ -831,6 +836,73 @@ class WbsCols:
 WBS_COLS = WbsCols()
 
 
+def _parse_phase_date(v) -> Optional[date]:
+    """Parse a WBS phase anchor cell (expected 年/月/日). Returns None on
+    missing/unparseable input — the caller decides whether that is fatal."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%Y.%m.%d", "%Y年%m月%d日"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _resolve_wbs_date(v, phase_start: date,
+                      phase_end: date) -> Optional[date]:
+    """Resolve a WBS per-task date cell. Real files often write these as
+    ``MM/DD`` (no year); the year is inferred by picking whichever candidate
+    year (from the phase window) makes the date fall inside the phase range.
+    Native date/datetime and full ``YYYY/MM/DD`` strings are returned as-is."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    if not isinstance(v, str):
+        return None
+    s = v.strip()
+    if not s:
+        return None
+    full = _parse_phase_date(s)
+    if full is not None:
+        return full
+    parts = re.split(r"[/\-.]", s)
+    if len(parts) != 2:
+        return None
+    try:
+        m, dd = int(parts[0]), int(parts[1])
+    except ValueError:
+        return None
+    candidates: list[date] = []
+    for y in sorted({phase_start.year, phase_end.year}):
+        try:
+            candidates.append(date(y, m, dd))
+        except ValueError:
+            continue
+    if not candidates:
+        return None
+    for c in candidates:
+        if phase_start <= c <= phase_end:
+            return c
+    # Outside phase range — pick the candidate closest to the window so we
+    # still return something, rather than silently dropping the date.
+    return min(candidates,
+               key=lambda c: min(abs((c - phase_start).days),
+                                 abs((c - phase_end).days)))
+
+
 def _to_percent_scale(v) -> Optional[float]:
     """Normalize a WBS progress cell to percent scale (0..100).
 
@@ -883,6 +955,42 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
                for name, letter in WBS_COLS.__dict__.items()}
     date_keys = ("planned_start", "planned_end", "actual_start", "actual_end")
 
+    # Read the phase anchors (J6 / N6). Real WBS files put the absolute
+    # phase start/end here so row dates written as 月/日 can be resolved.
+    ps_col = _col_to_idx(WBS_PHASE_START_CELL[0]) - 1
+    pe_col = _col_to_idx(WBS_PHASE_END_CELL[0]) - 1
+    phase_row_num = WBS_PHASE_START_CELL[1]
+    phase_row = next(iter(ws.iter_rows(min_row=phase_row_num,
+                                       max_row=phase_row_num,
+                                       values_only=True)), None)
+    ps_raw = (phase_row[ps_col]
+              if phase_row is not None and ps_col < len(phase_row) else None)
+    pe_raw = (phase_row[pe_col]
+              if phase_row is not None and pe_col < len(phase_row) else None)
+    phase_start = _parse_phase_date(ps_raw)
+    phase_end = _parse_phase_date(pe_raw)
+    if phase_start is None or phase_end is None:
+        missing = []
+        if phase_start is None:
+            missing.append(f"{WBS_PHASE_START_CELL[0]}{phase_row_num} "
+                           f"(フェーズ開始日)")
+        if phase_end is None:
+            missing.append(f"{WBS_PHASE_END_CELL[0]}{phase_row_num} "
+                           f"(フェーズ終了日)")
+        raise ValueError(
+            "WBS のフェーズ日付セルが未入力または不正です: "
+            + " / ".join(missing)
+            + "。年/月/日 形式で入力してください "
+              "(例: 2026/04/01)。各行の日付はフェーズ期間を元に年を判定します。"
+        )
+    if phase_end < phase_start:
+        raise ValueError(
+            f"WBS のフェーズ終了日 ({phase_end}) がフェーズ開始日 "
+            f"({phase_start}) より前になっています。"
+            f"{WBS_PHASE_START_CELL[0]}{phase_row_num} / "
+            f"{WBS_PHASE_END_CELL[0]}{phase_row_num} を確認してください。"
+        )
+
     def _build_rec(row_tuple, fid: str, *, label: Optional[str],
                    is_sub: bool) -> dict:
         rec = {"機能ID": fid, "task_label": label, "is_subtask": is_sub}
@@ -890,7 +998,7 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
             rec[name] = (row_tuple[idx - 1]
                          if idx - 1 < len(row_tuple) else None)
         for k in date_keys:
-            rec[k] = _to_date(rec[k])
+            rec[k] = _resolve_wbs_date(rec[k], phase_start, phase_end)
         for k in ("planned_progress", "actual_progress"):
             rec[k] = _to_percent_scale(rec[k])
         return rec
@@ -1828,6 +1936,10 @@ COLUMN_NUMERIC_FORMATS: dict[str, str] = {
     "delay_rate":    "percent",
     "health_score":  "%.2f",
     "risk_score":    "%.2f",
+    "planned_effort":   "%.1f",
+    "actual_effort":    "%.1f",
+    "planned_progress": "%.0f%%",
+    "actual_progress":  "%.0f%%",
 }
 
 COLUMN_LABEL_KEYS: dict[str, str] = {
@@ -6141,7 +6253,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.13</span>
+    <span class="ver">Ver1.0.14</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
