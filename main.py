@@ -2083,6 +2083,7 @@ def project_kpi_summary(kpi_df: pd.DataFrame) -> dict:
         "run_rate":       run_rate,
         "pass_rate":      pass_rate,
         "avg_bug_density": _mean("bug_density"),
+        "avg_test_density": _mean("test_density"),
         "avg_health":     _mean("health_score"),
         "avg_risk":       _mean("risk_score"),
         "at_risk_count":  at_risk,
@@ -2109,6 +2110,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_planned": "planned",
         "chart_progress_actual": "actual",
         "chart_test_coverage": "Test coverage (OK / NG / not run)",
+        "chart_test_density": "Test density per Function ID (test count sufficiency)",
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "(size: design pages, color: risk score)",
         "chart_design_impl_gap": "Design pages × LoC",
@@ -2122,6 +2124,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_ok": "OK",
         "chart_label_ng": "NG",
         "chart_label_notrun": "not run",
+        "chart_label_low":    "low",
         "chart_label_opened": "opened",
         "chart_label_closed": "closed",
         "chart_label_open_cum": "open (cumulative)",
@@ -2316,6 +2319,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "metric_test_run_rate": "Test run rate",
         "metric_test_pass_rate": "Test pass rate",
         "metric_avg_bug_density": "Avg bug density",
+        "metric_avg_test_density": "Avg test density",
         "metric_at_risk": "At-risk functions",
         "metric_delayed": "Delayed functions",
         "metric_avg_health": "Avg health",
@@ -2483,6 +2487,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Stacked bars: OK / NG / not run per Function ID.\n\n"
             "📂 Source: Test counts per spec (E / F / C−D)."
         ),
+        "help_chart_test_density": (
+            "**🦕 Test density (test count sufficiency)**\n\n"
+            "🧮 総テスト ÷ 設計書ページ数 — sorted ascending so the bottom "
+            "of the chart is the under-tested specs.\n\n"
+            "📂 Source: Test counts per spec (C), design pages."
+        ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
             "Scatter: x=LoC, y=NG, size=design pages, color=risk_score.\n\n"
@@ -2567,7 +2577,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 Toggle layers above. Defects in red = unresolved."
         ),
         "col_bug_density":   "Bug density (NG/LoC)",
-        "col_test_density":  "Test density (tests/page)",
+        "col_test_density":  "Test density (test count sufficiency, tests/page)",
         "col_complexity":    "Complexity (LoC/page)",
         "col_test_run_rate": "Test run rate",
         "col_test_pass_rate":"Test pass rate",
@@ -2634,6 +2644,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_planned": "計画",
         "chart_progress_actual": "実績",
         "chart_test_coverage": "テストカバレッジ (OK / NG / 未実施)",
+        "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "（サイズ: 設計ページ数、色: リスクスコア）",
         "chart_design_impl_gap": "設計ページ数 × LoC",
@@ -2647,6 +2658,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_ok": "OK",
         "chart_label_ng": "NG",
         "chart_label_notrun": "未実施",
+        "chart_label_low":    "低",
         "chart_label_opened": "発生",
         "chart_label_closed": "解決",
         "chart_label_open_cum": "未解決（累積）",
@@ -2835,6 +2847,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "metric_test_run_rate": "テスト実施率",
         "metric_test_pass_rate": "テスト成功率",
         "metric_avg_bug_density": "平均バグ密度",
+        "metric_avg_test_density": "平均テスト密度",
         "metric_at_risk": "高リスク機能数",
         "metric_delayed": "遅延機能数",
         "metric_avg_health": "平均健全性",
@@ -2991,6 +3004,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "機能ID別に OK / NG / 未実施 件数を積み上げ表示。\n\n"
             "📂 出典: 仕様書別テスト集計（E / F / C-D）。"
         ),
+        "help_chart_test_density": (
+            "**🦕 テスト密度（テスト件数に関する充足率）**\n\n"
+            "🧮 総テスト ÷ 設計書ページ数 — 昇順ソートで下が手薄。\n\n"
+            "📂 出典: 仕様書別テスト集計（C列）, 設計書ページ数。"
+        ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
             "散布図: x=LoC, y=NG, 点サイズ=設計ページ数, 色=リスクスコア。\n\n"
@@ -3071,7 +3089,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 上のスイッチでレイヤ切替。赤い不具合 = 未解決。"
         ),
         "col_bug_density":   "バグ密度 (NG/LoC)",
-        "col_test_density":  "テスト密度 (テスト/ページ)",
+        "col_test_density":  "テスト密度（テスト件数に関する充足率, テスト/ページ）",
         "col_complexity":    "複雑度 (LoC/ページ)",
         "col_test_run_rate": "テスト実施率",
         "col_test_pass_rate":"テスト成功率",
@@ -4073,7 +4091,8 @@ def render_dashboard_tab() -> None:
     def _f2(v: Optional[float]) -> str:
         return f"{v:.2f}" if v is not None else "—"
 
-    m1, m2, m3, m4, m5, m6, m7, m8 = st.columns(8, gap="small")
+    (m1, m2, m3, m4, m5,
+     m6, m7, m8, m9) = st.columns(9, gap="small")
     m1.metric(t("metric_total_loc"),       f"{summary['total_loc']:,}",
               help=t("help_loc"))
     m2.metric(t("metric_open_defects"),    f"{summary['open_defects']:,}",
@@ -4084,11 +4103,13 @@ def render_dashboard_tab() -> None:
               help=t("help_test_pass_rate"))
     m5.metric(t("metric_avg_bug_density"), _f3(summary["avg_bug_density"]),
               help=t("help_bug_density"))
-    m6.metric(t("metric_avg_health"),      _f2(summary["avg_health"]),
+    m6.metric(t("metric_avg_test_density"), _f2(summary["avg_test_density"]),
+              help=t("help_test_density"))
+    m7.metric(t("metric_avg_health"),      _f2(summary["avg_health"]),
               help=t("help_health_score"))
-    m7.metric(t("metric_at_risk"),         f"{summary['at_risk_count']}",
+    m8.metric(t("metric_at_risk"),         f"{summary['at_risk_count']}",
               help=t("metric_help_at_risk"))
-    m8.metric(t("metric_delayed"),         f"{summary['delayed_count']}",
+    m9.metric(t("metric_delayed"),         f"{summary['delayed_count']}",
               help=t("metric_help_delayed"))
 
     # ----- Tabbed integrated tables -------------------------------------------
@@ -4292,6 +4313,47 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
+    if not {"test_density", "総テスト", "設計書ページ数"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["test_density"]).copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    # Sort ascending so the lowest (under-tested) sit at the top of the bar
+    # chart after the iloc reverse below — matches the convention used by
+    # the other "attention list" charts in this file.
+    df = df.sort_values("test_density", ascending=True)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    customdata = np.column_stack([
+        df["総テスト"].fillna(0).astype(int),
+        df["設計書ページ数"].fillna(0).astype(float),
+        df["test_density"].astype(float),
+    ])
+    hover_tmpl = (
+        "<b>%{y}</b><br>"
+        "総テスト: %{customdata[0]}  "
+        "設計書ページ数: %{customdata[1]:.0f}<br>"
+        f"{t('col_test_density')}: %{{customdata[2]:.2f}}"
+        "<extra></extra>"
+    )
+    fig = go.Figure()
+    fig.add_bar(y=df["display"], x=df["test_density"],
+                orientation="h", marker_color="#7aaef0",
+                customdata=customdata, hovertemplate=hover_tmpl)
+    fig.update_layout(height=max(280, 28 * len(df)),
+                      xaxis_title="tests / page", yaxis_title=None,
+                      margin=_INLINE_MARGIN_LONG_Y)
+    fig.update_yaxes(automargin=True)
+    if total > _BAR_CHART_MAX_ROWS:
+        fig.add_annotation(**_truncate_note_annotation(len(df), total))
+    return fig
+
+
 def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
         return None
@@ -4393,9 +4455,13 @@ def _chart_design_impl_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+_RISK_HEATMAP_INVERTED_DIMS = ("test_run_rate", "test_density")
+
+
 def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     risk_dims = [c for c in
-                 ["bug_density", "defect_rate", "delay_rate", "test_run_rate"]
+                 ["bug_density", "defect_rate", "delay_rate",
+                  "test_run_rate", "test_density"]
                  if c in kpi_df.columns]
     if not risk_dims:
         return None
@@ -4406,7 +4472,7 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         m = s.max(skipna=True)
         if pd.notna(m) and m > 0:
             z_df[c] = s / m
-        if c == "test_run_rate":
+        if c in _RISK_HEATMAP_INVERTED_DIMS:
             mask = z_df[c].notna()
             z_df.loc[mask, c] = 1 - z_df.loc[mask, c]
     z_df = z_df.sort_values(by=risk_dims[0], ascending=False,
@@ -4415,6 +4481,10 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if "test_run_rate" in dim_label:
         dim_label["test_run_rate"] = (
             f"{dim_label['test_run_rate']} ({t('chart_label_notrun')})"
+        )
+    if "test_density" in dim_label:
+        dim_label["test_density"] = (
+            f"{dim_label['test_density']} ({t('chart_label_low')})"
         )
     y_labels = [dim_label[c] for c in risk_dims]
     fig = px.imshow(
@@ -4723,6 +4793,34 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
     return _mpl_save(fig)
 
 
+def _mpl_chart_test_density(kpi_df: pd.DataFrame):
+    if not {"test_density"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["test_density"]).copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    df = df.sort_values("test_density", ascending=True)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    n = len(df)
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
+    y = np.arange(n)
+    ax.barh(y, df["test_density"].values, color="#7aaef0")
+    ax.set_yticks(y); ax.set_yticklabels(df["display"])
+    ax.set_xlabel("tests / page")
+    ax.grid(axis="x", linestyle=":", alpha=0.3)
+    if total > _BAR_CHART_MAX_ROWS:
+        _mpl_truncated_title(ax, n, total)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
 def _mpl_chart_test_coverage(kpi_df: pd.DataFrame):
     if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
         return None
@@ -4814,7 +4912,8 @@ def _mpl_chart_design_impl_gap(kpi_df: pd.DataFrame):
 
 def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
     risk_dims = [c for c in
-                 ["bug_density", "defect_rate", "delay_rate", "test_run_rate"]
+                 ["bug_density", "defect_rate", "delay_rate",
+                  "test_run_rate", "test_density"]
                  if c in kpi_df.columns]
     if not risk_dims:
         return None
@@ -4825,7 +4924,7 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
         m = s.max(skipna=True)
         if pd.notna(m) and m > 0:
             z_df[c] = s / m
-        if c == "test_run_rate":
+        if c in _RISK_HEATMAP_INVERTED_DIMS:
             mask = z_df[c].notna()
             z_df.loc[mask, c] = 1 - z_df.loc[mask, c]
     z_df = z_df.sort_values(by=risk_dims[0], ascending=False,
@@ -4834,6 +4933,10 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
     if "test_run_rate" in dim_label:
         dim_label["test_run_rate"] = (
             f"{dim_label['test_run_rate']} ({t('chart_label_notrun')})"
+        )
+    if "test_density" in dim_label:
+        dim_label["test_density"] = (
+            f"{dim_label['test_density']} ({t('chart_label_low')})"
         )
     y_labels = [dim_label[c] for c in risk_dims]
     x_labels = list(z_df.index)
@@ -5289,6 +5392,7 @@ def generate_report_pdf(
         [t("metric_test_run_rate"),   _pct(summary["run_rate"])],
         [t("metric_test_pass_rate"),  _pct(summary["pass_rate"])],
         [t("metric_avg_bug_density"), _f3(summary["avg_bug_density"])],
+        [t("metric_avg_test_density"), _f2(summary["avg_test_density"])],
         [t("metric_avg_health"),      _f2(summary["avg_health"])],
         [t("metric_at_risk"),         f"{summary['at_risk_count']}"],
         [t("metric_delayed"),         f"{summary['delayed_count']}"],
@@ -5320,6 +5424,8 @@ def generate_report_pdf(
          lambda: _mpl_chart_progress_gap(kpi_df)),
         ("chart_test_coverage",   "help_chart_test_coverage",
          lambda: _mpl_chart_test_coverage(kpi_df)),
+        ("chart_test_density",    "help_chart_test_density",
+         lambda: _mpl_chart_test_density(kpi_df)),
         ("chart_loc_vs_ng",       "help_chart_loc_vs_ng",
          lambda: _mpl_chart_loc_vs_ng(kpi_df)),
         ("chart_design_impl_gap", "help_chart_design_impl_gap",
@@ -5567,6 +5673,11 @@ def render_charts_tab() -> None:
         section_header("chart_test_coverage", "help_chart_test_coverage")
         st.plotly_chart(fig, use_container_width=True)
 
+    fig = _chart_test_density(kpi_df)
+    if fig is not None:
+        section_header("chart_test_density", "help_chart_test_density")
+        st.plotly_chart(fig, use_container_width=True)
+
     col1, col2 = st.columns(2, gap="medium")
     fig = _chart_loc_vs_ng(kpi_df)
     if fig is not None:
@@ -5591,7 +5702,7 @@ def render_charts_tab() -> None:
         with st.expander(t("chart_risk_dims_legend")):
             risk_dims = [c for c in
                          ["bug_density", "defect_rate",
-                          "delay_rate", "test_run_rate"]
+                          "delay_rate", "test_run_rate", "test_density"]
                          if c in kpi_df.columns]
             for c in risk_dims:
                 st.markdown(f"- {t(COLUMN_HELP_KEYS[c])}")
@@ -6363,7 +6474,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.16</span>
+    <span class="ver">Ver1.0.17</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
