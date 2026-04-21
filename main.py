@@ -2156,6 +2156,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_loc_trend": "LoC trend (across snapshots)",
         "chart_test_trend": "Test counts trend (across snapshots)",
         "chart_bug_trend": "Defect trend (opened vs closed by week)",
+        "chart_defect_class": "Fault root cause breakdown (Redmine 問題分類)",
+        "chart_defect_class_filter": "Filter by Function ID",
+        "chart_defect_class_filter_help": "Empty = every Redmine fault row.",
+        "chart_defect_class_empty": "No Redmine faults match the current filter.",
+        "chart_defect_class_no_class": "No 問題分類 values present in the filtered set.",
+        "chart_defect_class_scope_prefix": "Faults in scope:",
+        "chart_defect_class_scope_suffix": "rows",
+        "chart_defect_class_top_title": "Top {n} root causes",
+        "chart_defect_class_col_class": "問題分類",
+        "chart_defect_class_col_count": "Count",
+        "chart_defect_class_col_share": "Share",
         "chart_no_design_pages": "Enter design page counts in the Design pages tab to populate this chart.",
         "chart_no_history": "Need at least two snapshots to draw a trend.",
         "chart_no_defects": "Defect tracker not loaded.",
@@ -2577,6 +2588,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "counts (D 実施済).\n\n"
             "⚠ This is **not** *Defect rate – test spec* (NG / Total tests)."
         ),
+        "help_chart_defect_class": (
+            "**🦕 Fault root cause breakdown (Redmine 問題分類)**\n\n"
+            "Donut share + Top-N table of fault rows grouped by the "
+            "Redmine `問題分類` column.\n\n"
+            "📂 Source: Redmine defect list (`不具合管理` tracker), 問題分類 "
+            "column.\n\n"
+            "💡 Use the filter to drill into a Function ID subset and see "
+            "where a particular feature's faults are coming from."
+        ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
             "Scatter: x=LoC, y=NG, size=design pages, color=risk_score.\n\n"
@@ -2761,6 +2781,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_loc_trend": "LoCの推移（スナップショット間）",
         "chart_test_trend": "テスト件数の推移（スナップショット間）",
         "chart_bug_trend": "不具合の推移（週次・発生 vs 解決）",
+        "chart_defect_class": "障害の問題分類内訳（Redmine）",
+        "chart_defect_class_filter": "機能IDで絞り込む",
+        "chart_defect_class_filter_help": "未選択で Redmine の全障害行を対象。",
+        "chart_defect_class_empty": "現在のフィルタに合致する障害行がありません。",
+        "chart_defect_class_no_class": "フィルタ後のデータに 問題分類 の値がありません。",
+        "chart_defect_class_scope_prefix": "対象障害件数:",
+        "chart_defect_class_scope_suffix": "件",
+        "chart_defect_class_top_title": "問題分類 トップ {n}",
+        "chart_defect_class_col_class": "問題分類",
+        "chart_defect_class_col_count": "件数",
+        "chart_defect_class_col_share": "割合",
         "chart_no_design_pages": "設計書ページ数タブで値を入力するとこのグラフが表示されます。",
         "chart_no_history": "推移グラフには2つ以上のスナップショットが必要です。",
         "chart_no_defects": "不具合管理が未取込です。",
@@ -3158,6 +3189,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "降順ソートで悪い方が上に並びます。\n\n"
             "📂 出典: Redmine 障害一覧（defect_total）÷ テスト集計（D列 実施済）。\n\n"
             "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
+        ),
+        "help_chart_defect_class": (
+            "**🦕 障害の問題分類内訳（Redmine）**\n\n"
+            "Redmine の `問題分類` 列で障害行をグループ化したドーナツ＋トップN表。\n\n"
+            "📂 出典: Redmine 障害一覧（`不具合管理` トラッカー）の 問題分類 列。\n\n"
+            "💡 機能IDフィルタを使うと、特定機能群の障害がどんな原因に偏っているかが見えます。"
         ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
@@ -4958,6 +4995,48 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
     return fig
 
 
+_DEFECT_CLASS_PALETTE = [
+    "#7aaef0", "#f5b400", "#f05050", "#4ec78a", "#a982f0",
+    "#5fc9c9", "#d56fa6", "#9aa0a6",
+]
+
+
+def _defect_class_counts(defects_df: pd.DataFrame) -> pd.Series:
+    """Return counts per 問題分類, dropping rows with empty/missing class."""
+    s = defects_df["問題分類"].fillna("").astype(str).str.strip()
+    s = s[s != ""]
+    return s.value_counts()
+
+
+def _chart_defect_class(defects_df: Optional[pd.DataFrame]
+                        ) -> Optional[go.Figure]:
+    """Pie chart of Redmine defects' 問題分類 distribution. Caller is
+    expected to pre-filter `defects_df` (e.g. by 機能ID) so the chart can
+    reflect a slice."""
+    if defects_df is None or defects_df.empty:
+        return None
+    if "問題分類" not in defects_df.columns:
+        return None
+    counts = _defect_class_counts(defects_df)
+    if counts.empty:
+        return None
+    palette = (_DEFECT_CLASS_PALETTE
+               * (1 + len(counts) // len(_DEFECT_CLASS_PALETTE)))[:len(counts)]
+    fig = go.Figure(data=[go.Pie(
+        labels=counts.index.tolist(),
+        values=counts.values.tolist(),
+        hole=0.4,
+        marker=dict(colors=palette),
+        textinfo="label+percent",
+        hovertemplate="<b>%{label}</b><br>件数: %{value}<br>"
+                      "割合: %{percent}<extra></extra>",
+        sort=False,
+    )])
+    fig.update_layout(height=360, margin=dict(l=20, r=20, t=20, b=20),
+                      legend_title_text="")
+    return fig
+
+
 def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
     label_planned = t("calendar_layer_planned")
     label_actual = t("calendar_layer_actual")
@@ -5400,6 +5479,26 @@ def _mpl_chart_test_trend():
     return _mpl_save(fig)
 
 
+def _mpl_chart_defect_class(defects_df: Optional[pd.DataFrame]):
+    if defects_df is None or defects_df.empty:
+        return None
+    if "問題分類" not in defects_df.columns:
+        return None
+    counts = _defect_class_counts(defects_df)
+    if counts.empty:
+        return None
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 4.2), dpi=_MPL_DPI)
+    palette = (_DEFECT_CLASS_PALETTE
+               * (1 + len(counts) // len(_DEFECT_CLASS_PALETTE)))[:len(counts)]
+    ax.pie(counts.values, labels=counts.index.tolist(), colors=palette,
+           autopct="%1.1f%%", startangle=90, counterclock=False,
+           wedgeprops=dict(width=0.45))
+    ax.set_aspect("equal")
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
 def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
     if defects_df is None or defects_df.empty:
         return None
@@ -5837,6 +5936,8 @@ def generate_report_pdf(
         ("chart_test_trend",      "help_chart_test_trend", _mpl_chart_test_trend),
         ("chart_bug_trend",       "help_chart_bug_trend",
          lambda: _mpl_chart_bug_trend(defects_df)),
+        ("chart_defect_class",    "help_chart_defect_class",
+         lambda: _mpl_chart_defect_class(defects_df)),
     ]
 
     story.append(Paragraph(t("pdf_section_charts"), h2_style))
@@ -6028,6 +6129,73 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
                     st.code(detail, language="text")
 
 
+_DEFECT_CLASS_TOP_N = 3
+
+
+def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame],
+                                   kpi_df: Optional[pd.DataFrame]) -> None:
+    """Section: Function-ID-filterable Redmine 問題分類 pie + Top-N table.
+
+    Filter is empty by default — pie reflects every Redmine fault row.
+    Selecting one or more 機能IDs narrows both the pie and the Top-N table
+    (and re-percentages within the filtered subset).
+    """
+    if defects_df is None or defects_df.empty:
+        return
+    if "問題分類" not in defects_df.columns:
+        return
+    section_header("chart_defect_class", "help_chart_defect_class")
+    fid_options = sorted(
+        str(x) for x in defects_df["機能ID"].dropna().unique()
+    )
+    if kpi_df is not None and not kpi_df.empty and "機能ID" in kpi_df.columns:
+        # Show every master 機能ID even when it has zero faults, so the
+        # filter dropdown matches the rest of the dashboard's vocabulary.
+        fid_options = sorted(
+            set(fid_options)
+            | {str(x) for x in kpi_df["機能ID"].dropna().unique()}
+        )
+    selected = st.multiselect(
+        t("chart_defect_class_filter"), options=fid_options, default=[],
+        key="defect_class_fids",
+        help=t("chart_defect_class_filter_help"),
+    )
+    df = defects_df
+    if selected:
+        df = defects_df[defects_df["機能ID"].astype(str).isin(selected)]
+    if df.empty:
+        st.info(t("chart_defect_class_empty"))
+        return
+    counts = _defect_class_counts(df)
+    if counts.empty:
+        st.info(t("chart_defect_class_no_class"))
+        return
+    n_total = int(counts.sum())
+    st.caption(
+        f"{t('chart_defect_class_scope_prefix')} "
+        f"{n_total} {t('chart_defect_class_scope_suffix')}"
+    )
+    fig = _chart_defect_class(df)
+    if fig is not None:
+        st.plotly_chart(fig, use_container_width=True)
+    top_df = counts.head(_DEFECT_CLASS_TOP_N).reset_index()
+    top_df.columns = [t("chart_defect_class_col_class"),
+                      t("chart_defect_class_col_count")]
+    top_df.insert(0, "#", range(1, len(top_df) + 1))
+    pct_col = t("chart_defect_class_col_share")
+    top_df[pct_col] = (counts.head(_DEFECT_CLASS_TOP_N).values / n_total
+                       * 100.0)
+    st.markdown(f"**{t('chart_defect_class_top_title', n=_DEFECT_CLASS_TOP_N)}**")
+    st.dataframe(
+        top_df, use_container_width=True, hide_index=True,
+        column_config={
+            pct_col: st.column_config.NumberColumn(
+                pct_col, format="%.1f%%"
+            ),
+        },
+    )
+
+
 def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
     """Section: 機能ID-filterable KPI cards + 4-metric comparison chart.
 
@@ -6184,6 +6352,8 @@ def render_charts_tab() -> None:
     elif defects_df is None or defects_df.empty:
         section_header("chart_bug_trend", "help_chart_bug_trend")
         st.caption(t("chart_no_defects"))
+
+    _render_defect_class_breakdown(defects_df, kpi_df)
 
 
 _CALENDAR_CSS = """
@@ -6959,7 +7129,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.24</span>
+    <span class="ver">Ver1.0.25</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

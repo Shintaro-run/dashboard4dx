@@ -307,7 +307,18 @@ def make_defects() -> Path:
     out = OUT_DIR / "defects.csv"
     trackers = ["不具合管理", "課題管理", "不具合管理", "不具合管理", "タスク"]
     statuses = ["新規", "対応中", "解決", "却下", "再発"]
-    classes = ["仕様漏れ", "実装ミス", "設計不備", "環境起因", "再現不可"]
+    # Skewed weights: 実装ミス は少し多め、性能/セキュリティ系はレア
+    # — donut + Top-N table がそれっぽく見えるバランスにしておく。
+    classes_weighted = [
+        ("実装ミス", 6),
+        ("仕様漏れ", 4),
+        ("設計不備", 4),
+        ("環境起因", 3),
+        ("再現不可", 3),
+        ("性能問題", 2),
+        ("セキュリティ起因", 1),
+    ]
+    classes = [c for c, w in classes_weighted for _ in range(w)]
     assignees = ["alice", "bob", "carol", "dave", "ellen"]
 
     today = date(2026, 4, 20)
