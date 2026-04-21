@@ -1889,17 +1889,23 @@ def compute_kpis(
     """Append derived KPI columns to the integrated dataframe.
 
     Per-Function-ID metrics added (when their inputs exist):
-      - bug_density     = NG / LoC               (defects per line of code)
+      - bug_density     = NG / LoC               (test-spec defect density;
+                                                  ≠ Redmine fault count)
       - test_density    = 総テスト / 設計書ページ数  (tests per design page)
       - complexity      = LoC / 設計書ページ数      (lines per design page)
       - test_run_rate   = 実施済 / 総テスト         (0..1)
       - test_pass_rate  = OK / 実施済              (0..1)
-      - defect_rate     = NG / 総テスト             (0..1)
+      - defect_rate     = NG / 総テスト             (test-spec defect rate;
+                                                  ≠ incident_rate)
+      - incident_rate   = defect_total / 実施済    (Redmine fault rate;
+                                                  numerator from Redmine,
+                                                  denominator from test spec)
       - delay_days      = days late vs planned_end (0 if on time)
       - delay_rate      = delay_days / planned duration, capped at 1.0
-      - health_score    = 実施率 - 不具合率 - 遅延率 (range ~ -2..1)
+      - health_score    = 実施率 - defect_rate - 遅延率 (range ~ -2..1)
       - risk_score      = weighted blend of normalized inputs (0..1):
-                          0.4*未解決バグ + 0.2*未実施 + 0.2*遅延 + 0.2*バグ密度
+                          0.4*defect_unresolved + 0.2*未実施 + 0.2*遅延 +
+                          0.2*bug_density
 
     The risk_score components are min-max normalized within the dataset so the
     weights add up meaningfully across very different scales (a count vs a
@@ -2021,6 +2027,7 @@ COLUMN_LABEL_KEYS: dict[str, str] = {
     "incident_rate": "col_incident_rate",
     "defect_total":  "col_defect_total",
     "defect_unresolved": "col_defect_unresolved",
+    "NG":            "col_test_ng",
     "delay_days":    "col_delay_days",
     "delay_rate":    "col_delay_rate",
     "health_score":  "col_health_score",
@@ -2425,9 +2432,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 Source: Test counts per spec, column E."
         ),
         "help_test_ng": (
-            "**🦕 NG**\n\nTests that failed.\n\n"
+            "**🦕 NG — Defect count (test spec)**\n\n"
+            "Tests that failed.\n\n"
             "📂 Source: Test counts per spec, column F.\n\n"
-            "💡 Numerator for defect rate and bug density."
+            "💡 Numerator for defect rate (test spec) and defect density "
+            "(test spec).\n\n"
+            "⚠ This is **not** the Redmine fault count "
+            "(*Fault count (Redmine)*)."
         ),
         "help_test_notrun": (
             "**🦕 Not run (未実施)**\n\n"
@@ -2525,13 +2536,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_health_score": (
             "**🦕 Health score**\n\n"
-            "🧮 test_run_rate − defect_rate − delay_rate (range ≈ −2…1).\n\n"
+            "🧮 test_run_rate − *Defect rate – test spec* − delay_rate "
+            "(range ≈ −2…1).\n\n"
             "💡 Higher is healthier. Negative values flag trouble."
         ),
         "help_risk_score": (
             "**🦕 Risk score**\n\n"
             "🧮 Weighted blend of normalized inputs:\n"
-            "0.4×open_defects + 0.2×not_run + 0.2×delay_days + 0.2×bug_density.\n\n"
+            "0.4×*Unresolved faults (Redmine)* + 0.2×not_run + 0.2×delay_days "
+            "+ 0.2×*Defect density – test spec*.\n\n"
             "💡 Each input is min-max normalized within the dataset, so 0…1. "
             "≥0.5 marks an at-risk function."
         ),
@@ -2576,8 +2589,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_risk_heatmap": (
             "**🦕 Risk dimensions heatmap**\n\n"
-            "Function ID × four risk dimensions (bug_density, defect_rate, "
-            "delay_rate, test_run_rate inverted), each min-max normalized.\n\n"
+            "Function ID × five risk dimensions (Defect density – test spec, "
+            "Defect rate – test spec, delay_rate, test_run_rate inverted, "
+            "Test density inverted), each min-max normalized.\n\n"
             "💡 Red rows are concerning across multiple dimensions."
         ),
         "chart_risk_dims_legend": "Legend — what each row means",
@@ -2648,6 +2662,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_defect_total":  "Fault count (Redmine)",
         "col_defect_unresolved": "Unresolved faults (Redmine)",
         "col_incident_rate": "Fault rate (Redmine, defect_total/Executed)",
+        "col_test_ng":       "Defect count – test spec (NG)",
         "col_test_density":  "Test density (test count sufficiency, tests/page)",
         "col_complexity":    "Complexity (LoC/page)",
         "col_test_run_rate": "Test run rate",
@@ -3009,8 +3024,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 OK**\n\n成功したテスト件数。\n\n📂 出典: 仕様書別テスト集計 E列。"
         ),
         "help_test_ng": (
-            "**🦕 NG**\n\n失敗したテスト件数。\n\n📂 出典: 仕様書別テスト集計 F列。\n\n"
-            "💡 不具合率・バグ密度の分子になります。"
+            "**🦕 NG — 不具合件数（テスト仕様書）**\n\n"
+            "失敗したテスト件数。\n\n"
+            "📂 出典: 仕様書別テスト集計 F列。\n\n"
+            "💡 「不具合率（テスト仕様書）」「不具合密度（テスト仕様書）」の分子になります。\n\n"
+            "⚠ これは**Redmine の障害件数（障害件数（Redmine））ではありません**。"
         ),
         "help_test_notrun": (
             "**🦕 未実施**\n\n"
@@ -3101,13 +3119,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_health_score": (
             "**🦕 健全性スコア**\n\n"
-            "🧮 テスト実施率 − 不具合率 − 遅延率（範囲 ≈ −2…1）。\n\n"
+            "🧮 テスト実施率 − 不具合率（テスト仕様書） − 遅延率（範囲 ≈ −2…1）。\n\n"
             "💡 高いほど健全。負の値は要注意。"
         ),
         "help_risk_score": (
             "**🦕 リスクスコア**\n\n"
             "🧮 正規化された値の重み付き和:\n"
-            "0.4×未解決バグ + 0.2×未実施 + 0.2×遅延 + 0.2×バグ密度。\n\n"
+            "0.4×未解決障害（Redmine） + 0.2×未実施 + 0.2×遅延 + "
+            "0.2×不具合密度（テスト仕様書）。\n\n"
             "💡 各要素はデータセット内 min-max 正規化で 0…1。0.5以上で高リスク機能としてカウント。"
         ),
         # チャート / カレンダー
@@ -3149,7 +3168,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_risk_heatmap": (
             "**🦕 リスク要素ヒートマップ**\n\n"
-            "機能ID × 4要素（バグ密度／不具合率／遅延率／実施率の反転）、データセット内 min-max 正規化。\n\n"
+            "機能ID × 5要素（不具合密度（テスト仕様書）／不具合率（テスト仕様書）／"
+            "遅延率／実施率の反転／テスト密度の反転）、データセット内 min-max 正規化。\n\n"
             "💡 赤い行ほど複数次元で危険。"
         ),
         "chart_risk_dims_legend": "凡例 — 各行の意味",
@@ -3217,6 +3237,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_defect_total":  "障害件数（Redmine）",
         "col_defect_unresolved": "未解決障害（Redmine）",
         "col_incident_rate": "障害発生率（Redmine, 障害件数/実施済）",
+        "col_test_ng":       "不具合件数（テスト仕様書, NG）",
         "col_test_density":  "テスト密度（テスト件数に関する充足率, テスト/ページ）",
         "col_complexity":    "複雑度 (LoC/ページ)",
         "col_test_run_rate": "テスト実施率",
@@ -4128,7 +4149,8 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
         t_cols[0].metric("総テスト", _f(row.get("総テスト"), "{:.0f}"))
         t_cols[1].metric("実施済", _f(row.get("実施済"), "{:.0f}"))
         t_cols[2].metric("OK", _f(row.get("OK"), "{:.0f}"))
-        t_cols[3].metric("NG", _f(row.get("NG"), "{:.0f}"))
+        t_cols[3].metric(t("col_test_ng"), _f(row.get("NG"), "{:.0f}"),
+                         help=t("help_test_ng"))
         t_cols[4].metric("未実施", _f(row.get("未実施"), "{:.0f}"))
         t_cols[5].metric(t("col_test_run_rate"), _pct(row.get("test_run_rate")))
         t_cols[6].metric(t("col_test_pass_rate"), _pct(row.get("test_pass_rate")))
@@ -6910,7 +6932,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.21</span>
+    <span class="ver">Ver1.0.22</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
