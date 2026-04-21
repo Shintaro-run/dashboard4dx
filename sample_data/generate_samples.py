@@ -116,6 +116,16 @@ def make_function_master() -> Path:
 WBS_SUBTASK_LABELS = ["設計", "実装", "単体テスト", "結合テスト", "レビュー"]
 
 
+def _write_percent(ws, coord: str, pct: int) -> None:
+    """Write an Excel percent-formatted cell: underlying value is fractional
+    (0..1) and the display format is ``0%``. This matches how real WBS tools
+    store progress columns, so the loader's percent-normalization path is
+    exercised by the sample too."""
+    cell = ws[coord]
+    cell.value = pct / 100.0
+    cell.number_format = "0%"
+
+
 def make_wbs() -> Path:
     """Build a WBS that mimics the real format: data starts row 16, Function ID
     appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA.
@@ -178,8 +188,8 @@ def make_wbs() -> Path:
         ws[f"S{row}"] = start_actual
         ws[f"T{row}"] = end_actual
         ws[f"U{row}"] = actual_effort
-        ws[f"V{row}"] = actual_pct
-        ws[f"AA{row}"] = planned_pct
+        _write_percent(ws, f"V{row}", actual_pct)
+        _write_percent(ws, f"AA{row}", planned_pct)
         row += 1
 
         if fid not in with_subs:
@@ -215,9 +225,10 @@ def make_wbs() -> Path:
             ws[f"S{row}"] = s_start_actual
             ws[f"T{row}"] = s_end_actual
             ws[f"U{row}"] = s_actual_effort
-            ws[f"V{row}"] = (random.randint(70, 100) if s_end_actual
-                             else random.randint(10, 70))
-            ws[f"AA{row}"] = random.randint(60, 100)
+            _write_percent(ws, f"V{row}",
+                           random.randint(70, 100) if s_end_actual
+                           else random.randint(10, 70))
+            _write_percent(ws, f"AA{row}", random.randint(60, 100))
             row += 1
 
     # Save as .xlsm — openpyxl can write the file with a macro-enabled extension

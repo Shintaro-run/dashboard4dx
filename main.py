@@ -831,6 +831,34 @@ class WbsCols:
 WBS_COLS = WbsCols()
 
 
+def _to_percent_scale(v) -> Optional[float]:
+    """Normalize a WBS progress cell to percent scale (0..100).
+
+    Real WBS files write these as Excel percent-formatted numbers (0..1),
+    literal strings like ``"91%"``, or bare percent integers like ``91``.
+    All three round-trip to the same scale. Fractions <= 1.5 are assumed to
+    be 0..1 percent format; everything above is already percent.
+    """
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, str):
+        s = v.strip().rstrip("%").replace(",", "").strip()
+        if not s:
+            return None
+        try:
+            return float(s)
+        except ValueError:
+            return None
+    if isinstance(v, (int, float)):
+        f = float(v)
+        if 0 < f <= 1.5:
+            return f * 100.0
+        return f
+    return None
+
+
 def load_wbs(file_bytes: bytes) -> pd.DataFrame:
     """Parse WBS xlsm.
 
@@ -863,6 +891,8 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
                          if idx - 1 < len(row_tuple) else None)
         for k in date_keys:
             rec[k] = _to_date(rec[k])
+        for k in ("planned_progress", "actual_progress"):
+            rec[k] = _to_percent_scale(rec[k])
         return rec
 
     out = []
@@ -6111,7 +6141,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.12</span>
+    <span class="ver">Ver1.0.13</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
