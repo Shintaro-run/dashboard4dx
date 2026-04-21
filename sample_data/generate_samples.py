@@ -113,9 +113,18 @@ def make_function_master() -> Path:
 
 
 # ----- 2. WBS xlsm ------------------------------------------------------------
+WBS_SUBTASK_LABELS = ["設計", "実装", "単体テスト", "結合テスト", "レビュー"]
+
+
 def make_wbs() -> Path:
     """Build a WBS that mimics the real format: data starts row 16, Function ID
-    appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA."""
+    appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA.
+
+    Some Function IDs also carry sub-task breakdown rows: rows *without* a
+    Function ID, where the column right of the parent's Function ID column
+    holds a task label (設計 / 実装 / etc.) and P..V/AA carry that sub-task's
+    own schedule. These rows belong to the most recent Function ID above.
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "メイン"
@@ -134,12 +143,19 @@ def make_wbs() -> Path:
     ws["V14"] = "実績進捗率"
     ws["AA14"] = "計画進捗率"
 
+    # ~40% of Function IDs get sub-task breakdowns so both patterns appear.
+    with_subs = set(random.sample(UNIQUE_IDS,
+                                  k=max(3, int(len(UNIQUE_IDS) * 0.4))))
+
     today = date(2026, 4, 20)
     row = 16
     for fid in UNIQUE_IDS:
         # Sprinkle the Function ID across one of cols E..I randomly,
-        # using one of three accepted formats.
-        target_col = random.choice(["E", "F", "G", "H", "I"])
+        # using one of three accepted formats. Keep sub-col <= J by capping
+        # the parent column at H when we know we'll emit sub-tasks.
+        cols = ["E", "F", "G", "H"] if fid in with_subs else ["E", "F", "G", "H", "I"]
+        target_col = random.choice(cols)
+        sub_col = chr(ord(target_col) + 1)  # column immediately right of parent
         fmt = random.choice([f"機能ID：{fid}", f"機能ID:{fid}", fid])
         ws[f"A{row}"] = "Feature"
         ws[f"{target_col}{row}"] = fmt
@@ -165,6 +181,44 @@ def make_wbs() -> Path:
         ws[f"V{row}"] = actual_pct
         ws[f"AA{row}"] = planned_pct
         row += 1
+
+        if fid not in with_subs:
+            continue
+
+        # Emit 2–4 sub-task rows that split the parent's planned window.
+        n_subs = random.randint(2, 4)
+        subs = random.sample(WBS_SUBTASK_LABELS, k=n_subs)
+        total_days = max(n_subs, (end_plan - start_plan).days)
+        chunk = total_days // n_subs
+        remaining_effort = planned_effort
+        remaining_actual = actual_effort
+        for i, sub_label in enumerate(subs):
+            s_start_plan = start_plan + timedelta(days=i * chunk)
+            s_end_plan = (end_plan if i == n_subs - 1
+                          else start_plan + timedelta(days=(i + 1) * chunk - 1))
+            s_start_actual = s_start_plan + timedelta(days=random.randint(-2, 3))
+            # Last sub-task inherits the parent's in-flight status roughly
+            in_flight = (end_actual is None and i == n_subs - 1) or random.random() < 0.15
+            s_end_actual = (None if in_flight
+                            else s_end_plan + timedelta(days=random.randint(-2, 4)))
+            share = (1.0 / (n_subs - i)) if i < n_subs - 1 else 1.0
+            s_planned_effort = round(remaining_effort * share, 1)
+            s_actual_effort = round(remaining_actual * share, 1)
+            remaining_effort -= s_planned_effort
+            remaining_actual -= s_actual_effort
+
+            ws[f"A{row}"] = "Task"
+            ws[f"{sub_col}{row}"] = sub_label
+            ws[f"P{row}"] = s_planned_effort
+            ws[f"Q{row}"] = s_start_plan
+            ws[f"R{row}"] = s_end_plan
+            ws[f"S{row}"] = s_start_actual
+            ws[f"T{row}"] = s_end_actual
+            ws[f"U{row}"] = s_actual_effort
+            ws[f"V{row}"] = (random.randint(70, 100) if s_end_actual
+                             else random.randint(10, 70))
+            ws[f"AA{row}"] = random.randint(60, 100)
+            row += 1
 
     # Save as .xlsm — openpyxl can write the file with a macro-enabled extension
     # even without an actual VBA project; the loader reads it just fine.

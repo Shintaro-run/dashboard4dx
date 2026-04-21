@@ -6,6 +6,7 @@ Single-file by design: every loader, KPI, and UI helper lives here.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -835,7 +836,13 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
 
     Function ID is extracted by scanning columns E..I left-to-right per row,
     starting from row 16. Key columns are at fixed positions (P/Q/R/S/T/U/V/AA).
-    Returns one row per WBS line that contains a Function ID.
+
+    After a parent row (one with a 機能ID), any following row *without* a
+    機能ID that carries a label in the column immediately right of the parent's
+    機能ID column AND at least one schedule date is emitted as a sub-task row.
+    Sub-tasks inherit their parent's 機能ID and are flagged with
+    `is_subtask=True` + `task_label=<label>`. The sub-task attribution ends
+    the moment the next parent row appears.
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True,
                        keep_vba=False)
@@ -846,29 +853,63 @@ def load_wbs(file_bytes: bytes) -> pd.DataFrame:
     scan_idx = [_col_to_idx(c) for c in WBS_FUNC_ID_COLS]
     col_idx = {name: _col_to_idx(letter)
                for name, letter in WBS_COLS.__dict__.items()}
+    date_keys = ("planned_start", "planned_end", "actual_start", "actual_end")
+
+    def _build_rec(row_tuple, fid: str, *, label: Optional[str],
+                   is_sub: bool) -> dict:
+        rec = {"機能ID": fid, "task_label": label, "is_subtask": is_sub}
+        for name, idx in col_idx.items():
+            rec[name] = (row_tuple[idx - 1]
+                         if idx - 1 < len(row_tuple) else None)
+        for k in date_keys:
+            rec[k] = _to_date(rec[k])
+        return rec
 
     out = []
+    parent_fid: Optional[str] = None
+    parent_fid_col: Optional[int] = None  # 1-based column index
+
     for row in ws.iter_rows(min_row=WBS_DATA_START_ROW, values_only=True):
         if row is None:
             continue
-        # Extract 機能ID from E..I scan
+
         fid = None
+        fid_col = None
         for i in scan_idx:
             if i - 1 < len(row):
-                fid = _normalize_fid(row[i - 1])
-                if fid:
+                candidate = _normalize_fid(row[i - 1])
+                if candidate:
+                    fid = candidate
+                    fid_col = i
                     break
-        if not fid:
+
+        if fid:
+            parent_fid = fid
+            parent_fid_col = fid_col
+            out.append(_build_rec(row, fid, label=None, is_sub=False))
             continue
-        rec = {"機能ID": fid}
-        for name, idx in col_idx.items():
-            rec[name] = row[idx - 1] if idx - 1 < len(row) else None
-        # Date normalization
-        for k in ("planned_start", "planned_end", "actual_start", "actual_end"):
-            rec[k] = _to_date(rec[k])
+
+        # No 機能ID on this row → candidate sub-task row.
+        if parent_fid is None or parent_fid_col is None:
+            continue
+        sub_cell_idx = parent_fid_col  # (parent_fid_col + 1) 1-based == this 0-based idx
+        if sub_cell_idx >= len(row):
+            continue
+        label_raw = row[sub_cell_idx]
+        if label_raw is None:
+            continue
+        label = str(label_raw).strip()
+        if not label:
+            continue
+        rec = _build_rec(row, parent_fid, label=label, is_sub=True)
+        # Require at least one date to treat this as a real schedule row.
+        if not any(rec[k] is not None for k in date_keys):
+            continue
         out.append(rec)
 
-    return pd.DataFrame(out)
+    cols = (["機能ID", "task_label", "is_subtask"]
+            + list(WBS_COLS.__dict__.keys()))
+    return pd.DataFrame(out, columns=cols)
 
 
 # =============================================================================
@@ -1575,13 +1616,18 @@ def integrate(
         df = df.merge(design_pages, on="機能ID", how="left")
 
     if wbs is not None and not wbs.empty:
-        # WBS may have multiple rows per Function ID; take the latest by
-        # planned_end (or first if none have a date).
-        wbs_sorted = wbs.sort_values(
+        # Sub-task rows are schedule *breakdowns* for a parent Function ID and
+        # must not participate in per-FID KPI aggregates — they'd overwrite
+        # the parent's dates/effort with a slice of themselves.
+        wbs_parents = (wbs[~wbs["is_subtask"].fillna(False).astype(bool)]
+                       if "is_subtask" in wbs.columns else wbs)
+        wbs_sorted = wbs_parents.sort_values(
             "planned_end", ascending=False, na_position="last"
         )
         wbs_one = wbs_sorted.drop_duplicates(subset=["機能ID"], keep="first")
-        df = df.merge(wbs_one, on="機能ID", how="left")
+        merge_cols = [c for c in wbs_one.columns
+                      if c not in ("task_label", "is_subtask")]
+        df = df.merge(wbs_one[merge_cols], on="機能ID", how="left")
 
     return df
 
@@ -1878,6 +1924,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_loc_total": "Total LoC",
         "chart_label_total_tests": "Total tests",
         "chart_label_executed": "Executed",
+        "chart_label_total": "Total",
+        "chart_label_coverage": "Coverage",
         "calendar_needs_master": "Upload **Function master** in the Dashboard tab to unlock the calendar.",
         "calendar_title": "Project calendar",
         "calendar_caption": (
@@ -1887,6 +1935,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "calendar_layer_planned": "WBS planned",
         "calendar_layer_actual": "WBS actual",
         "calendar_layer_defects": "Defects",
+        "calendar_layer_subtasks": "Show sub-tasks",
+        "calendar_filter_fid": "Filter by Function ID",
+        "calendar_filter_fid_help": "Leave empty to show all",
         "calendar_no_events": "No events to display with the current selection.",
         "gantt_title": "Gantt — planned vs actual",
         "gantt_no_dates": "No WBS dates available to plot.",
@@ -2377,6 +2428,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_loc_total": "総LoC",
         "chart_label_total_tests": "総テスト",
         "chart_label_executed": "実施済",
+        "chart_label_total": "合計",
+        "chart_label_coverage": "カバレッジ",
         "calendar_needs_master": "Dashboardタブで **機能マスタ** を取り込むとカレンダーが利用できます。",
         "calendar_title": "プロジェクトカレンダー",
         "calendar_caption": (
@@ -2385,6 +2438,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "calendar_layer_planned": "WBS 計画",
         "calendar_layer_actual": "WBS 実績",
         "calendar_layer_defects": "不具合",
+        "calendar_layer_subtasks": "サブタスクを表示",
+        "calendar_filter_fid": "機能IDで絞り込む",
+        "calendar_filter_fid_help": "未選択で全件表示",
         "calendar_no_events": "選択中のレイヤに表示するイベントがありません。",
         "gantt_title": "ガント — 計画 vs 実績",
         "gantt_no_dates": "WBSの日付情報がありません。",
@@ -4004,16 +4060,37 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if total > _BAR_CHART_MAX_ROWS:
         df = df.head(_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
+    ok_vals = df["OK"].fillna(0).astype(int)
+    ng_vals = df["NG"].fillna(0).astype(int)
+    nr_vals = df["未実施"].fillna(0).astype(int)
+    total_vals = ok_vals + ng_vals + nr_vals
+    with np.errstate(divide="ignore", invalid="ignore"):
+        cov_pct = np.where(total_vals > 0,
+                           ok_vals / total_vals * 100, 0.0)
+    customdata = np.column_stack([ok_vals, ng_vals, nr_vals,
+                                  total_vals, cov_pct])
+    hover_tmpl = (
+        "<b>%{y}</b><br>"
+        f"{t('chart_label_ok')}: %{{customdata[0]}}  "
+        f"{t('chart_label_ng')}: %{{customdata[1]}}  "
+        f"{t('chart_label_notrun')}: %{{customdata[2]}}<br>"
+        f"{t('chart_label_total')}: %{{customdata[3]}}  "
+        f"{t('chart_label_coverage')}: %{{customdata[4]:.1f}}%"
+        "<extra></extra>"
+    )
     fig = go.Figure()
     fig.add_bar(name=t("chart_label_ok"),
-                y=df["display"], x=df["OK"].fillna(0),
-                orientation="h", marker_color="#4ec78a")
+                y=df["display"], x=ok_vals,
+                orientation="h", marker_color="#4ec78a",
+                customdata=customdata, hovertemplate=hover_tmpl)
     fig.add_bar(name=t("chart_label_ng"),
-                y=df["display"], x=df["NG"].fillna(0),
-                orientation="h", marker_color="#f05050")
+                y=df["display"], x=ng_vals,
+                orientation="h", marker_color="#f05050",
+                customdata=customdata, hovertemplate=hover_tmpl)
     fig.add_bar(name=t("chart_label_notrun"),
-                y=df["display"], x=df["未実施"].fillna(0),
-                orientation="h", marker_color="#bbbbbb")
+                y=df["display"], x=nr_vals,
+                orientation="h", marker_color="#bbbbbb",
+                customdata=customdata, hovertemplate=hover_tmpl)
     fig.update_layout(barmode="stack",
                       height=max(280, 28 * len(df)),
                       margin=_INLINE_MARGIN_LONG_Y)
@@ -4078,12 +4155,15 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     agg = kpi_df.groupby("機能ID")[risk_dims].mean(numeric_only=True)
     z_df = agg.copy()
     for c in risk_dims:
-        s = z_df[c].fillna(0)
-        m = s.max()
-        z_df[c] = s / m if m > 0 else 0
+        s = z_df[c]
+        m = s.max(skipna=True)
+        if pd.notna(m) and m > 0:
+            z_df[c] = s / m
         if c == "test_run_rate":
-            z_df[c] = 1 - z_df[c]
-    z_df = z_df.sort_values(by=risk_dims[0], ascending=False)
+            mask = z_df[c].notna()
+            z_df.loc[mask, c] = 1 - z_df.loc[mask, c]
+    z_df = z_df.sort_values(by=risk_dims[0], ascending=False,
+                            na_position="last")
     dim_label = {c: t(COLUMN_LABEL_KEYS.get(c, c)) for c in risk_dims}
     if "test_run_rate" in dim_label:
         dim_label["test_run_rate"] = (
@@ -4094,8 +4174,11 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         z_df.T.values, x=z_df.index, y=y_labels,
         color_continuous_scale="RdYlGn_r", aspect="auto",
         labels=dict(x="機能ID", y="", color="risk"),
+        zmin=0, zmax=1,
     )
-    fig.update_layout(height=320, margin=_INLINE_MARGIN_HEATMAP)
+    fig.update_traces(hoverongaps=False)
+    fig.update_layout(height=320, margin=_INLINE_MARGIN_HEATMAP,
+                      plot_bgcolor="#d0d0d0")
     fig.update_xaxes(automargin=True, tickangle=-30)
     fig.update_yaxes(automargin=True)
     return fig
@@ -4140,6 +4223,27 @@ def _chart_test_trend() -> Optional[go.Figure]:
     return fig
 
 
+_BUG_TREND_FID_LIMIT = 10
+
+
+def _bug_trend_fid_breakdown(frame: pd.DataFrame, date_col: str,
+                             idx: pd.DatetimeIndex) -> list[str]:
+    if frame.empty or "機能ID" not in frame.columns:
+        return [""] * len(idx)
+    grp = (frame.set_index(date_col)
+           .groupby([pd.Grouper(freq="W"), "機能ID"]).size())
+    lines_by_week: dict[pd.Timestamp, str] = {}
+    for week, sub in grp.groupby(level=0):
+        counts = sub.droplevel(0).sort_values(ascending=False)
+        total = len(counts)
+        head = counts.head(_BUG_TREND_FID_LIMIT)
+        lines = [f"{fid}: {int(n)}" for fid, n in head.items()]
+        if total > _BUG_TREND_FID_LIMIT:
+            lines.append(f"… +{total - _BUG_TREND_FID_LIMIT}")
+        lines_by_week[week] = "<br>".join(lines)
+    return [lines_by_week.get(week, "") for week in idx]
+
+
 def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
     if defects_df is None or defects_df.empty:
         return None
@@ -4157,11 +4261,27 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
     wk_opened = wk_opened.reindex(idx, fill_value=0)
     wk_closed = wk_closed.reindex(idx, fill_value=0)
     cumulative_open = (wk_opened - wk_closed).cumsum().clip(lower=0)
+    opened_fid_text = _bug_trend_fid_breakdown(opened, "実開始日", idx)
+    closed_fid_text = _bug_trend_fid_breakdown(closed, "実終了日", idx)
+    hover_opened = (
+        "<b>%{x|%Y-%m-%d}</b><br>"
+        f"{t('chart_label_opened')}: %{{y}}<br>"
+        "%{customdata[0]}<extra></extra>"
+    )
+    hover_closed = (
+        "<b>%{x|%Y-%m-%d}</b><br>"
+        f"{t('chart_label_closed')}: %{{y}}<br>"
+        "%{customdata[0]}<extra></extra>"
+    )
     fig = go.Figure()
     fig.add_bar(name=t("chart_label_opened"), x=idx, y=wk_opened,
-                marker_color="#f05050")
+                marker_color="#f05050",
+                customdata=np.array(opened_fid_text).reshape(-1, 1),
+                hovertemplate=hover_opened)
     fig.add_bar(name=t("chart_label_closed"), x=idx, y=wk_closed,
-                marker_color="#4ec78a")
+                marker_color="#4ec78a",
+                customdata=np.array(closed_fid_text).reshape(-1, 1),
+                hovertemplate=hover_closed)
     fig.add_scatter(name=t("chart_label_open_cum"), x=idx,
                     y=cumulative_open, mode="lines+markers",
                     line=dict(color="#f5b400", width=2), yaxis="y2")
@@ -4454,11 +4574,15 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
     agg = kpi_df.groupby("機能ID")[risk_dims].mean(numeric_only=True)
     z_df = agg.copy()
     for c in risk_dims:
-        s = z_df[c].fillna(0); m = s.max()
-        z_df[c] = s / m if m > 0 else 0
+        s = z_df[c]
+        m = s.max(skipna=True)
+        if pd.notna(m) and m > 0:
+            z_df[c] = s / m
         if c == "test_run_rate":
-            z_df[c] = 1 - z_df[c]
-    z_df = z_df.sort_values(by=risk_dims[0], ascending=False)
+            mask = z_df[c].notna()
+            z_df.loc[mask, c] = 1 - z_df.loc[mask, c]
+    z_df = z_df.sort_values(by=risk_dims[0], ascending=False,
+                            na_position="last")
     dim_label = {c: t(COLUMN_LABEL_KEYS.get(c, c)) for c in risk_dims}
     if "test_run_rate" in dim_label:
         dim_label["test_run_rate"] = (
@@ -4466,11 +4590,14 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
         )
     y_labels = [dim_label[c] for c in risk_dims]
     x_labels = list(z_df.index)
-    data = z_df.T.values
+    data = np.ma.masked_invalid(z_df.T.values.astype(float))
     plt = _mpl_plt()
+    import matplotlib as _mpl
+    cmap = _mpl.cm.get_cmap("RdYlGn_r").copy()
+    cmap.set_bad("#d0d0d0")
     fig_h = max(3.0, 0.6 + 0.4 * len(y_labels))
     fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
-    im = ax.imshow(data, aspect="auto", cmap="RdYlGn_r", vmin=0, vmax=1)
+    im = ax.imshow(data, aspect="auto", cmap=cmap, vmin=0, vmax=1)
     ax.set_yticks(np.arange(len(y_labels)))
     ax.set_yticklabels(y_labels)
     ax.set_xticks(np.arange(len(x_labels)))
@@ -5303,7 +5430,13 @@ def render_calendar_tab() -> None:
     section_header("calendar_title", "help_calendar_title")
     st.caption(t("calendar_caption"))
 
-    layer_cols = st.columns(3)
+    all_fids = sorted(str(x) for x in kpi_df["機能ID"].dropna().unique())
+    selected_fids = st.multiselect(
+        t("calendar_filter_fid"), options=all_fids, default=[],
+        key="cal_filter_fids", help=t("calendar_filter_fid_help"),
+    )
+
+    layer_cols = st.columns(4)
     with layer_cols[0]:
         show_planned = st.checkbox(t("calendar_layer_planned"), value=True,
                                    key="cal_layer_planned")
@@ -5313,6 +5446,23 @@ def render_calendar_tab() -> None:
     with layer_cols[2]:
         show_defects = st.checkbox(t("calendar_layer_defects"), value=True,
                                    key="cal_layer_defects")
+    with layer_cols[3]:
+        show_subtasks = st.checkbox(t("calendar_layer_subtasks"), value=False,
+                                    key="cal_layer_subtasks")
+
+    if selected_fids:
+        kpi_df = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
+
+    sub_by_fid: dict[str, pd.DataFrame] = {}
+    if show_subtasks:
+        wbs_df = st.session_state.dfs.get("wbs")
+        if (wbs_df is not None and not wbs_df.empty
+                and "is_subtask" in wbs_df.columns):
+            sdf = wbs_df[wbs_df["is_subtask"].fillna(False).astype(bool)].copy()
+            if selected_fids:
+                sdf = sdf[sdf["機能ID"].astype(str).isin(selected_fids)]
+            for fid, grp in sdf.groupby("機能ID"):
+                sub_by_fid[str(fid)] = grp
 
     today_d = date.today()
 
@@ -5320,12 +5470,8 @@ def render_calendar_tab() -> None:
     gantt_rows: list[dict] = []
     label_planned = t("calendar_layer_planned")
     label_actual = t("calendar_layer_actual")
-    for _, row in kpi_df.iterrows():
-        label = _label_id_name(row)
-        ps = _to_pydate(row.get("planned_start"))
-        pe = _to_pydate(row.get("planned_end"))
-        ase = _to_pydate(row.get("actual_start"))
-        aee = _to_pydate(row.get("actual_end"))
+
+    def _append_schedule_bars(label: str, ps, pe, ase, aee) -> None:
         if show_planned and ps and pe and pe >= ps:
             gantt_rows.append({
                 "ID": label,
@@ -5344,15 +5490,39 @@ def render_calendar_tab() -> None:
                 "Layer": label_actual,
             })
 
+    for _, row in kpi_df.iterrows():
+        fid = str(row.get("機能ID", ""))
+        parent_label = _label_id_name(row)
+        _append_schedule_bars(
+            parent_label,
+            _to_pydate(row.get("planned_start")),
+            _to_pydate(row.get("planned_end")),
+            _to_pydate(row.get("actual_start")),
+            _to_pydate(row.get("actual_end")),
+        )
+        for _, srow in sub_by_fid.get(fid, pd.DataFrame()).iterrows():
+            sub_label = f"　└ {fid} · {srow.get('task_label', '')}"
+            _append_schedule_bars(
+                sub_label,
+                _to_pydate(srow.get("planned_start")),
+                _to_pydate(srow.get("planned_end")),
+                _to_pydate(srow.get("actual_start")),
+                _to_pydate(srow.get("actual_end")),
+            )
+
     if gantt_rows:
         section_header("gantt_title", "help_gantt_title")
         df_g = pd.DataFrame(gantt_rows)
+        # Preserve insertion order so each parent's sub-tasks sit directly
+        # below the parent row instead of being alphabetized by Plotly.
+        y_order = list(dict.fromkeys(df_g["ID"]))
         fig = px.timeline(
             df_g, x_start="Start", x_end="End", y="ID", color="Layer",
             color_discrete_map={
                 label_planned: "#9aa0a6",
                 label_actual:  "#4ec78a",
             },
+            category_orders={"ID": y_order},
         )
         fig.update_yaxes(autorange="reversed")
         # Today marker — `add_vline(annotation_text=...)` with a Timestamp x
@@ -5419,9 +5589,41 @@ def render_calendar_tab() -> None:
                 "borderColor": "#3aa872",
             })
 
+    for fid, subs in sub_by_fid.items():
+        for _, srow in subs.iterrows():
+            task = srow.get("task_label", "") or ""
+            sps = _to_pydate(srow.get("planned_start"))
+            spe = _to_pydate(srow.get("planned_end"))
+            sase = _to_pydate(srow.get("actual_start"))
+            saee = _to_pydate(srow.get("actual_end"))
+            if show_planned and sps and spe:
+                events.append({
+                    "title": f"📅 └ {fid} · {task}",
+                    "start": sps.isoformat(),
+                    "end": (spe + timedelta(days=1)).isoformat(),
+                    "backgroundColor": "rgba(150,150,150,0.25)",
+                    "borderColor": "#888",
+                    "textColor": "#bbb",
+                })
+            if show_actual and sase:
+                s_end = (saee or sase) + timedelta(days=1)
+                events.append({
+                    "title": (f"✅ └ {fid} · {task}" if saee
+                              else f"▶ └ {fid} · {task}"),
+                    "start": sase.isoformat(),
+                    "end": s_end.isoformat(),
+                    "backgroundColor": "rgba(78,199,138,0.55)",
+                    "borderColor": "#3aa872",
+                })
+
     defects_df = st.session_state.dfs.get("defects")
     if show_defects and defects_df is not None and not defects_df.empty:
-        for _, row in defects_df.iterrows():
+        d_iter = defects_df
+        if selected_fids:
+            d_iter = defects_df[
+                defects_df["機能ID"].astype(str).isin(selected_fids)
+            ]
+        for _, row in d_iter.iterrows():
             sd = _to_pydate(row.get("実開始日"))
             ed = _to_pydate(row.get("実終了日"))
             if sd is None:
@@ -5462,7 +5664,16 @@ def render_calendar_tab() -> None:
     # enabled the FullCalendar inside the streamlit-calendar iframe renders to
     # an empty area on Streamlit 1.39 + this package (1.3.1). Plain options
     # render correctly.
-    calendar(events=events, options=options, key="project_calendar")
+    # streamlit-calendar passes events via FullCalendar's `initialEvents`,
+    # which is only honored on first mount — toggling filters would otherwise
+    # leave the calendar stuck on the old event list. Hash the event payload
+    # into the widget key so content changes force a fresh mount.
+    cal_key = "project_calendar_" + hashlib.md5(
+        repr(sorted(
+            (e["title"], e["start"], e["end"]) for e in events
+        )).encode()
+    ).hexdigest()[:12]
+    calendar(events=events, options=options, key=cal_key)
 
 
 def render_design_pages_tab() -> None:
@@ -5894,7 +6105,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.6</span>
+    <span class="ver">Ver1.0.11</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
