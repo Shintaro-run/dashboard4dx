@@ -850,7 +850,8 @@ def _parse_phase_date(v) -> Optional[date]:
     s = v.strip()
     if not s:
         return None
-    for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%Y.%m.%d", "%Y年%m月%d日"):
+    for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%Y.%m.%d", "%Y年%m月%d日",
+                "%m/%d/%Y", "%m/%d/%y", "%m-%d-%Y"):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
@@ -1394,6 +1395,35 @@ def _preflight_wbs(data: bytes) -> list[StepResult]:
     _step(steps, "step_wbs_sheet", "ok")
 
     ws = wb[WBS_SHEET]
+    ps_col0 = _col_to_idx(WBS_PHASE_START_CELL[0]) - 1
+    pe_col0 = _col_to_idx(WBS_PHASE_END_CELL[0]) - 1
+    phase_row_num = WBS_PHASE_START_CELL[1]
+    phase_row = next(iter(ws.iter_rows(min_row=phase_row_num,
+                                       max_row=phase_row_num,
+                                       values_only=True)), None)
+    ps_raw = (phase_row[ps_col0]
+              if phase_row is not None and ps_col0 < len(phase_row) else None)
+    pe_raw = (phase_row[pe_col0]
+              if phase_row is not None and pe_col0 < len(phase_row) else None)
+    ps_d = _parse_phase_date(ps_raw)
+    pe_d = _parse_phase_date(pe_raw)
+    if ps_d is None or pe_d is None or pe_d < ps_d:
+        bad = []
+        if ps_d is None:
+            bad.append(f"{WBS_PHASE_START_CELL[0]}{phase_row_num}"
+                       f" (開始) = {ps_raw!r}")
+        if pe_d is None:
+            bad.append(f"{WBS_PHASE_END_CELL[0]}{phase_row_num}"
+                       f" (終了) = {pe_raw!r}")
+        if ps_d is not None and pe_d is not None and pe_d < ps_d:
+            bad.append(f"終了 ({pe_d}) が開始 ({ps_d}) より前")
+        _step(steps, "step_wbs_phase_dates", "error",
+              "フェーズ日付セルが不正: " + "; ".join(bad)
+              + "。年/月/日 形式 (例: 2026/04/01) で入力してください。")
+        return steps
+    _step(steps, "step_wbs_phase_dates", "ok",
+          detail=f"phase: {ps_d} 〜 {pe_d}")
+
     scan_idx = [_col_to_idx(c) for c in WBS_FUNC_ID_COLS]
     fid_count = 0
     rows_seen = 0
@@ -2140,6 +2170,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_fid":      "Extract Function IDs from F column",
         "step_master_dups":     "Inspect duplicate Function IDs",
         "step_wbs_sheet":       "Find sheet 'メイン'",
+        "step_wbs_phase_dates": "Parse phase anchors J6 / N6 (年/月/日)",
         "step_wbs_fid":         "Extract Function IDs from cols E–I (row 16+)",
         "step_defects_columns": "Verify required columns",
         "step_defects_filter":  "Filter to '不具合管理'",
@@ -2644,6 +2675,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_fid":      "F列から機能IDを抽出",
         "step_master_dups":     "機能IDの重複を確認",
         "step_wbs_sheet":       "シート 'メイン' を確認",
+        "step_wbs_phase_dates": "フェーズ期間 J6 / N6 を解析（年/月/日）",
         "step_wbs_fid":         "E〜I列から機能IDを抽出（16行目以降）",
         "step_defects_columns": "必須列を確認",
         "step_defects_filter":  "「不具合管理」でフィルタ",
@@ -6253,7 +6285,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.14</span>
+    <span class="ver">Ver1.0.15</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
