@@ -1922,6 +1922,10 @@ def compute_kpis(
         df["test_pass_rate"] = _safe_div(df["OK"], df["実施済"])
     if "NG" in df.columns and "総テスト" in df.columns:
         df["defect_rate"] = _safe_div(df["NG"], df["総テスト"])
+    # incident_rate is the Redmine fault count over executed tests, kept
+    # deliberately separate from defect_rate (test-spec NG / 総テスト).
+    if "defect_total" in df.columns and "実施済" in df.columns:
+        df["incident_rate"] = _safe_div(df["defect_total"], df["実施済"])
 
     # Delay
     if "planned_end" in df.columns:
@@ -1976,6 +1980,7 @@ COLUMN_HELP_KEYS: dict[str, str] = {
     "actual_end":     "help_actual_end",
     "actual_progress":  "help_actual_progress",
     "planned_progress": "help_planned_progress",
+    "incident_rate": "help_incident_rate",
     "bug_density":   "help_bug_density",
     "test_density":  "help_test_density",
     "complexity":    "help_complexity",
@@ -1995,6 +2000,7 @@ COLUMN_NUMERIC_FORMATS: dict[str, str] = {
     "test_run_rate": "percent",
     "test_pass_rate":"percent",
     "defect_rate":   "percent",
+    "incident_rate": "percent",
     "delay_days":    "%.0f",
     "delay_rate":    "percent",
     "health_score":  "%.2f",
@@ -2012,6 +2018,9 @@ COLUMN_LABEL_KEYS: dict[str, str] = {
     "test_run_rate": "col_test_run_rate",
     "test_pass_rate":"col_test_pass_rate",
     "defect_rate":   "col_defect_rate",
+    "incident_rate": "col_incident_rate",
+    "defect_total":  "col_defect_total",
+    "defect_unresolved": "col_defect_unresolved",
     "delay_days":    "col_delay_days",
     "delay_rate":    "col_delay_rate",
     "health_score":  "col_health_score",
@@ -2114,6 +2123,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
         "chart_test_density_threshold_label": "threshold",
         "chart_test_density_below_marker": "⚠ low",
+        "chart_incident_rate": "Fault rate per Function ID (Redmine, defects/Executed)",
+        "chart_incident_rate_threshold_label": "threshold",
+        "chart_incident_rate_above_marker": "⚠ high",
         "chart_overview_compare": "Function ID overview: 4-metric comparison",
         "chart_overview_compare_filter": "Filter by Function ID",
         "chart_overview_compare_filter_help": "Empty = all. KPI cards and the chart recompute on the filtered set.",
@@ -2203,6 +2215,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_test_density_threshold_caption": (
             "Default 10. Function IDs whose 総テスト ÷ 設計書ページ数 falls "
             "below this value are highlighted on the test density chart."
+        ),
+        "settings_incident_rate_threshold": "Fault rate (Redmine) warning threshold (%)",
+        "settings_incident_rate_threshold_caption": (
+            "Default 5%. Function IDs whose Redmine defect_total ÷ "
+            "実施済 exceeds this value are highlighted on the fault rate chart."
         ),
         "settings_pages_title": "Auto-load of design page counts",
         "settings_pages_caption": (
@@ -2344,10 +2361,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "tab_all_caption": "All joined columns — horizontal scroll if needed.",
         "kpi_summary_title": "Project-wide KPIs",
         "metric_total_loc": "Total LoC",
-        "metric_open_defects": "Open defects",
+        "metric_open_defects": "Open faults (Redmine)",
         "metric_test_run_rate": "Test run rate",
         "metric_test_pass_rate": "Test pass rate",
-        "metric_avg_bug_density": "Avg bug density",
+        "metric_avg_bug_density": "Avg defect density (test spec)",
         "metric_avg_test_density": "Avg test density",
         "metric_at_risk": "At-risk functions",
         "metric_delayed": "Delayed functions",
@@ -2369,16 +2386,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "names — every (ID, name) pair is kept."
         ),
         "help_defect_total": (
-            "**🦕 Defects total**\n\n"
-            "Number of defects logged for this Function ID.\n\n"
+            "**🦕 Fault count (Redmine)**\n\n"
+            "Number of faults logged in Redmine for this Function ID.\n\n"
             "📂 Source: Redmine defect list, filtered to tracker = '不具合管理'.\n\n"
-            "💡 Includes both open and closed defects."
+            "💡 Includes both open and closed faults.\n\n"
+            "⚠ This is **not** the test-spec NG count "
+            "(see *Defect density – test spec* / *Defect rate – test spec*)."
         ),
         "help_defect_unresolved": (
-            "**🦕 Open defects**\n\n"
-            "Defects whose 実終了日 is still empty.\n\n"
+            "**🦕 Unresolved faults (Redmine)**\n\n"
+            "Faults whose 実終了日 is still empty.\n\n"
             "📂 Source: Redmine defect list (不具合管理).\n\n"
-            "💡 Treat as the current open backlog."
+            "💡 Treat as the current open backlog.\n\n"
+            "⚠ This is **not** the test-spec NG count."
+        ),
+        "help_incident_rate": (
+            "**🦕 Fault rate (Redmine)**\n\n"
+            "🧮 Redmine `defect_total` ÷ test-spec `実施済` "
+            "(Redmine fault count over executed tests).\n\n"
+            "💡 How often a Redmine-tracked fault was raised per executed "
+            "test case.\n\n"
+            "⚠ This is **not** *Defect rate – test spec* (NG / Total tests). "
+            "The numerator and the denominator come from different sources."
         ),
         "help_test_total": (
             "**🦕 Total tests (総テスト)**\n\n"
@@ -2452,9 +2481,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 Source: WBS column **AA**."
         ),
         "help_bug_density": (
-            "**🦕 Bug density**\n\n"
-            "🧮 NG ÷ LoC.\n\n"
-            "💡 Defects per line of code. Higher = more buggy."
+            "**🦕 Defect density – test spec**\n\n"
+            "🧮 NG ÷ LoC (test-spec NG count over lines of code).\n\n"
+            "💡 Defects per line of code. Higher = more buggy.\n\n"
+            "⚠ This is **not** the Redmine fault count (*Fault count (Redmine)*)."
         ),
         "help_test_density": (
             "**🦕 Test density**\n\n"
@@ -2477,9 +2507,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 Quality of executed tests. Drops below 90% warrant investigation."
         ),
         "help_defect_rate": (
-            "**🦕 Defect rate**\n\n"
-            "🧮 NG ÷ 総テスト.\n\n"
-            "💡 Failure rate against the full test plan."
+            "**🦕 Defect rate – test spec**\n\n"
+            "🧮 NG ÷ 総テスト (test-spec NG over planned test cases).\n\n"
+            "💡 Failure rate against the full test plan.\n\n"
+            "⚠ This is **not** the Redmine fault rate (*Fault rate (Redmine)*)."
         ),
         "help_delay_days": (
             "**🦕 Delay (days)**\n\n"
@@ -2521,6 +2552,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "🧮 総テスト ÷ 設計書ページ数 — sorted ascending so the bottom "
             "of the chart is the under-tested specs.\n\n"
             "📂 Source: Test counts per spec (C), design pages."
+        ),
+        "help_chart_incident_rate": (
+            "**🦕 Fault rate (Redmine)**\n\n"
+            "🧮 Redmine `defect_total` ÷ test-spec `実施済` per Function ID, "
+            "sorted descending so the worst rates surface at the top.\n\n"
+            "📂 Source: Redmine defect tracker (defect_total) over Test "
+            "counts (D 実施済).\n\n"
+            "⚠ This is **not** *Defect rate – test spec* (NG / Total tests)."
         ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
@@ -2605,12 +2644,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 Source: WBS Q–T + Redmine defect list (実開始日, 実終了日).\n\n"
             "💡 Toggle layers above. Defects in red = unresolved."
         ),
-        "col_bug_density":   "Bug density (NG/LoC)",
+        "col_bug_density":   "Defect density – test spec (NG/LoC)",
+        "col_defect_total":  "Fault count (Redmine)",
+        "col_defect_unresolved": "Unresolved faults (Redmine)",
+        "col_incident_rate": "Fault rate (Redmine, defect_total/Executed)",
         "col_test_density":  "Test density (test count sufficiency, tests/page)",
         "col_complexity":    "Complexity (LoC/page)",
         "col_test_run_rate": "Test run rate",
         "col_test_pass_rate":"Test pass rate",
-        "col_defect_rate":   "Defect rate",
+        "col_defect_rate":   "Defect rate – test spec (NG/Total tests)",
         "col_delay_days":    "Delay (days)",
         "col_delay_rate":    "Delay rate",
         "col_health_score":  "Health score",
@@ -2676,6 +2718,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
         "chart_test_density_below_marker": "⚠ 不足",
+        "chart_incident_rate": "機能ID別 障害発生率（Redmine, 障害件数/実施済）",
+        "chart_incident_rate_threshold_label": "閾値",
+        "chart_incident_rate_above_marker": "⚠ 超過",
         "chart_overview_compare": "機能ID俯瞰比較（4指標）",
         "chart_overview_compare_filter": "機能IDで絞り込む",
         "chart_overview_compare_filter_help": "未選択で全件。フィルタ後の集計でカードとチャートが更新されます。",
@@ -2761,6 +2806,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "settings_test_density_threshold_caption": (
             "既定値 10。総テスト ÷ 設計書ページ数 がこの値を下回る機能IDは、"
             "テスト密度チャートで赤＋⚠マーカーで強調表示されます。"
+        ),
+        "settings_incident_rate_threshold": "障害発生率（Redmine）の警告閾値（%）",
+        "settings_incident_rate_threshold_caption": (
+            "既定値 5%。Redmine `defect_total` ÷ `実施済` がこの値を超える"
+            "機能IDは、障害発生率チャートで赤＋⚠マーカーで強調表示されます。"
         ),
         "settings_pages_title": "設計書ページ数の自動取込",
         "settings_pages_caption": (
@@ -2898,10 +2948,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "tab_all_caption": "結合後の全列。必要に応じて横スクロールしてください。",
         "kpi_summary_title": "プロジェクト全体KPI",
         "metric_total_loc": "総LoC",
-        "metric_open_defects": "未解決不具合",
+        "metric_open_defects": "未解決障害（Redmine）",
         "metric_test_run_rate": "テスト実施率",
         "metric_test_pass_rate": "テスト成功率",
-        "metric_avg_bug_density": "平均バグ密度",
+        "metric_avg_bug_density": "平均不具合密度（テスト仕様書）",
         "metric_avg_test_density": "平均テスト密度",
         "metric_at_risk": "高リスク機能数",
         "metric_delayed": "遅延機能数",
@@ -2922,16 +2972,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 同一機能IDでも名称が異なる場合があり、(ID, 名称) の組合せを保持します。"
         ),
         "help_defect_total": (
-            "**🦕 不具合件数**\n\n"
-            "機能ID別の不具合件数。\n\n"
+            "**🦕 障害件数（Redmine）**\n\n"
+            "機能ID別に Redmine で記録された障害件数。\n\n"
             "📂 出典: Redmine不具合一覧（トラッカー='不具合管理' のみ）。\n\n"
-            "💡 未解決・解決済みの両方を含みます。"
+            "💡 未解決・解決済みの両方を含みます。\n\n"
+            "⚠ これは**テスト仕様書の不具合件数（NG）ではありません**。"
+            "（→「不具合密度（テスト仕様書）」「不具合率（テスト仕様書）」を参照）"
         ),
         "help_defect_unresolved": (
-            "**🦕 未解決不具合**\n\n"
-            "実終了日が空の不具合件数。\n\n"
+            "**🦕 未解決障害（Redmine）**\n\n"
+            "実終了日が空の障害件数。\n\n"
             "📂 出典: Redmine不具合一覧（不具合管理）。\n\n"
-            "💡 現時点の未解決バックログ。"
+            "💡 現時点の未解決バックログ。\n\n"
+            "⚠ これは**テスト仕様書の NG 件数ではありません**。"
+        ),
+        "help_incident_rate": (
+            "**🦕 障害発生率（Redmine）**\n\n"
+            "🧮 Redmine `defect_total` ÷ 仕様書別テスト集計 `実施済` "
+            "（Redmine の障害件数を実施済テスト件数で割ったもの）。\n\n"
+            "💡 実施1件あたりに Redmine 起票の障害がどれだけ出たかの目安。\n\n"
+            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
+            "分子と分母の出典が違います。"
         ),
         "help_test_total": (
             "**🦕 総テスト**\n\n"
@@ -2997,9 +3058,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 出典: WBS **AA列**。"
         ),
         "help_bug_density": (
-            "**🦕 バグ密度**\n\n"
-            "🧮 NG ÷ LoC。\n\n"
-            "💡 コード1行あたりの不具合数。高いほど不具合多。"
+            "**🦕 不具合密度（テスト仕様書）**\n\n"
+            "🧮 NG ÷ LoC（テスト仕様書の NG 件数 ÷ コード行数）。\n\n"
+            "💡 コード1行あたりの不具合数。高いほど不具合多。\n\n"
+            "⚠ これは**Redmine の障害件数（障害件数（Redmine））ではありません**。"
         ),
         "help_test_density": (
             "**🦕 テスト密度**\n\n"
@@ -3022,9 +3084,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 実施済テストの品質。90%未満は要調査。"
         ),
         "help_defect_rate": (
-            "**🦕 不具合率**\n\n"
-            "🧮 NG ÷ 総テスト。\n\n"
-            "💡 全テスト計画に対する失敗率。"
+            "**🦕 不具合率（テスト仕様書）**\n\n"
+            "🧮 NG ÷ 総テスト（テスト仕様書の NG ÷ 計画テスト件数）。\n\n"
+            "💡 全テスト計画に対する不合格率。\n\n"
+            "⚠ これは**「障害発生率（Redmine）」ではありません**。"
         ),
         "help_delay_days": (
             "**🦕 遅延日数**\n\n"
@@ -3063,6 +3126,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 テスト密度（テスト件数に関する充足率）**\n\n"
             "🧮 総テスト ÷ 設計書ページ数 — 昇順ソートで下が手薄。\n\n"
             "📂 出典: 仕様書別テスト集計（C列）, 設計書ページ数。"
+        ),
+        "help_chart_incident_rate": (
+            "**🦕 障害発生率（Redmine）**\n\n"
+            "🧮 Redmine `defect_total` ÷ 仕様書別テスト集計 `実施済` を機能ID別に表示。"
+            "降順ソートで悪い方が上に並びます。\n\n"
+            "📂 出典: Redmine 障害一覧（defect_total）÷ テスト集計（D列 実施済）。\n\n"
+            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
         ),
         "help_chart_loc_vs_ng": (
             "**🦕 LoC × NG**\n\n"
@@ -3143,12 +3213,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 出典: WBS Q-T列（計画/実績）+ Redmine不具合一覧（実開始日/実終了日）。\n\n"
             "💡 上のスイッチでレイヤ切替。赤い不具合 = 未解決。"
         ),
-        "col_bug_density":   "バグ密度 (NG/LoC)",
+        "col_bug_density":   "不具合密度（テスト仕様書, NG/LoC）",
+        "col_defect_total":  "障害件数（Redmine）",
+        "col_defect_unresolved": "未解決障害（Redmine）",
+        "col_incident_rate": "障害発生率（Redmine, 障害件数/実施済）",
         "col_test_density":  "テスト密度（テスト件数に関する充足率, テスト/ページ）",
         "col_complexity":    "複雑度 (LoC/ページ)",
         "col_test_run_rate": "テスト実施率",
         "col_test_pass_rate":"テスト成功率",
-        "col_defect_rate":   "不具合率",
+        "col_defect_rate":   "不具合率（テスト仕様書, NG/総テスト）",
         "col_delay_days":    "遅延日数",
         "col_delay_rate":    "遅延率",
         "col_health_score":  "健全性スコア",
@@ -4081,16 +4154,19 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
 
         # Defects
         st.markdown(f"#### {t('drilldown_section_defects')}")
-        d_cols = st.columns(3, gap="small")
-        d_cols[0].metric("defect_total",
+        d_cols = st.columns(4, gap="small")
+        d_cols[0].metric(t("col_defect_total"),
                          _f(row.get("defect_total"), "{:.0f}"),
                          help=t("help_defect_total"))
-        d_cols[1].metric("defect_unresolved",
+        d_cols[1].metric(t("col_defect_unresolved"),
                          _f(row.get("defect_unresolved"), "{:.0f}"),
                          help=t("help_defect_unresolved"))
         d_cols[2].metric(t("col_defect_rate"),
                          _pct(row.get("defect_rate")),
                          help=t("help_defect_rate"))
+        d_cols[3].metric(t("col_incident_rate"),
+                         _pct(row.get("incident_rate")),
+                         help=t("help_incident_rate"))
 
         if defects_df is not None and not defects_df.empty:
             related = defects_df[defects_df["機能ID"] == function_id].copy()
@@ -4431,21 +4507,31 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
 
 
 TEST_DENSITY_THRESHOLD_DEFAULT = 10.0
+INCIDENT_RATE_THRESHOLD_DEFAULT = 0.05  # = 5%
+
+
+def _read_threshold(state_key: str, default: float) -> float:
+    """Common helper for reading user-configured chart thresholds out of
+    Streamlit session state. Falls back to the default when called outside
+    of a Streamlit session (tests, batch usage)."""
+    try:
+        v = st.session_state.get(state_key, default)
+    except Exception:
+        v = default
+    try:
+        return float(v) if v is not None else default
+    except (TypeError, ValueError):
+        return default
 
 
 def _test_density_threshold() -> float:
-    """Read the user-configured test density threshold (Settings tab) and
-    fall back to the default when running outside Streamlit (tests, batch
-    invocation) so chart helpers stay safe to call standalone."""
-    try:
-        v = st.session_state.get("test_density_threshold",
-                                 TEST_DENSITY_THRESHOLD_DEFAULT)
-    except Exception:
-        v = TEST_DENSITY_THRESHOLD_DEFAULT
-    try:
-        return float(v) if v is not None else TEST_DENSITY_THRESHOLD_DEFAULT
-    except (TypeError, ValueError):
-        return TEST_DENSITY_THRESHOLD_DEFAULT
+    return _read_threshold("test_density_threshold",
+                           TEST_DENSITY_THRESHOLD_DEFAULT)
+
+
+def _incident_rate_threshold() -> float:
+    return _read_threshold("incident_rate_threshold",
+                           INCIDENT_RATE_THRESHOLD_DEFAULT)
 
 
 def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
@@ -4502,6 +4588,73 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     )
     fig.update_layout(height=max(280, 28 * len(df)),
                       xaxis_title="tests / page", yaxis_title=None,
+                      margin=_INLINE_MARGIN_LONG_Y)
+    fig.update_yaxes(automargin=True)
+    if total > _BAR_CHART_MAX_ROWS:
+        fig.add_annotation(**_truncate_note_annotation(len(df), total))
+    return fig
+
+
+def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
+    """Per-機能ID horizontal bar of Redmine fault rate (defect_total ÷
+    実施済). Bars *above* the configured threshold are flagged in red — the
+    opposite direction from the test_density chart since here higher = bad.
+    """
+    needed = {"incident_rate", "defect_total", "実施済"}
+    if not needed.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["incident_rate"]).copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    df = df.sort_values("incident_rate", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    threshold = _incident_rate_threshold()
+    rates = df["incident_rate"].astype(float)
+    above = rates > threshold
+    bar_colors = np.where(above, "#f05050", "#7aaef0")
+    bar_lines = np.where(above, "#a02020", "#7aaef0")
+    customdata = np.column_stack([
+        df["defect_total"].fillna(0).astype(int),
+        df["実施済"].fillna(0).astype(int),
+        rates * 100.0,
+    ])
+    above_marker = t("chart_incident_rate_above_marker")
+    hover_tmpl = (
+        "<b>%{y}</b><br>"
+        f"{t('col_defect_total')}: %{{customdata[0]}}  "
+        f"実施済: %{{customdata[1]}}<br>"
+        f"{t('col_incident_rate')}: %{{customdata[2]:.2f}}%"
+        f" (閾値: {threshold * 100:g}%)"
+        "<extra></extra>"
+    )
+    fig = go.Figure()
+    fig.add_bar(
+        y=df["display"], x=rates * 100.0,
+        orientation="h",
+        marker_color=bar_colors.tolist(),
+        marker_line=dict(color=bar_lines.tolist(), width=1),
+        customdata=customdata, hovertemplate=hover_tmpl,
+        text=[above_marker if a else "" for a in above],
+        textposition="outside",
+        textfont=dict(color="#a02020", size=11),
+    )
+    fig.add_vline(
+        x=threshold * 100.0,
+        line_width=1, line_dash="dash", line_color="#a02020",
+        annotation_text=(
+            f"{t('chart_incident_rate_threshold_label')} "
+            f"{threshold * 100:g}%"
+        ),
+        annotation_position="top right",
+        annotation_font=dict(color="#a02020", size=11),
+    )
+    fig.update_layout(height=max(280, 28 * len(df)),
+                      xaxis_title="%", yaxis_title=None,
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
     if total > _BAR_CHART_MAX_ROWS:
@@ -4976,6 +5129,41 @@ def _mpl_chart_test_density(kpi_df: pd.DataFrame):
             color="#a02020", fontsize=9, va="bottom", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(df["display"])
     ax.set_xlabel("tests / page")
+    ax.grid(axis="x", linestyle=":", alpha=0.3)
+    if total > _BAR_CHART_MAX_ROWS:
+        _mpl_truncated_title(ax, n, total)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_incident_rate(kpi_df: pd.DataFrame):
+    if not {"incident_rate"}.issubset(kpi_df.columns):
+        return None
+    df = kpi_df.dropna(subset=["incident_rate"]).copy()
+    if df.empty:
+        return None
+    df["display"] = (df["機能ID"] + " · "
+                     + df["機能名称"].fillna("")).map(_clip_label)
+    df = df.sort_values("incident_rate", ascending=False)
+    total = len(df)
+    if total > _BAR_CHART_MAX_ROWS:
+        df = df.head(_BAR_CHART_MAX_ROWS)
+    df = df.iloc[::-1]
+    n = len(df)
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, _mpl_bar_height_in(n)), dpi=_MPL_DPI)
+    y = np.arange(n)
+    rates = df["incident_rate"].values.astype(float) * 100.0
+    threshold_pct = _incident_rate_threshold() * 100.0
+    colors = ["#f05050" if r > threshold_pct else "#7aaef0" for r in rates]
+    ax.barh(y, rates, color=colors)
+    ax.axvline(threshold_pct, color="#a02020", linestyle="--", linewidth=1)
+    ax.text(threshold_pct, n - 0.5,
+            f" {t('chart_incident_rate_threshold_label')} {threshold_pct:g}%",
+            color="#a02020", fontsize=9, va="bottom", ha="left")
+    ax.set_yticks(y); ax.set_yticklabels(df["display"])
+    ax.set_xlabel("%")
     ax.grid(axis="x", linestyle=":", alpha=0.3)
     if total > _BAR_CHART_MAX_ROWS:
         _mpl_truncated_title(ax, n, total)
@@ -5588,6 +5776,8 @@ def generate_report_pdf(
          lambda: _mpl_chart_test_coverage(kpi_df)),
         ("chart_test_density",    "help_chart_test_density",
          lambda: _mpl_chart_test_density(kpi_df)),
+        ("chart_incident_rate",   "help_chart_incident_rate",
+         lambda: _mpl_chart_incident_rate(kpi_df)),
         ("chart_loc_vs_ng",       "help_chart_loc_vs_ng",
          lambda: _mpl_chart_loc_vs_ng(kpi_df)),
         ("chart_design_impl_gap", "help_chart_design_impl_gap",
@@ -5885,6 +6075,11 @@ def render_charts_tab() -> None:
     fig = _chart_test_density(kpi_df)
     if fig is not None:
         section_header("chart_test_density", "help_chart_test_density")
+        st.plotly_chart(fig, use_container_width=True)
+
+    fig = _chart_incident_rate(kpi_df)
+    if fig is not None:
+        section_header("chart_incident_rate", "help_chart_incident_rate")
         st.plotly_chart(fig, use_container_width=True)
 
     col1, col2 = st.columns(2, gap="medium")
@@ -6574,6 +6769,20 @@ def render_settings_tab() -> None:
         help=t("settings_test_density_threshold_caption"),
     )
     st.caption(t("settings_test_density_threshold_caption"))
+    st.number_input(
+        t("settings_incident_rate_threshold"),
+        min_value=0.0, max_value=100.0, step=1.0, format="%.2f",
+        key="incident_rate_threshold_pct",
+        help=t("settings_incident_rate_threshold_caption"),
+    )
+    # The setter uses the visible % field; the chart code reads the
+    # underlying fraction via `incident_rate_threshold` (= pct/100).
+    st.session_state.incident_rate_threshold = (
+        float(st.session_state.get("incident_rate_threshold_pct",
+                                   INCIDENT_RATE_THRESHOLD_DEFAULT * 100.0))
+        / 100.0
+    )
+    st.caption(t("settings_incident_rate_threshold_caption"))
 
     # ----- Session log location -----
     st.divider()
@@ -6607,6 +6816,10 @@ def main() -> None:
     st.session_state.setdefault("origin_names", {})
     st.session_state.setdefault("test_density_threshold",
                                 TEST_DENSITY_THRESHOLD_DEFAULT)
+    st.session_state.setdefault("incident_rate_threshold",
+                                INCIDENT_RATE_THRESHOLD_DEFAULT)
+    st.session_state.setdefault("incident_rate_threshold_pct",
+                                INCIDENT_RATE_THRESHOLD_DEFAULT * 100.0)
 
     # --- Header row: title (left) + language switcher (right) ----------------
     title_col, lang_col = st.columns([10, 1], gap="small")
@@ -6697,7 +6910,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.20</span>
+    <span class="ver">Ver1.0.21</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
