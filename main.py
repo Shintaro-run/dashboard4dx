@@ -871,30 +871,51 @@ CHART_DINOS: dict[str, str] = {
 _DEFAULT_SECTION_DINO = "bronto"
 
 
+# Module-level collector populated by section_header while an enclosing
+# renderer (currently only render_charts_tab) holds an active collector.
+# Each entry is (anchor_id, localized_title). None disables collection.
+_CHARTS_TOC_ACTIVE: Optional[list[tuple[str, str]]] = None
+
+
+def _register_toc_entry(anchor: str, label: str) -> None:
+    """Append an (anchor, label) pair to the active TOC collector, if any.
+    A no-op when no tab is collecting — safe to call from any header."""
+    if _CHARTS_TOC_ACTIVE is not None:
+        _CHARTS_TOC_ACTIVE.append((anchor, label))
+
+
 def section_header(title_key: str, help_key: Optional[str] = None,
-                   dino: Optional[str] = None) -> None:
+                   dino: Optional[str] = None,
+                   anchor: Optional[str] = None) -> None:
     """Render a chart/section header: dino icon + localized title + help (?).
 
     `dino` defaults to whatever is mapped for `title_key`. Help is shown via
     Streamlit's standard tooltip on the subheader so the rich markdown header
     (with 🦕) still appears on hover.
+
+    `anchor` is passed to st.subheader so the header gets a stable HTML id
+    — lets the Charts-tab TOC link to it. Defaults to `sec-<title_key>` so
+    chart-key renaming drives anchor renaming automatically.
     """
     dino_name = dino or CHART_DINOS.get(title_key, _DEFAULT_SECTION_DINO)
     icon_uri = dino_data_uri(dino_name)
     icon_col, txt_col = st.columns(
         [1, 24], gap="small", vertical_alignment="center"
     )
+    effective_anchor = anchor if anchor is not None else f"sec-{title_key}"
     with icon_col:
         st.markdown(
             f'<img src="{icon_uri}" alt="{dino_name}" '
             'style="width:36px;height:36px;display:block;margin:0 auto;" />',
             unsafe_allow_html=True,
         )
+    label = t(title_key)
     with txt_col:
         if help_key:
-            st.subheader(t(title_key), help=t(help_key))
+            st.subheader(label, help=t(help_key), anchor=effective_anchor)
         else:
-            st.subheader(t(title_key))
+            st.subheader(label, anchor=effective_anchor)
+    _register_toc_entry(effective_anchor, label)
 
 
 def _detect_csv_encoding(data: bytes) -> Optional[str]:
@@ -2868,6 +2889,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "per-assignee total the percentages divide."
         ),
         "role_analytics_strip_other": "Other",
+        # In-tab navigation for the Charts tab.
+        "toc_jump_label":    "Jump to",
+        "toc_back_to_top":   "Back to top",
         # Role analytics PDF-export labels
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -3729,6 +3753,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "右端の「n=」は分母となる担当者の総件数です。"
         ),
         "role_analytics_strip_other": "その他",
+        # Charts タブのページ内ナビゲーション
+        "toc_jump_label":    "ジャンプ",
+        "toc_back_to_top":   "最上部へ",
         # 担当者×ロール分析 PDF出力
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -8416,9 +8443,12 @@ def _render_role_analytics_header(
             'style="width:36px;height:36px;display:block;margin:0 auto;" />',
             unsafe_allow_html=True,
         )
+    ra_anchor = "sec-role_analytics_title"
     with title_col:
         st.subheader(t("role_analytics_title"),
-                     help=t("help_role_analytics"))
+                     help=t("help_role_analytics"),
+                     anchor=ra_anchor)
+    _register_toc_entry(ra_anchor, t("role_analytics_title"))
     with btn_col:
         if role_df is None or role_df.empty:
             return
@@ -8824,6 +8854,113 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
             st.plotly_chart(fig_s, use_container_width=True)
 
 
+def _render_charts_toc(items: list[tuple[str, str]]) -> None:
+    """Render the Charts-tab TOC chip row. Each chip is an anchor link to
+    the section's HTML id — Streamlit's st.subheader(anchor=...) puts the
+    id on the heading element, so clicking scrolls the Streamlit app
+    container directly to the section.
+
+    The outer div carries id="charts-top" so the back-to-top button's
+    `href="#charts-top"` resolves to this row's position (≈ top of tab)."""
+    if not items:
+        return
+    jump_label = t("toc_jump_label")
+    # Deduplicate while preserving first-seen order — several paths may
+    # accidentally register the same anchor twice (e.g. a conditional
+    # section_header() fallback).
+    seen: set[str] = set()
+    uniq: list[tuple[str, str]] = []
+    for anchor, label in items:
+        if anchor in seen:
+            continue
+        seen.add(anchor)
+        uniq.append((anchor, label))
+    chips_html = "".join(
+        f'<a class="d4dx-toc-chip" href="#{anchor}">{label}</a>'
+        for anchor, label in uniq
+    )
+    st.markdown(f"""
+<style>
+.d4dx-toc {{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  align-items: center;
+  padding: 10px 12px;
+  margin: 0 0 16px;
+  background: rgba(58,168,114,0.06);
+  border: 1px solid rgba(58,168,114,0.25);
+  border-radius: 8px;
+  font-size: 12px;
+}}
+.d4dx-toc-label {{
+  font-weight: 600;
+  color: #3aa872;
+  margin-right: 4px;
+  white-space: nowrap;
+}}
+.d4dx-toc-chip {{
+  display: inline-block;
+  padding: 3px 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(128,128,128,0.35);
+  border-radius: 999px;
+  color: inherit !important;
+  text-decoration: none !important;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s, color .12s;
+}}
+.d4dx-toc-chip:hover {{
+  background: rgba(58,168,114,0.18);
+  border-color: #3aa872;
+  color: #3aa872 !important;
+}}
+</style>
+<div id="charts-top" class="d4dx-toc">
+  <span class="d4dx-toc-label">🧭 {jump_label}:</span>
+  {chips_html}
+</div>
+""", unsafe_allow_html=True)
+
+
+def _render_back_to_top_button() -> None:
+    """Fixed-position circular button anchored to the bottom-right of the
+    viewport. href points at the Charts-tab TOC wrapper so the browser's
+    native fragment-scroll behaviour does the work — no JS needed."""
+    label = t("toc_back_to_top")
+    st.markdown(f"""
+<style>
+.d4dx-backtotop {{
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #3aa872;
+  color: #ffffff !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+  text-decoration: none !important;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+  z-index: 9999;
+  transition: transform .15s, background .15s;
+}}
+.d4dx-backtotop:hover {{
+  transform: translateY(-2px);
+  background: #45c28b;
+}}
+</style>
+<a class="d4dx-backtotop" href="#charts-top" title="{label}"
+   aria-label="{label}">⬆</a>
+""", unsafe_allow_html=True)
+
+
 def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
     """Section: 機能ID-filterable KPI cards + 4-metric comparison chart.
 
@@ -8900,9 +9037,12 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
             'style="width:36px;height:36px;display:block;margin:0 auto;" />',
             unsafe_allow_html=True,
         )
+    td_anchor = "sec-chart_test_density"
     with title_col:
         st.subheader(t("chart_test_density"),
-                     help=t("help_chart_test_density"))
+                     help=t("help_chart_test_density"),
+                     anchor=td_anchor)
+    _register_toc_entry(td_anchor, t("chart_test_density"))
     with btn_col:
         if have_fresh:
             fname = (
@@ -8968,6 +9108,16 @@ def render_charts_tab() -> None:
                 key="pdf_download",
                 use_container_width=True,
             )
+
+    # ----- In-tab navigation (TOC chip row + floating back-to-top) -------
+    # Placeholder is declared at the top of the DOM; we populate it at the
+    # end of this function after every section_header() has contributed
+    # its (anchor, label) to _CHARTS_TOC_ACTIVE. That way sections that
+    # don't render (missing data, snapshot-only charts, etc.) are
+    # automatically absent from the chip row — no manual pre-check.
+    toc_slot = st.empty()
+    global _CHARTS_TOC_ACTIVE
+    _CHARTS_TOC_ACTIVE = []
 
     # All charts are now produced by the shared `_chart_*` builders above so
     # the on-screen Charts tab and the PDF report stay in lock-step. Each
@@ -9053,6 +9203,17 @@ def render_charts_tab() -> None:
     _render_defect_class_breakdown(defects_df)
 
     _render_role_analytics(kpi_df)
+
+    # ----- Finalize in-tab navigation -------------------------------------
+    # Populate the placeholder declared near the top with whatever
+    # sections actually rendered, then emit a fixed-position back-to-top
+    # button. Reset the collector so other render paths don't accidentally
+    # inherit a stale list.
+    toc_items = list(_CHARTS_TOC_ACTIVE or [])
+    _CHARTS_TOC_ACTIVE = None
+    with toc_slot.container():
+        _render_charts_toc(toc_items)
+    _render_back_to_top_button()
 
 
 _CALENDAR_CSS = """
@@ -10003,7 +10164,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.43</span>
+    <span class="ver">Ver1.0.44</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
