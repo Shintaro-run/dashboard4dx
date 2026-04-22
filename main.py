@@ -3284,8 +3284,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 Source: WBS (sub-task 担当者 + task name) × Redmine defects × "
             "test counts.\n\n"
             "💡 Roles are derived from keywords in each sub-task's name: "
-            "`プログラム開発` → Development, `テスト仕様書作成` → Test-spec, "
-            "`テスト実施` → Test-execution."
+            "`開発` / `実装` → Development, `テスト仕様書作成` → Test-spec, "
+            "`テスト実施` → Test-execution (but `再テスト実施` is excluded "
+            "from test_exec)."
         ),
         "role_analytics_view1_title":   "View 1 — Feature × assignee-by-role + quality KPIs",
         "role_analytics_view1_caption": (
@@ -3373,9 +3374,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "multiple keywords attributes to all matching roles; "
             "sub-tasks with an empty N cell surface as <b>(unassigned)</b>."
         ),
-        "ra_pdf_rule_dev":       "<b>プログラム開発</b> → Development",
+        "ra_pdf_rule_dev":       "<b>開発</b> / <b>実装</b> → Development",
         "ra_pdf_rule_test_spec": "<b>テスト仕様書作成</b> → Test-spec",
-        "ra_pdf_rule_test_exec": "<b>テスト実施</b> → Test-execution",
+        "ra_pdf_rule_test_exec": (
+            "<b>テスト実施</b> → Test-execution "
+            "(excludes <b>再テスト実施</b>)"
+        ),
         "ra_pdf_h_view1":            "3. Feature × assignee-by-role + quality KPIs",
         "ra_pdf_h_view2":            "4. Assignee summary",
         "ra_pdf_h_bubble":           "5. Assignee bubble map",
@@ -3389,9 +3393,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_no_matches": (
             "No sub-task names contain the role keywords "
-            "(プログラム開発 / テスト仕様書作成 / テスト実施)."
+            "(開発 / 実装 / テスト仕様書作成 / テスト実施 — "
+            "but 再テスト実施 is excluded from test-execution)."
         ),
-        "role_dev":          "Development (プログラム開発)",
+        "role_dev":          "Development (開発 / 実装)",
         "role_test_spec":    "Test-spec (テスト仕様書作成)",
         "role_test_exec":    "Test-execution (テスト実施)",
         "role_unassigned":   "(unassigned)",
@@ -4168,7 +4173,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "実施率）や、担当者ごとに関わった機能の品質傾向を俯瞰できます。\n\n"
             "📂 出典：WBS（サブタスクの担当者・タスク名）× Redmine 障害一覧 "
             "× 仕様書別テスト集計。\n\n"
-            "💡 1つのサブタスク名に複数のキーワードが含まれている場合は、"
+            "💡 判定キーワード：`開発` / `実装` → 開発、`テスト仕様書作成` → "
+            "仕様書作成、`テスト実施` → 実施（ただし `再テスト実施` は除外）。"
+            "1つのサブタスク名に複数のキーワードが含まれている場合は、"
             "該当するすべてのロールにカウントします。N列が空欄の場合は"
             "「（未割当）」として集計します。"
         ),
@@ -4259,9 +4266,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "<b>（未割当）</b>として集計します。"
             "（全角／半角・前後の空白は自動で揃えます）"
         ),
-        "ra_pdf_rule_dev":       "<b>プログラム開発</b> → 開発",
+        "ra_pdf_rule_dev":       "<b>開発</b> / <b>実装</b> → 開発",
         "ra_pdf_rule_test_spec": "<b>テスト仕様書作成</b> → 仕様書作成",
-        "ra_pdf_rule_test_exec": "<b>テスト実施</b> → 実施",
+        "ra_pdf_rule_test_exec": (
+            "<b>テスト実施</b> → 実施"
+            "（<b>再テスト実施</b> は除外）"
+        ),
         "ra_pdf_h_view1":            "3. 機能ごとの担当者と品質KPI",
         "ra_pdf_h_view2":            "4. 担当者サマリ",
         "ra_pdf_h_bubble":           "5. 担当者バブルマップ",
@@ -4274,10 +4284,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "サブタスク記載のあるWBSを取り込むと本セクションが表示されます。"
         ),
         "role_analytics_no_matches": (
-            "サブタスク名に「プログラム開発」「テスト仕様書作成」"
-            "「テスト実施」のいずれも含まれていません。"
+            "サブタスク名に「開発」「実装」「テスト仕様書作成」"
+            "「テスト実施」のいずれも含まれていません"
+            "（※「再テスト実施」はテスト実施から除外しています）。"
         ),
-        "role_dev":          "プログラム開発",
+        "role_dev":          "開発 / 実装",
         "role_test_spec":    "テスト仕様書作成",
         "role_test_exec":    "テスト実施",
         "role_unassigned":   "（未割当）",
@@ -6374,14 +6385,23 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
 # =============================================================================
 # Role analytics — cross-reference WBS sub-task assignees × Redmine defects
 # =============================================================================
-# Map each WBS sub-task `task_label` keyword to a role. Keywords are matched
-# via NFKC-normalized substring test so full-width / half-width / mixed-case
-# variants all hit. Multiple keywords in one label attribute to all matching
-# roles (e.g. "プログラム開発兼テスト実施" → dev + test_exec).
-ROLE_KEYWORDS: dict[str, str] = {
-    "dev":       "プログラム開発",
-    "test_spec": "テスト仕様書作成",
-    "test_exec": "テスト実施",
+# Map each WBS sub-task `task_label` to a role. Matching is NFKC-normalised
+# substring logic — variants are tolerated — but structured so each role
+# carries a list of *include* keywords (any hit → that role) and a list of
+# *exclude* keywords (any hit → SKIP that role even when an include term
+# also matches). The exclude list solves the "再テスト実施" problem: it
+# contains "テスト実施" as a substring, which would otherwise pollute the
+# first-pass test_exec tally with retest work.
+#
+# Multiple include keywords in one label attribute to all matching roles
+# (e.g. "開発兼テスト実施" → dev + test_exec).
+ROLE_KEYWORDS: dict[str, dict[str, list[str]]] = {
+    "dev":       {"include": ["開発", "実装"],     "exclude": []},
+    "test_spec": {"include": ["テスト仕様書作成"],  "exclude": []},
+    # test_exec counts FIRST-PASS test execution only. 再テスト実施 (retest
+    # after a fix) is a distinct activity and is removed from this bucket
+    # even though it lexically contains "テスト実施".
+    "test_exec": {"include": ["テスト実施"],        "exclude": ["再テスト実施"]},
 }
 
 
@@ -6411,11 +6431,18 @@ def _normalize_assignee(raw) -> str:
 def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
     """Flatten sub-task rows into long-form (機能ID, role, assignee) records.
 
-    A sub-task row contributes one record per ROLE_KEYWORDS match on its
-    `task_label`; sub-tasks with an empty assignee cell are surfaced as
-    `(未割当)` so orphaned work shows up in the analytics instead of being
-    silently dropped. Parent rows, and sub-tasks whose label matches none
-    of the keywords, are skipped.
+    Matching rule per role:
+      1. NFKC-normalise the label.
+      2. If any *exclude* keyword appears in the label → skip this role
+         for this sub-task entirely (e.g. "再テスト実施" locks test_exec
+         out even though it contains "テスト実施").
+      3. If any *include* keyword appears → attribute this sub-task to
+         the role.
+
+    A single sub-task can match multiple roles (e.g. "開発兼テスト実施"
+    → dev + test_exec). Blank-assignee cells surface as `(未割当)`.
+    Parent rows and sub-tasks whose label matches no include keyword
+    are skipped entirely.
     """
     cols = ["機能ID", "role", "assignee"]
     if wbs_df is None or wbs_df.empty:
@@ -6426,8 +6453,16 @@ def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
     if subs.empty or "task_label" not in subs.columns:
         return pd.DataFrame(columns=cols)
     unassigned = t("role_unassigned")
-    kw_norm = {role: unicodedata.normalize("NFKC", kw)
-               for role, kw in ROLE_KEYWORDS.items()}
+    # Pre-normalise include/exclude keywords once so the per-row loop is
+    # plain substring tests.
+    include_norm = {
+        role: [unicodedata.normalize("NFKC", kw) for kw in cfg["include"]]
+        for role, cfg in ROLE_KEYWORDS.items()
+    }
+    exclude_norm = {
+        role: [unicodedata.normalize("NFKC", kw) for kw in cfg["exclude"]]
+        for role, cfg in ROLE_KEYWORDS.items()
+    }
 
     rows: list[dict] = []
     for _, r in subs.iterrows():
@@ -6437,8 +6472,10 @@ def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
             continue
         label_n = unicodedata.normalize("NFKC", label)
         assignee = _normalize_assignee(r.get("assignee")) or unassigned
-        for role, kw in kw_norm.items():
-            if kw in label_n:
+        for role in ROLE_KEYWORDS:
+            if any(ex in label_n for ex in exclude_norm[role]):
+                continue
+            if any(inc in label_n for inc in include_norm[role]):
                 rows.append({"機能ID": fid, "role": role,
                              "assignee": assignee})
     return pd.DataFrame(rows, columns=cols)
@@ -11095,7 +11132,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.57</span>
+    <span class="ver">Ver1.0.58</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
