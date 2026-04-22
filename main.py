@@ -6570,22 +6570,13 @@ def generate_test_density_pdf(
                      width=size_pt, height=size_pt * aspect)
 
     def _section_heading(story_list, icon_name: str, text: str) -> None:
-        """Append a section heading row: small pixel icon + coloured title.
-        Renders as a 2-col Table so the icon sits on the baseline next to
-        the text without disturbing paragraph flow."""
+        """Append a section heading. `icon_name` is accepted for
+        backwards-compat with older call sites but intentionally ignored —
+        inline accents next to every heading were too busy; the era-icon
+        decoration now lives only in the report's footer strip."""
+        del icon_name  # kept in signature for compatibility
         story_list.append(Spacer(1, 14))
-        tbl = Table(
-            [[_icon_image(icon_name, 16), Paragraph(text, h2_style)]],
-            colWidths=[22, inner_w - 22],
-        )
-        tbl.setStyle(TableStyle([
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
-            ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
-            ("TOPPADDING",    (0, 0), (-1, -1), 0),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ]))
-        story_list.append(tbl)
+        story_list.append(Paragraph(text, h2_style))
 
     # --- Title (TREX icon + title + banner + meta) --------------------------
     title_icon = Image(
@@ -8184,7 +8175,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.32</span>
+    <span class="ver">Ver1.0.33</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
