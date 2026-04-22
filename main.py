@@ -782,8 +782,13 @@ def _grid_to_svg(grid: str) -> str:
 
 
 def get_dino_svg(name: str) -> str:
-    """Return the SVG string for the named dinosaur (falls back to T-Rex)."""
-    return _grid_to_svg(DINO_GRIDS.get(name, DINO_GRIDS["trex"]))
+    """Return the SVG string for the named dinosaur. Falls back to the
+    non-TREX default so the favicon/header stay the only places that show
+    the T-Rex silhouette."""
+    if name == "trex":
+        return _grid_to_svg(DINO_GRIDS["trex"])
+    grid = DINO_GRIDS.get(name) or DINO_GRIDS[_DEFAULT_SECTION_DINO]
+    return _grid_to_svg(grid)
 
 
 def _pixel_icon_png(name: str, scale: int = 6,
@@ -796,7 +801,10 @@ def _pixel_icon_png(name: str, scale: int = 6,
     """
     from PIL import Image as _PILImage  # local import keeps CLI startup lean
     import numpy as _np
-    grid = DINO_GRIDS.get(name, DINO_GRIDS["trex"])
+    if name == "trex":
+        grid = DINO_GRIDS["trex"]
+    else:
+        grid = DINO_GRIDS.get(name) or DINO_GRIDS[_DEFAULT_SECTION_DINO]
     rows = [r for r in grid.strip("\n").split("\n") if r]
     h = len(rows)
     w = max(len(r) for r in rows)
@@ -836,21 +844,31 @@ def ensure_favicon() -> Path:
     return target
 
 
-# Map each chart / view key to a distinct dinosaur. Keep T-Rex reserved for
-# the page chrome (favicon + title) so users instantly recognize "this is
-# dashboard4dx" even when a chart icon is on screen.
+# Map each chart / view key to a distinct dinosaur (or era-scenery) icon.
+# Keep T-Rex reserved for the page chrome (favicon + page title) so users
+# instantly recognize "this is dashboard4dx" when it appears — every other
+# surface picks from the remaining dino grids or the prehistoric-era
+# accents (volcano / fossil / palm / egg / footprint / fern).
 CHART_DINOS: dict[str, str] = {
-    "chart_progress_gap":    "raptor",
-    "chart_test_coverage":   "stego",
-    "chart_loc_vs_ng":       "trike",
-    "chart_design_impl_gap": "para",
-    "chart_risk_heatmap":    "spino",
-    "chart_loc_trend":       "diplo",
-    "chart_test_trend":      "anky",
-    "chart_bug_trend":       "ptero",
-    "gantt_title":           "bronto",
-    "calendar_title":        "plesio",
+    "chart_progress_gap":     "raptor",
+    "chart_test_coverage":    "stego",
+    "chart_test_density":     "palm",
+    "chart_incident_rate":    "volcano",
+    "chart_loc_vs_ng":        "trike",
+    "chart_design_impl_gap":  "para",
+    "chart_risk_heatmap":     "spino",
+    "chart_loc_trend":        "diplo",
+    "chart_test_trend":       "anky",
+    "chart_bug_trend":        "ptero",
+    "chart_defect_class":     "fossil",
+    "chart_overview_compare": "fern",
+    "role_analytics_title":   "footprint",
+    "gantt_title":            "bronto",
+    "calendar_title":         "plesio",
 }
+# Fallback used by section_header / icon helpers when the key isn't in
+# CHART_DINOS. Must NOT be "trex" — that's reserved for the page chrome.
+_DEFAULT_SECTION_DINO = "bronto"
 
 
 def section_header(title_key: str, help_key: Optional[str] = None,
@@ -861,7 +879,7 @@ def section_header(title_key: str, help_key: Optional[str] = None,
     Streamlit's standard tooltip on the subheader so the rich markdown header
     (with 🦕) still appears on hover.
     """
-    dino_name = dino or CHART_DINOS.get(title_key, "trex")
+    dino_name = dino or CHART_DINOS.get(title_key, _DEFAULT_SECTION_DINO)
     icon_uri = dino_data_uri(dino_name)
     icon_col, txt_col = st.columns(
         [1, 24], gap="small", vertical_alignment="center"
@@ -3979,8 +3997,9 @@ _STEP_STATUS_ICON = {"ok": "✅", "warn": "⚠️", "error": "❌", "pending": "
 
 def render_dino_runner(steps: list[StepResult], slot: str) -> None:
     """Embed a Chrome-dino-style canvas animation that runs over every
-    validation step. The dino jumps over OK/warning cacti and crashes into
-    the first error cactus. Triggers once per (slot, step-signature)."""
+    validation step. The sprite (a raptor — T-Rex is reserved for the page
+    chrome) jumps over OK/warning cacti and crashes into the first error
+    cactus. Triggers once per (slot, step-signature)."""
     if not steps:
         return
     sig = (slot, tuple((s.label_key, s.status) for s in steps))
@@ -3996,8 +4015,8 @@ def render_dino_runner(steps: list[StepResult], slot: str) -> None:
         for s in steps
     ]
     steps_json = json.dumps(steps_data, ensure_ascii=False)
-    trex_grid = [r for r in DINO_GRIDS["trex"].strip("\n").split("\n") if r]
-    trex_json = json.dumps(trex_grid)
+    runner_grid = [r for r in DINO_GRIDS["raptor"].strip("\n").split("\n") if r]
+    runner_json = json.dumps(runner_grid)
     canvas_id = f"dinoCanvas_{slot}_{abs(hash(sig)) % 10**8}"
 
     html = f"""
@@ -4008,7 +4027,7 @@ def render_dino_runner(steps: list[StepResult], slot: str) -> None:
 <script>
 (function() {{
   const STEPS = {steps_json};
-  const TREX  = {trex_json};
+  const RUNNER = {runner_json};
   const cv = document.getElementById("{canvas_id}");
   if (!cv) return;
   const ctx = cv.getContext("2d");
@@ -4084,14 +4103,14 @@ def render_dino_runner(steps: list[StepResult], slot: str) -> None:
 
   function drawDino() {{
     const scale = 2;
-    const w = TREX[0].length * scale;
-    const h = TREX.length * scale;
+    const w = RUNNER[0].length * scale;
+    const h = RUNNER.length * scale;
     const drawY = GROUND_Y - h + dinoY;
     if (crashed) {{
       ctx.save();
       ctx.translate(dinoX + w / 2, drawY + h / 2);
       ctx.rotate(0.5);
-      drawSprite(TREX, -w / 2, -h / 2, scale, "#f05050");
+      drawSprite(RUNNER, -w / 2, -h / 2, scale, "#f05050");
       ctx.restore();
       // Stars 💫 above
       ctx.fillStyle = "#f5b400";
@@ -4100,11 +4119,11 @@ def render_dino_runner(steps: list[StepResult], slot: str) -> None:
       ctx.fillText("✦  ✷  ✦", dinoX + w / 2, drawY - 4);
     }} else {{
       const color = isDark() ? "#fafafa" : "#222";
-      drawSprite(TREX, dinoX, drawY, scale, color);
+      drawSprite(RUNNER, dinoX, drawY, scale, color);
       // Tiny running-leg flicker (alternate)
       if (!jumping && Math.floor(frameTick / 6) % 2 === 0) {{
         ctx.fillStyle = isDark() ? "#0e1117" : "#fff";
-        ctx.fillRect(dinoX + 4 * scale, drawY + (TREX.length - 1) * scale,
+        ctx.fillRect(dinoX + 4 * scale, drawY + (RUNNER.length - 1) * scale,
                      scale, scale);
       }}
     }}
@@ -4177,10 +4196,11 @@ def render_step_checklist(steps: list[StepResult]) -> None:
 
 def render_crash_popup(error_step: StepResult,
                        detail_text: str = "") -> None:
-    """Inline crash banner with hurt T-Rex, error label, and the underlying
-    message. The full structured log entry is collapsed in an expander
-    underneath so the page stays scannable but the detail is one click away."""
-    hurt_uri = dino_data_uri("trex", color="#f05050")
+    """Inline crash banner with a hurt stegosaurus, error label, and the
+    underlying message. The full structured log entry is collapsed in an
+    expander underneath so the page stays scannable but the detail is one
+    click away. (T-Rex is reserved for the page header / favicon.)"""
+    hurt_uri = dino_data_uri("stego", color="#f05050")
     st.markdown(
         f"""
 <div style="border:2px solid #f05050; border-radius:10px; padding:14px;
@@ -6519,16 +6539,17 @@ PDF_TOTAL_STEPS = 11  # cover + 8 charts + gantt + assemble
 
 def _render_pdf_runner_html(step: int, total: int, msg: str,
                             done: bool = False) -> str:
-    """Inner runner content for the st.dialog popup — a T-Rex sprinting
-    START → FINISH along a track, advancing one cactus-jump per completed
-    PDF-build step. The sprite position reflects step/total; a dust-puff
-    keyframe plays on each mount so each update *reads* as the dino dashing
-    forward. Pure HTML/CSS — no JS timer needed — which is important
-    because Streamlit replaces the placeholder element on every update.
-    Dialog chrome (border/shadow/title/✕) is provided by st.dialog."""
+    """Inner runner content for the st.dialog popup — a velociraptor
+    sprinting START → FINISH along a track, advancing one cactus-jump per
+    completed PDF-build step. The sprite position reflects step/total; a
+    dust-puff keyframe plays on each mount so each update *reads* as the
+    dino dashing forward. Pure HTML/CSS — no JS timer needed — which is
+    important because Streamlit replaces the placeholder element on every
+    update. Dialog chrome (border/shadow/title/✕) is provided by st.dialog.
+    (T-Rex is reserved for the page header / favicon.)"""
     pct = 100 if done else int(round(step / max(total, 1) * 100))
     color = "#4ec78a" if done else "#eeeeee"
-    trex_uri = dino_data_uri("trex", color=color)
+    runner_uri = dino_data_uri("raptor", color=color)
     cacti = "".join(
         f'<div class="d4dx-pdf-cactus" style="left:{(i/total)*100:.1f}%;"></div>'
         for i in range(1, total)
@@ -6591,8 +6612,8 @@ def _render_pdf_runner_html(step: int, total: int, msg: str,
   <span class="d4dx-pdf-flag-e">🏁</span>
   <div class="d4dx-pdf-bar"></div>
   <div class="d4dx-pdf-dust"><span></span><span></span><span></span></div>
-  <img class="d4dx-pdf-dino {'done' if done else ''}" src="{trex_uri}"
-       alt="t-rex" width="36" height="36"/>
+  <img class="d4dx-pdf-dino {'done' if done else ''}" src="{runner_uri}"
+       alt="raptor" width="36" height="36"/>
 </div>
 <div class="d4dx-pdf-caption">{sub}</div>
 '''
@@ -6884,8 +6905,10 @@ def generate_test_density_pdf(
         key = (name, scale)
         if key not in _icon_cache:
             _icon_cache[key] = _pixel_icon_png(name, scale=scale)
-        # Square-ish render; actual aspect follows the grid.
-        grid = DINO_GRIDS.get(name, DINO_GRIDS["trex"])
+        # Square-ish render; actual aspect follows the grid. T-Rex is
+        # reserved for the page chrome, so the fallback is a neutral dino.
+        grid = (DINO_GRIDS.get(name)
+                or DINO_GRIDS[_DEFAULT_SECTION_DINO])
         rows = [r for r in grid.strip("\n").split("\n") if r]
         gh = len(rows)
         gw = max(len(r) for r in rows)
@@ -6902,10 +6925,13 @@ def generate_test_density_pdf(
         story_list.append(Spacer(1, 14))
         story_list.append(Paragraph(text, h2_style))
 
-    # --- Title (TREX icon + title + banner + meta) --------------------------
+    # --- Title (brontosaurus hero icon + title + banner + meta) -------------
+    # T-Rex is reserved for the web app's page chrome; the PDF title uses a
+    # neutral dino silhouette so it clearly says "dashboard4dx" without
+    # poaching the header's signature sprite.
     title_icon = Image(
-        io.BytesIO(_pixel_icon_png("trex", scale=6)),
-        width=56, height=48,
+        io.BytesIO(_pixel_icon_png("bronto", scale=6)),
+        width=60, height=48,
     )
     title_icon.hAlign = "CENTER"
     story.append(title_icon)
@@ -7602,7 +7628,7 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
         and st.session_state.get("td_pdf_sig") == sig
     )
 
-    dino_name = CHART_DINOS.get("chart_test_density", "trex")
+    dino_name = CHART_DINOS.get("chart_test_density", _DEFAULT_SECTION_DINO)
     icon_uri = dino_data_uri(dino_name)
     icon_col, title_col, btn_col = st.columns(
         [1, 19, 5], gap="small", vertical_alignment="center",
@@ -8716,7 +8742,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.36</span>
+    <span class="ver">Ver1.0.37</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
