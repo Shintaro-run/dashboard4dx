@@ -2922,7 +2922,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Meaning: how many planned tests exist per page of the design spec. "
             "A low value suggests the test plan under-covers the specification."
         ),
-        "td_pdf_h_summary":         "3. Summary",
+        "td_pdf_h_threshold":       "3. Warning threshold",
+        "td_pdf_threshold_current":      "Threshold used in this report",
+        "td_pdf_threshold_default":      "Default",
+        "td_pdf_threshold_where":        "Where to change",
+        "td_pdf_threshold_where_value": (
+            "Dashboard → Settings tab → "
+            "<b>\"Test density warning threshold\"</b>"
+        ),
+        "td_pdf_threshold_meaning": (
+            "<b>Meaning:</b> any Function ID whose density falls below this "
+            "value is flagged as <b>attention-needed</b> (red bar + ⚠) "
+            "throughout this report — chart, below-threshold list, and the "
+            "catch-up estimate all key on the same threshold."
+        ),
+        "td_pdf_threshold_unit":    "tests / page",
+        "td_pdf_h_summary":         "4. Summary",
         "td_pdf_summary_total":     "Function IDs in scope",
         "td_pdf_summary_threshold": "Warning threshold",
         "td_pdf_summary_above":     "≥ threshold",
@@ -2930,8 +2945,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_summary_mean":      "Mean density",
         "td_pdf_summary_median":    "Median density",
         "td_pdf_summary_min_max":   "Min / Max density",
-        "td_pdf_h_chart":           "4. Test density per Function ID (ascending)",
-        "td_pdf_h_below":           "5. Function IDs below threshold",
+        "td_pdf_h_chart":           "5. Test density per Function ID (ascending)",
+        "td_pdf_h_below":           "6. Function IDs below threshold",
         "td_pdf_col_fid":           "Function ID",
         "td_pdf_col_name":          "Name",
         "td_pdf_col_tests":         "Total tests",
@@ -2939,12 +2954,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_col_density":       "Density",
         "td_pdf_col_gap":           "Gap vs threshold",
         "td_pdf_below_none":        "No Function IDs are below the threshold — nothing to escalate.",
-        "td_pdf_h_catchup":         "6. Estimated tests needed to reach the threshold",
+        "td_pdf_h_catchup":         "7. Estimated tests needed to reach the threshold",
         "td_pdf_col_current":       "Current density",
         "td_pdf_col_target":        "Target",
         "td_pdf_col_additional":    "Additional tests (recommended)",
         "td_pdf_catchup_note":      "Recommended additional tests = ceil((threshold − current density) × design pages).",
-        "td_pdf_h_advice":          "7. Recommended action to exceed the threshold",
+        "td_pdf_h_advice":          "8. Recommended action to exceed the threshold",
         "td_pdf_advice_body":       (
             "<b>Walk through the design spec one page at a time and audit "
             "test-viewpoint coverage.</b><br/>"
@@ -3659,7 +3674,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "意味：設計書1ページあたりのテスト計画件数。"
             "低い場合は仕様に対するテスト件数不足の疑いがあります。"
         ),
-        "td_pdf_h_summary":         "3. サマリ",
+        "td_pdf_h_threshold":       "3. 警告閾値",
+        "td_pdf_threshold_current":      "本レポートで使用した警告閾値",
+        "td_pdf_threshold_default":      "既定値",
+        "td_pdf_threshold_where":        "設定変更箇所",
+        "td_pdf_threshold_where_value": (
+            "Dashboard の「設定」タブ →"
+            "<b>「テスト密度の警告閾値（テスト/ページ）」</b>"
+        ),
+        "td_pdf_threshold_meaning": (
+            "<b>意味：</b>機能IDごとの密度がこの値を下回ると、本レポート全体で "
+            "<b>「要対応」</b>として赤バー＋⚠ マーカーで強調表示されます"
+            "（チャート／閾値未満一覧／追加テスト試算 いずれも同じ閾値を基準としています）。"
+        ),
+        "td_pdf_threshold_unit":    "テスト / ページ",
+        "td_pdf_h_summary":         "4. サマリ",
         "td_pdf_summary_total":     "対象機能ID",
         "td_pdf_summary_threshold": "警告閾値",
         "td_pdf_summary_above":     "閾値以上",
@@ -3667,8 +3696,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_summary_mean":      "平均密度",
         "td_pdf_summary_median":    "中央値",
         "td_pdf_summary_min_max":   "最小 / 最大",
-        "td_pdf_h_chart":           "4. 機能ID別テスト密度（昇順）",
-        "td_pdf_h_below":           "5. 閾値未満の機能ID一覧",
+        "td_pdf_h_chart":           "5. 機能ID別テスト密度（昇順）",
+        "td_pdf_h_below":           "6. 閾値未満の機能ID一覧",
         "td_pdf_col_fid":           "機能ID",
         "td_pdf_col_name":          "機能名称",
         "td_pdf_col_tests":         "総テスト",
@@ -3676,12 +3705,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_col_density":       "密度",
         "td_pdf_col_gap":           "閾値との差",
         "td_pdf_below_none":        "閾値を下回る機能IDはありません — 対応不要。",
-        "td_pdf_h_catchup":         "6. 目標達成のために追加すべきテスト件数（試算）",
+        "td_pdf_h_catchup":         "7. 目標達成のために追加すべきテスト件数（試算）",
         "td_pdf_col_current":       "現密度",
         "td_pdf_col_target":        "目標",
         "td_pdf_col_additional":    "追加テスト件数（推奨）",
         "td_pdf_catchup_note":      "推奨追加テスト件数 ＝ ⌈(閾値 − 現密度) × 設計書頁数⌉。",
-        "td_pdf_h_advice":          "7. 閾値を上回るためのアクション（推奨）",
+        "td_pdf_h_advice":          "8. 閾値を上回るためのアクション（推奨）",
         "td_pdf_advice_body":       (
             "<b>設計書を1ページずつ棚卸しし、テスト観点の抜け漏れを点検する</b><br/>"
             "各ページに対し、正常系 / 異常系 / 境界値 / 権限 / 性能 / ログ "
@@ -7026,8 +7055,42 @@ def generate_test_density_pdf(
     story.append(Spacer(1, 3))
     story.append(Paragraph(t("td_pdf_output_meaning"), body_style))
 
-    # --- Summary ------------------------------------------------------------
+    # --- Threshold settings -------------------------------------------------
+    # Own section (was previously only a row buried inside the summary table
+    # and a vline annotation on the chart). Readers asked for an explicit
+    # "here's what threshold this report was built against" callout.
     threshold = _test_density_threshold()
+    _section_heading(story, "volcano", t("td_pdf_h_threshold"))
+    thr_unit = t("td_pdf_threshold_unit")
+    thr_rows = [
+        [t("td_pdf_threshold_current"),
+         f"<b>{threshold:g}</b> {thr_unit}"],
+        [t("td_pdf_threshold_default"),
+         f"{TEST_DENSITY_THRESHOLD_DEFAULT:g} {thr_unit}"],
+        [t("td_pdf_threshold_where"),
+         t("td_pdf_threshold_where_value")],
+    ]
+    thr_rows = [
+        [Paragraph(str(c), body_style) for c in row] for row in thr_rows
+    ]
+    thr_tbl = Table(thr_rows, colWidths=[inner_w * 0.32, inner_w * 0.68])
+    thr_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#fbe6e6")),
+        ("TEXTCOLOR",  (0, 0), (0, -1), colors.HexColor("#a02020")),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",   (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    story.append(thr_tbl)
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(t("td_pdf_threshold_meaning"), body_style))
+
+    # --- Summary ------------------------------------------------------------
     df = kpi_df.copy()
     if "test_density" in df.columns:
         df = df.dropna(subset=["test_density"])
@@ -7052,9 +7115,10 @@ def generate_test_density_pdf(
         return f"{n / n_total * 100:.1f}%" if n_total else "—"
 
     _section_heading(story, "volcano", t("td_pdf_h_summary"))
+    # No "threshold" row here any more — the 警告閾値 section above owns
+    # that callout. Summary stays focused on counts + density stats.
     sum_rows = [
         [t("td_pdf_summary_total"),     f"{n_total}"],
-        [t("td_pdf_summary_threshold"), f"{threshold:g} tests/page"],
         [t("td_pdf_summary_above"),     f"{n_above} ({_pct(n_above)})"],
         [t("td_pdf_summary_below"),     f"{n_below} ({_pct(n_below)})"],
         [t("td_pdf_summary_mean"),      f"{float(densities.mean()):.2f}"],
@@ -7063,6 +7127,9 @@ def generate_test_density_pdf(
          f"{float(densities.min()):.2f} / {float(densities.max()):.2f}"],
     ]
     sum_tbl = Table(sum_rows, colWidths=[inner_w * 0.55, inner_w * 0.45])
+    # Row index of the "below threshold" entry (after removing the threshold
+    # row above it). Highlighted only when there's at least one such feature.
+    below_row_idx = 2
     sum_tbl.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
         ("FONTSIZE", (0, 0), (-1, -1), 9),
@@ -7074,9 +7141,9 @@ def generate_test_density_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
         # Highlight the "below threshold" row so it stands out.
-        ("TEXTCOLOR", (1, 3), (1, 3),
+        ("TEXTCOLOR", (1, below_row_idx), (1, below_row_idx),
          colors.HexColor("#a02020") if n_below else colors.black),
-        ("FONTNAME", (1, 3), (1, 3), JP_FONT),
+        ("FONTNAME", (1, below_row_idx), (1, below_row_idx), JP_FONT),
     ]))
     story.append(sum_tbl)
 
@@ -8796,7 +8863,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.40</span>
+    <span class="ver">Ver1.0.41</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
