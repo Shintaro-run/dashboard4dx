@@ -3604,6 +3604,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "Calendar (events + non-working days)",
         "src_calendar_hint":  "2 sheets: events + non-working days (xlsx)",
         "card_template_dl":   "⬇ template ({label})",
+        "card_dl_template_help": "Download a blank / lightly-seeded template for this source.",
+        "card_dl_sample_help":   "Download the bundled sample file for this source.",
+        "card_dl_latest_help":   "Download the most recently loaded file for this source ({name}).",
         "src_rail_hint":      "⇄ scroll horizontally to browse all sources",
         "calendar_layer_events":  "Show events",
         "calendar_layer_nonwork": "Show non-working days",
@@ -4465,6 +4468,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "カレンダー (イベント+非稼働日)",
         "src_calendar_hint":  "2シート: イベント+非稼働日 (xlsx)",
         "card_template_dl":   "⬇ テンプレをDL ({label})",
+        "card_dl_template_help": "このソースの空（または軽くシードされた）テンプレをダウンロード",
+        "card_dl_sample_help":   "このソースの同梱サンプルファイルをダウンロード",
+        "card_dl_latest_help":   "直近に取り込んだファイルをダウンロード（{name}）",
         "src_rail_hint":      "⇄ 横にスクロールして全ソースを閲覧",
         "calendar_layer_events":  "イベント表示",
         "calendar_layer_nonwork": "非稼働表示",
@@ -4505,6 +4511,7 @@ SOURCE_SPECS: list[dict] = [
         "types": ["xlsx", "xlsm"],
         "loader": load_function_master,
         "required": True,
+        "sample_filename": "function_master.xlsx",
     },
     {
         "key": "wbs",
@@ -4514,6 +4521,7 @@ SOURCE_SPECS: list[dict] = [
         "types": ["xlsx", "xlsm"],
         "loader": load_wbs,
         "required": False,
+        "sample_filename": "wbs.xlsm",
     },
     {
         "key": "defects",
@@ -4523,6 +4531,7 @@ SOURCE_SPECS: list[dict] = [
         "types": ["csv"],
         "loader": load_defects,
         "required": False,
+        "sample_filename": "defects.csv",
     },
     {
         "key": "tests",
@@ -4532,6 +4541,7 @@ SOURCE_SPECS: list[dict] = [
         "types": ["csv"],
         "loader": load_test_counts,
         "required": False,
+        "sample_filename": "test_counts_20260420090000.csv",
     },
     {
         "key": "code",
@@ -4541,6 +4551,7 @@ SOURCE_SPECS: list[dict] = [
         "types": ["xlsx", "xlsm"],
         "loader": load_code_counts,
         "required": False,
+        "sample_filename": "code_counts_20260420090000.xlsx",
     },
     {
         "key": "roster",
@@ -4554,6 +4565,7 @@ SOURCE_SPECS: list[dict] = [
         # users can start from a filled-out shape instead of guessing.
         "template_fn": generate_roster_template,
         "template_filename": "roster_template.xlsx",
+        "sample_filename": "roster.xlsx",
     },
     {
         "key": "calendar",
@@ -4565,6 +4577,7 @@ SOURCE_SPECS: list[dict] = [
         "required": False,
         "template_fn": generate_calendar_template,
         "template_filename": "calendar_template.xlsx",
+        "sample_filename": "calendar.xlsx",
     },
 ]
 
@@ -4991,6 +5004,110 @@ def render_crash_popup(error_step: StepResult,
             st.code(detail_text, language="text")
 
 
+_MIME_FOR_EXT: dict[str, str] = {
+    ".csv":  "text/csv",
+    ".xlsx": ("application/vnd.openxmlformats-officedocument"
+              ".spreadsheetml.sheet"),
+    ".xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    ".xlsb": "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+    ".xls":  "application/vnd.ms-excel",
+    ".json": "application/json",
+}
+
+_SAMPLE_DATA_DIR = SCRIPT_DIR / "sample_data"
+
+
+def _mime_for_filename(name: str) -> str:
+    """Pick a sensible Content-Type for an upload/sample/latest download.
+    Defaults to octet-stream when the extension isn't recognised so the
+    browser still offers 'Save as' instead of trying to render it."""
+    ext = Path(name).suffix.lower()
+    return _MIME_FOR_EXT.get(ext, "application/octet-stream")
+
+
+def _render_card_download_row(spec: dict) -> None:
+    """Render the per-card template / sample / latest download row.
+
+    Each of the three icon-only `st.download_button`s renders only when
+    its source exists: template_fn for the slot, a sample file on disk,
+    or a latest snapshot under input/<date>/<slot>/. The row is hidden
+    entirely when none of the three are available, so cards stay compact.
+    """
+    # 1. Template — only when the spec provides a generator.
+    tpl_bytes: Optional[bytes] = None
+    tpl_fn = spec.get("template_fn")
+    if tpl_fn is not None:
+        try:
+            tpl_bytes = tpl_fn()
+        except Exception as exc:
+            _get_logger().exception(
+                f"[template] {spec['key']} build failed: {exc}")
+            tpl_bytes = None
+
+    # 2. Sample — only when the sample file exists on disk.
+    sample_bytes: Optional[bytes] = None
+    sample_filename = spec.get("sample_filename")
+    sample_path: Optional[Path] = None
+    if sample_filename:
+        sample_path = _SAMPLE_DATA_DIR / sample_filename
+        if sample_path.exists():
+            try:
+                sample_bytes = sample_path.read_bytes()
+            except Exception as exc:
+                _get_logger().warning(
+                    f"[sample] {spec['key']} read failed: {exc}")
+                sample_bytes = None
+
+    # 3. Latest snapshot — only when input/<date>/<slot>/ has any file.
+    latest_path = find_latest_for_slot(spec["key"])
+    latest_bytes: Optional[bytes] = None
+    if latest_path is not None:
+        try:
+            latest_bytes = latest_path.read_bytes()
+        except Exception as exc:
+            _get_logger().warning(
+                f"[latest] {spec['key']} read failed: {exc}")
+            latest_bytes = None
+
+    # Bail cleanly when the card has nothing to offer yet.
+    if tpl_bytes is None and sample_bytes is None and latest_bytes is None:
+        return
+
+    c_tpl, c_sam, c_lat = st.columns(3, gap="small")
+    if tpl_bytes:
+        with c_tpl:
+            st.download_button(
+                label="📝", data=tpl_bytes,
+                file_name=spec.get("template_filename",
+                                   f"{spec['key']}_template.xlsx"),
+                mime=_mime_for_filename(
+                    spec.get("template_filename", ".xlsx")),
+                key=f"template_{spec['key']}",
+                help=t("card_dl_template_help"),
+                use_container_width=True,
+            )
+    if sample_bytes and sample_path is not None:
+        with c_sam:
+            st.download_button(
+                label="🧪", data=sample_bytes,
+                file_name=sample_path.name,
+                mime=_mime_for_filename(sample_path.name),
+                key=f"sample_{spec['key']}",
+                help=t("card_dl_sample_help"),
+                use_container_width=True,
+            )
+    if latest_bytes and latest_path is not None:
+        with c_lat:
+            st.download_button(
+                label="📥", data=latest_bytes,
+                file_name=latest_path.name,
+                mime=_mime_for_filename(latest_path.name),
+                key=f"latest_{spec['key']}",
+                help=t("card_dl_latest_help", name=latest_path.name),
+                use_container_width=True,
+            )
+
+
 def render_upload_card(spec: dict) -> None:
     """Render a single source card with drag-drop, instant validation, and
     auto-load of the most recent saved file when the user hasn't uploaded one."""
@@ -5021,32 +5138,14 @@ def render_upload_card(spec: dict) -> None:
             accept_multiple_files=False,
         )
 
-        # ----- Template download (when the slot provides one) ---------------
-        # A tiny ⬇ button that generates a pristine template in-memory and
-        # offers it for download. Appears only for slots that set a
-        # `template_fn` in SOURCE_SPECS (roster / calendar right now).
-        tpl_fn = spec.get("template_fn")
-        if tpl_fn is not None:
-            try:
-                tpl_bytes = tpl_fn()
-            except Exception as exc:
-                _get_logger().exception(
-                    f"[template] {spec['key']} build failed: {exc}")
-                tpl_bytes = b""
-            if tpl_bytes:
-                st.download_button(
-                    label=t("card_template_dl", label=label),
-                    data=tpl_bytes,
-                    file_name=spec.get(
-                        "template_filename",
-                        f"{spec['key']}_template.xlsx"),
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument"
-                        ".spreadsheetml.sheet"
-                    ),
-                    key=f"template_{spec['key']}",
-                    use_container_width=True,
-                )
+        # ----- Download row: template / sample / latest ---------------------
+        # Three compact icon-only buttons on a single line; only the ones
+        # the slot actually supports render. Hover tooltips explain what
+        # each icon does so the card stays visually quiet.
+        #   📝  template (from slot's template_fn)
+        #   🧪  sample   (from sample_data/<sample_filename>)
+        #   📥  latest   (most recent file under input/<date>/<slot>/)
+        _render_card_download_row(spec)
 
         # ----- Resolve the data source: explicit upload > latest from input/ -
         data: Optional[bytes] = None
@@ -10811,7 +10910,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.50</span>
+    <span class="ver">Ver1.0.51</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
