@@ -3431,6 +3431,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_btn_confirm":    "Start generation",
         "pdf_title": "dashboard4dx — Project Report",
         "pdf_generated_at": "Generated",
+        "pdf_toc_title":    "Table of Contents",
         "pdf_section_kpi": "Project-wide KPIs",
         "pdf_section_charts": "Charts",
         "pdf_section_schedule": "Schedule",
@@ -4310,6 +4311,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_btn_confirm":    "生成開始",
         "pdf_title": "dashboard4dx — プロジェクト報告",
         "pdf_generated_at": "生成日時",
+        "pdf_toc_title":    "目次",
         "pdf_section_kpi": "プロジェクト全体KPI",
         "pdf_section_charts": "グラフ",
         "pdf_section_schedule": "スケジュール",
@@ -8096,6 +8098,7 @@ def generate_report_pdf(
         Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
         TableStyle,
     )
+    from reportlab.platypus.tableofcontents import TableOfContents
     logger.info(
         f"[pdf_export] reportlab imports done in "
         f"{time.time() - t_start:.2f}s")
@@ -8129,26 +8132,74 @@ def generate_report_pdf(
         "PdfCaption", parent=styles["Normal"], fontName=JP_FONT,
         fontSize=8, textColor=colors.grey,
     )
+    # Cover + TOC styles (consistent with the two A4 standalone reports).
+    cover_title_style = ParagraphStyle(
+        "PdfCoverTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=28, alignment=1, spaceAfter=20,
+    )
+    cover_meta_style = ParagraphStyle(
+        "PdfCoverMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=13, alignment=1, textColor=colors.grey, leading=20,
+    )
+    toc_title_style = ParagraphStyle(
+        "PdfTocTitle", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=20, alignment=1, spaceAfter=20,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_style = ParagraphStyle(
+        "PdfTocEntry", fontName=JP_FONT, fontSize=12,
+        leftIndent=30, firstLineIndent=-14, spaceBefore=4, leading=20,
+    )
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
+
+    # See _TdDoc in generate_test_density_pdf for the TOC mechanism.
+    class _PdfDoc(SimpleDocTemplate):
+        def afterFlowable(self, flowable):  # type: ignore[override]
+            if (isinstance(flowable, Paragraph)
+                    and flowable.style.name == "PdfH2"):
+                self.notify(
+                    "TOCEntry",
+                    (0, flowable.getPlainText(), self.page),
+                )
+
+    doc = _PdfDoc(
         buf, pagesize=page_size,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
         topMargin=1.5 * cm, bottomMargin=1.5 * cm,
     )
     story: list = []
 
-    # --- Cover --------------------------------------------------------------
+    # --- Page 1: Cover ------------------------------------------------------
     _progress(t("pdf_step_cover"))
-    story.append(Paragraph(t("pdf_title"), title_style))
+    cover_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=12)),
+        width=140, height=112,
+    )
+    cover_icon.hAlign = "CENTER"
+    # A3 landscape is tall; push the block toward the vertical centre.
+    story.append(Spacer(1, 120))
+    story.append(cover_icon)
+    story.append(Spacer(1, 28))
+    story.append(Paragraph(t("pdf_title"), cover_title_style))
+    story.append(Spacer(1, 12))
     story.append(Paragraph(
         f"{t('pdf_generated_at')}: "
         f"{datetime.now().strftime('%Y-%m-%d %H:%M')}",
-        caption_style,
+        cover_meta_style,
     ))
-    story.append(Spacer(1, 8))
+    story.append(PageBreak())
 
-    # KPI summary table
+    # --- Page 2: Table of contents ------------------------------------------
+    story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
+    toc = TableOfContents()
+    toc.levelStyles = [toc_entry_style]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # --- Page 3+: KPI summary + chart sections + schedule -------------------
+    # KPI summary now lives on its own content page instead of sharing the
+    # cover — gives it room to breathe alongside the nine KPIs.
     summary = project_kpi_summary(kpi_df)
     def _pct(v): return f"{v * 100:.1f}%" if v is not None else "—"
     def _f3(v):  return f"{v:.3f}" if v is not None else "—"
@@ -8264,7 +8315,7 @@ def generate_report_pdf(
     story.append(Paragraph(_md_to_pdf(t("help_calendar_title")), body_style))
 
     _progress(t("pdf_step_assemble"))
-    doc.build(story)
+    doc.multiBuild(story)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -8288,8 +8339,10 @@ def generate_test_density_pdf(
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.platypus import (
-        Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
+        TableStyle,
     )
+    from reportlab.platypus.tableofcontents import TableOfContents
 
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     JP_FONT = "HeiseiKakuGo-W5"
@@ -8325,9 +8378,45 @@ def generate_test_density_pdf(
         "TdCaption", parent=styles["Normal"], fontName=JP_FONT,
         fontSize=8, textColor=colors.grey, leading=12,
     )
+    # Cover-page styles — larger fonts + more breathing room than the body.
+    cover_title_style = ParagraphStyle(
+        "TdCoverTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=24, alignment=1, spaceAfter=16,
+    )
+    cover_meta_style = ParagraphStyle(
+        "TdCoverMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=12, alignment=1, textColor=colors.grey,
+        spaceAfter=6, leading=18,
+    )
+    toc_title_style = ParagraphStyle(
+        "TdTocTitle", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=18, alignment=1, spaceAfter=18,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_style = ParagraphStyle(
+        "TdTocEntry", fontName=JP_FONT, fontSize=11,
+        leftIndent=24, firstLineIndent=-12, spaceBefore=4, leading=18,
+    )
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
+
+    # SimpleDocTemplate subclass that auto-registers a TOC entry every
+    # time a section-heading paragraph (style name "TdH2") is rendered.
+    # ReportLab's afterFlowable runs post-layout, so `self.page` holds
+    # the real, final page number — which is why we need `multiBuild`
+    # below: the first pass records entries at their initial pages, the
+    # TOC flowable then renders with those entries, pages shift, and a
+    # second pass rebuilds with stable numbers.
+    class _TdDoc(SimpleDocTemplate):
+        def afterFlowable(self, flowable):  # type: ignore[override]
+            if (isinstance(flowable, Paragraph)
+                    and flowable.style.name == "TdH2"):
+                self.notify(
+                    "TOCEntry",
+                    (0, flowable.getPlainText(), self.page),
+                )
+
+    doc = _TdDoc(
         buf, pagesize=page_size,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
         topMargin=1.6 * cm, bottomMargin=1.6 * cm,
@@ -8363,33 +8452,48 @@ def generate_test_density_pdf(
         story_list.append(Spacer(1, 14))
         story_list.append(Paragraph(text, h2_style))
 
-    # --- Title (brontosaurus hero icon + title + banner + meta) -------------
-    # T-Rex is reserved for the web app's page chrome; the PDF title uses a
-    # neutral dino silhouette so it clearly says "dashboard4dx" without
-    # poaching the header's signature sprite.
-    title_icon = Image(
-        io.BytesIO(_pixel_icon_png("bronto", scale=6)),
-        width=60, height=48,
-    )
-    title_icon.hAlign = "CENTER"
-    story.append(title_icon)
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(t("td_pdf_title"), title_style))
-    if fid_filter_active:
-        story.append(Paragraph(t("td_pdf_filter_active"), filter_style))
+    # Resolve source filenames up-front so the cover page can reference them.
     tests_origin = (
         st.session_state.get("origin_names", {}).get("tests") or "—"
     )
     master_origin = (
         st.session_state.get("origin_names", {}).get("master") or "—"
     )
+
+    # --- Page 1: Cover ------------------------------------------------------
+    # A dedicated first page with the report title, filter banner, and the
+    # generated-at / snapshot-source metadata. T-Rex stays reserved for the
+    # app chrome; the cover hero icon is a bronto silhouette.
+    cover_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=10)),
+        width=110, height=88,
+    )
+    cover_icon.hAlign = "CENTER"
+    story.append(Spacer(1, 130))  # vertical centering-ish
+    story.append(cover_icon)
+    story.append(Spacer(1, 24))
+    story.append(Paragraph(t("td_pdf_title"), cover_title_style))
+    if fid_filter_active:
+        story.append(Paragraph(t("td_pdf_filter_active"), filter_style))
+    story.append(Spacer(1, 12))
     story.append(Paragraph(
         t("td_pdf_footer",
           when=datetime.now().strftime("%Y-%m-%d %H:%M"),
           src=tests_origin),
-        meta_style,
+        cover_meta_style,
     ))
+    story.append(PageBreak())
 
+    # --- Page 2: Table of contents ------------------------------------------
+    # Populated automatically via afterFlowable on h2_style ("TdH2")
+    # paragraphs — every _section_heading call registers an entry.
+    story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
+    toc = TableOfContents()
+    toc.levelStyles = [toc_entry_style]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # --- Page 3+: Content sections ------------------------------------------
     # --- Inputs table -------------------------------------------------------
     _section_heading(story, "fossil", t("td_pdf_h_inputs"))
     input_rows = [
@@ -8482,7 +8586,7 @@ def generate_test_density_pdf(
     if df.empty:
         _section_heading(story, "volcano", t("td_pdf_h_summary"))
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
-        doc.build(story)
+        doc.multiBuild(story)
         pdf = buf.getvalue()
         buf.close()
         return pdf
@@ -8690,7 +8794,7 @@ def generate_test_density_pdf(
     footer_tbl.hAlign = "CENTER"
     story.append(footer_tbl)
 
-    doc.build(story)
+    doc.multiBuild(story)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -8719,6 +8823,7 @@ def generate_role_analytics_pdf(
         Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
         TableStyle,
     )
+    from reportlab.platypus.tableofcontents import TableOfContents
 
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     JP_FONT = "HeiseiKakuGo-W5"
@@ -8758,32 +8863,73 @@ def generate_role_analytics_pdf(
         "RaSmallBody", parent=styles["Normal"], fontName=JP_FONT,
         fontSize=8, leading=11,
     )
+    # Cover + TOC styles — mirror the test-density PDF for consistency.
+    cover_title_style = ParagraphStyle(
+        "RaCoverTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=24, alignment=1, spaceAfter=16,
+    )
+    cover_meta_style = ParagraphStyle(
+        "RaCoverMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=12, alignment=1, textColor=colors.grey,
+        spaceAfter=6, leading=18,
+    )
+    toc_title_style = ParagraphStyle(
+        "RaTocTitle", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=18, alignment=1, spaceAfter=18,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_style = ParagraphStyle(
+        "RaTocEntry", fontName=JP_FONT, fontSize=11,
+        leftIndent=24, firstLineIndent=-12, spaceBefore=4, leading=18,
+    )
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(
+
+    # See _TdDoc in generate_test_density_pdf for the TOC mechanism.
+    class _RaDoc(SimpleDocTemplate):
+        def afterFlowable(self, flowable):  # type: ignore[override]
+            if (isinstance(flowable, Paragraph)
+                    and flowable.style.name == "RaH2"):
+                self.notify(
+                    "TOCEntry",
+                    (0, flowable.getPlainText(), self.page),
+                )
+
+    doc = _RaDoc(
         buf, pagesize=page_size,
         leftMargin=1.2 * cm, rightMargin=1.2 * cm,
         topMargin=1.5 * cm, bottomMargin=1.5 * cm,
     )
     story: list = []
 
-    # --- Title -------------------------------------------------------------
-    title_icon = Image(
-        io.BytesIO(_pixel_icon_png("bronto", scale=6)),
-        width=60, height=48,
+    # --- Page 1: Cover ------------------------------------------------------
+    cover_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=10)),
+        width=110, height=88,
     )
-    title_icon.hAlign = "CENTER"
-    story.append(title_icon)
-    story.append(Spacer(1, 4))
-    story.append(Paragraph(t("ra_pdf_title"), title_style))
+    cover_icon.hAlign = "CENTER"
+    story.append(Spacer(1, 130))
+    story.append(cover_icon)
+    story.append(Spacer(1, 24))
+    story.append(Paragraph(t("ra_pdf_title"), cover_title_style))
     if fid_filter_active:
         story.append(Paragraph(t("ra_pdf_filter_active"), filter_style))
+    story.append(Spacer(1, 12))
     story.append(Paragraph(
         t("ra_pdf_footer",
           when=datetime.now().strftime("%Y-%m-%d %H:%M")),
-        meta_style,
+        cover_meta_style,
     ))
+    story.append(PageBreak())
 
+    # --- Page 2: Table of contents ------------------------------------------
+    story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
+    toc = TableOfContents()
+    toc.levelStyles = [toc_entry_style]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # --- Page 3+: Content sections ------------------------------------------
     # --- Inputs ------------------------------------------------------------
     story.append(Paragraph(t("ra_pdf_h_inputs"), h2_style))
     wbs_origin = (
@@ -8850,7 +8996,7 @@ def generate_role_analytics_pdf(
     if role_df.empty:
         story.append(Spacer(1, 10))
         story.append(Paragraph(t("role_analytics_no_matches"), body_style))
-        doc.build(story)
+        doc.multiBuild(story)
         pdf = buf.getvalue()
         buf.close()
         return pdf
@@ -9027,7 +9173,7 @@ def generate_role_analytics_pdf(
     footer_tbl.hAlign = "CENTER"
     story.append(footer_tbl)
 
-    doc.build(story)
+    doc.multiBuild(story)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -10898,7 +11044,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.54</span>
+    <span class="ver">Ver1.0.55</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
