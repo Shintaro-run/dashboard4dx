@@ -2840,6 +2840,72 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_view3_role_label": "Filter by role",
         "role_analytics_view3_role_all":   "All roles",
+        "help_role_analytics_view3_role_filter": (
+            "Limit the heatmap to a single role so you can compare, "
+            "e.g., developers against each other without test-writer "
+            "rows muddying the picture."
+        ),
+        # Bubble map + heat strip (advanced per-assignee viz).
+        "role_analytics_bubble_title": (
+            "Assignee bubble map (breadth × quality × defect exposure)"
+        ),
+        "role_analytics_bubble_caption": (
+            "One bubble per assignee. X = features touched, "
+            "Y = avg fault rate on those features, size = total defects, "
+            "colour = dominant role. Dashed lines mark the overall "
+            "mean Y and the median X — top-right is the 'attention' "
+            "quadrant, bottom-right is 'reliable coverage'."
+        ),
+        "role_analytics_bubble_color_legend": "Dominant role",
+        "role_analytics_strip_title": (
+            "Problem-class mix per assignee (stacked % of their defects)"
+        ),
+        "role_analytics_strip_caption": (
+            "Each horizontal bar is one assignee's defect pool (100%), "
+            "broken down by 問題分類. `n=` to the right is the raw "
+            "defect count the percentages are computed from."
+        ),
+        "role_analytics_strip_other": "Other",
+        # Role analytics PDF-export labels
+        "ra_pdf_btn_generate":       "📄 PDF",
+        "ra_pdf_btn_generate_help":  (
+            "Export the Assignee × role analysis as a standalone PDF "
+            "report (inputs → role rules → three tables → bubble map → "
+            "problem-class strip)."
+        ),
+        "ra_pdf_btn_download":       "⬇ PDF",
+        "ra_pdf_title":              "Assignee × role analysis report",
+        "ra_pdf_filter_active":      (
+            "⚠ Function ID filter is active — this report only covers "
+            "the filtered subset."
+        ),
+        "ra_pdf_h_inputs":           "1. Inputs (where the numbers come from)",
+        "ra_pdf_input_wbs":          "WBS sub-tasks (L=●, N=assignee)",
+        "ra_pdf_input_wbs_note":     (
+            "Sub-task names are scanned for the role keywords; N column "
+            "is the 担当者."
+        ),
+        "ra_pdf_input_defects":      "Redmine defects (trackered '不具合管理')",
+        "ra_pdf_input_defects_note":  "Per-feature defect counts + 問題分類.",
+        "ra_pdf_input_tests":        "Test counts CSV",
+        "ra_pdf_input_tests_note":   "総テスト / 実施済 / NG columns.",
+        "ra_pdf_h_rules":            "2. Role classification rules",
+        "ra_pdf_rules_body": (
+            "A sub-task's name is matched (NFKC-normalised substring) "
+            "against three fixed keywords. A sub-task that contains "
+            "multiple keywords attributes to all matching roles; "
+            "sub-tasks with an empty N cell surface as <b>(unassigned)</b>."
+        ),
+        "ra_pdf_rule_dev":       "<b>プログラム開発</b> → Development",
+        "ra_pdf_rule_test_spec": "<b>テスト仕様書作成</b> → Test-spec",
+        "ra_pdf_rule_test_exec": "<b>テスト実施</b> → Test-execution",
+        "ra_pdf_h_view1":            "3. Feature × assignee-by-role + quality KPIs",
+        "ra_pdf_h_view2":            "4. Assignee summary",
+        "ra_pdf_h_bubble":           "5. Assignee bubble map",
+        "ra_pdf_h_strip":            "6. Problem-class mix per assignee",
+        "ra_pdf_h_heatmap":          "7. Assignee × 問題分類 heatmap",
+        "ra_pdf_no_data":            "No data to plot.",
+        "ra_pdf_footer":             "Generated {when}",
         "role_analytics_no_subtasks": (
             "No WBS sub-tasks (rows marked ● in column L) are available — "
             "upload a WBS with sub-task entries to populate this section."
@@ -2861,6 +2927,48 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_avg_incident_rate": "Avg fault rate (Redmine)",
         "col_top3_problems":    "Top-3 問題分類",
         "problem_class_uncategorized": "(uncategorized)",
+        # Column tooltips (hover help) for the role-analytics tables.
+        "help_col_feature": (
+            "Function ID followed by 機能名 (master-authoritative)."
+        ),
+        "help_col_assignee": (
+            "WBS sub-task assignee (N column). Name normalization "
+            "collapses full-width / doubled / padded spaces."
+        ),
+        "help_col_feature_count": (
+            "Number of distinct Function IDs this person has a WBS "
+            "sub-task on, across any role."
+        ),
+        "help_col_avg_incident_rate": (
+            "Mean of this person's features' Redmine fault rates "
+            "(defect_total ÷ 実施済)."
+        ),
+        "help_col_top3_problems": (
+            "Top-3 Redmine 問題分類 on the related features, with counts."
+        ),
+        "help_role_count_dev": (
+            "How many 「プログラム開発」 sub-tasks this person is on."
+        ),
+        "help_role_count_test_spec": (
+            "How many 「テスト仕様書作成」 sub-tasks this person is on."
+        ),
+        "help_role_count_test_exec": (
+            "How many 「テスト実施」 sub-tasks this person is on."
+        ),
+        "help_role_assignees_dev": (
+            "Distinct assignees on this feature's 「プログラム開発」 "
+            "sub-tasks."
+        ),
+        "help_role_assignees_test_spec": (
+            "Distinct assignees on this feature's 「テスト仕様書作成」 "
+            "sub-tasks."
+        ),
+        "help_role_assignees_test_exec": (
+            "Distinct assignees on this feature's 「テスト実施」 sub-tasks."
+        ),
+        "help_col_feature_top3_problems": (
+            "Top-3 Redmine 問題分類 for defects on THIS feature only."
+        ),
         # ----- PDF report -----
         "pdf_btn_generate": "Generate PDF report",
         "pdf_btn_download": "Download PDF",
@@ -3594,6 +3702,67 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_view3_role_label": "ロールで絞る",
         "role_analytics_view3_role_all":   "全ロール",
+        "help_role_analytics_view3_role_filter": (
+            "ヒートマップを特定のロールに限定します。例えば「開発」だけに"
+            "絞れば、テスト担当の行が紛れ込まずに開発者同士の比較ができます。"
+        ),
+        # バブルマップ + 問題分類ストリップ（担当者別の先進的ビジュアル）
+        "role_analytics_bubble_title": (
+            "担当者バブルマップ（広さ × 品質 × 障害量）"
+        ),
+        "role_analytics_bubble_caption": (
+            "1人＝1バブル。X＝関与機能数、Y＝関与機能の平均障害発生率、"
+            "サイズ＝総障害件数、色＝ドミナントロール。破線は全体平均Yと"
+            "関与機能数の中央値X。**右上＝要注意（広くて質低め）**、"
+            "**右下＝頼れる（広くて質良好）**の4象限で読みます。"
+        ),
+        "role_analytics_bubble_color_legend": "ドミナントロール",
+        "role_analytics_strip_title": (
+            "担当者別 問題分類ミックス（その人の障害内訳を100%で積み上げ）"
+        ),
+        "role_analytics_strip_caption": (
+            "1行＝1担当者。その人の関与機能で発生した Redmine 障害を "
+            "100% として問題分類別に積み上げ。右端の「n=」は"
+            "パーセントの分母になっている実件数です。"
+        ),
+        "role_analytics_strip_other": "その他",
+        # 担当者×ロール分析 PDF出力
+        "ra_pdf_btn_generate":       "📄 PDF",
+        "ra_pdf_btn_generate_help":  (
+            "担当者×ロール分析を単体PDFレポートとして出力します"
+            "（インプット→ロール判定ルール→3つの表→バブルマップ→"
+            "問題分類ストリップ）。"
+        ),
+        "ra_pdf_btn_download":       "⬇ PDF",
+        "ra_pdf_title":              "担当者 × ロール分析 レポート",
+        "ra_pdf_filter_active":      (
+            "⚠ 機能IDフィルタ適用中 — フィルタ後の対象のみを集計しています。"
+        ),
+        "ra_pdf_h_inputs":           "1. インプット（数値の出どころ）",
+        "ra_pdf_input_wbs":          "WBS サブタスク行（L=●, N=担当者）",
+        "ra_pdf_input_wbs_note":     (
+            "サブタスク名をキーワードでロール判定、N列を担当者として取得。"
+        ),
+        "ra_pdf_input_defects":      "Redmine 障害一覧（トラッカー=不具合管理）",
+        "ra_pdf_input_defects_note":  "機能ID別の障害件数と問題分類を参照。",
+        "ra_pdf_input_tests":        "仕様書別テスト集計CSV",
+        "ra_pdf_input_tests_note":   "総テスト / 実施済 / NG 列を参照。",
+        "ra_pdf_h_rules":            "2. ロール判定ルール",
+        "ra_pdf_rules_body": (
+            "サブタスク名を NFKC 正規化後に以下のキーワードで部分一致検索します。"
+            "複数キーワードに該当する場合は全ロールに加算、N列が空の場合は"
+            "<b>（未割当）</b>として集計します。"
+        ),
+        "ra_pdf_rule_dev":       "<b>プログラム開発</b> → 開発",
+        "ra_pdf_rule_test_spec": "<b>テスト仕様書作成</b> → 仕様書作成",
+        "ra_pdf_rule_test_exec": "<b>テスト実施</b> → 実施",
+        "ra_pdf_h_view1":            "3. 機能別 担当者ロールマップ & 品質KPI",
+        "ra_pdf_h_view2":            "4. 担当者サマリ",
+        "ra_pdf_h_bubble":           "5. 担当者バブルマップ",
+        "ra_pdf_h_strip":            "6. 担当者別 問題分類ミックス",
+        "ra_pdf_h_heatmap":          "7. 担当者 × 問題分類 ヒートマップ",
+        "ra_pdf_no_data":            "表示するデータがありません。",
+        "ra_pdf_footer":             "生成: {when}",
         "role_analytics_no_subtasks": (
             "WBSのサブタスク行（L列=●）が見つかりません。"
             "サブタスク記載のあるWBSを取り込むと本セクションが表示されます。"
@@ -3615,6 +3784,44 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_avg_incident_rate": "平均障害発生率（Redmine）",
         "col_top3_problems":    "問題分類 Top3",
         "problem_class_uncategorized": "（未分類）",
+        # 列のマウスオーバー説明（担当者×ロール分析の各テーブル用）
+        "help_col_feature": (
+            "機能IDに機能名（機能ID一覧を正）を付けた表示ラベル。"
+        ),
+        "help_col_assignee": (
+            "WBSサブタスクの担当者（N列）。全角/半角・連続/前後空白は"
+            "正規化されて同一人物として集計されます。"
+        ),
+        "help_col_feature_count": (
+            "この人がWBSサブタスクで関わった一意な機能IDの数（ロール問わず）。"
+        ),
+        "help_col_avg_incident_rate": (
+            "関与機能の障害発生率（Redmine; 障害件数 ÷ 実施済）の平均値。"
+        ),
+        "help_col_top3_problems": (
+            "関与機能で発生した Redmine 障害の問題分類 Top3（件数付き）。"
+        ),
+        "help_role_count_dev": (
+            "この人が「プログラム開発」で担当しているサブタスクの件数。"
+        ),
+        "help_role_count_test_spec": (
+            "この人が「テスト仕様書作成」で担当しているサブタスクの件数。"
+        ),
+        "help_role_count_test_exec": (
+            "この人が「テスト実施」で担当しているサブタスクの件数。"
+        ),
+        "help_role_assignees_dev": (
+            "この機能の「プログラム開発」サブタスクの担当者（重複排除）。"
+        ),
+        "help_role_assignees_test_spec": (
+            "この機能の「テスト仕様書作成」サブタスクの担当者（重複排除）。"
+        ),
+        "help_role_assignees_test_exec": (
+            "この機能の「テスト実施」サブタスクの担当者（重複排除）。"
+        ),
+        "help_col_feature_top3_problems": (
+            "この機能で発生した Redmine 障害の問題分類 Top3。"
+        ),
         # ----- PDF レポート -----
         "pdf_btn_generate": "PDFレポート生成",
         "pdf_btn_download": "PDFをダウンロード",
@@ -5536,12 +5743,37 @@ def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=cols)
 
 
+def _top3_problem_classes_for(
+    defects_df: Optional[pd.DataFrame], fids: list[str],
+) -> str:
+    """Compact " / "-joined "category:count" string of the top-3 Redmine
+    問題分類 on the given features. Returns '—' when there are no
+    matching defects or the column isn't available."""
+    if (defects_df is None or defects_df.empty
+            or "問題分類" not in defects_df.columns
+            or "機能ID" not in defects_df.columns):
+        return "—"
+    d = defects_df[defects_df["機能ID"].astype(str).isin([str(f) for f in fids])]
+    if d.empty:
+        return "—"
+    uncat = t("problem_class_uncategorized")
+    vc = (d["問題分類"].fillna("").astype(str).replace("", uncat)
+          .value_counts())
+    if vc.empty:
+        return "—"
+    return " / ".join(f"{cat}:{n}" for cat, n in vc.head(3).items())
+
+
 def _build_feature_role_table(
     role_df: pd.DataFrame, kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Per-機能ID pivot: {dev / test_spec / test_exec} assignee lists joined
-    with the feature's quality KPIs. Assignees within the same (FID, role)
-    are de-duplicated and joined with ' / '."""
+    with the feature's quality KPIs + top-3 問題分類.
+
+    Assignees within the same (FID, role) are de-duplicated and joined with
+    ' / '. The `defects_df` slice lets us compute the per-feature problem
+    classification top-3; pass None to skip that column."""
     if role_df.empty:
         return pd.DataFrame()
     pivot = (role_df.groupby(["機能ID", "role"])["assignee"]
@@ -5552,8 +5784,8 @@ def _build_feature_role_table(
             pivot[rk] = ""
     pivot = pivot[list(ROLE_KEYWORDS.keys())].fillna("").reset_index()
     kpi_cols = ["機能ID"]
-    for c in ("機能名称", "test_run_rate", "defect_total",
-              "incident_rate", "NG"):
+    for c in ("機能名称", "test_run_rate", "test_density",
+              "defect_total", "incident_rate", "NG"):
         if c in kpi_df.columns:
             kpi_cols.append(c)
     kpi_subset = kpi_df[kpi_cols].drop_duplicates(subset=["機能ID"])
@@ -5561,6 +5793,14 @@ def _build_feature_role_table(
     # Build FID：Name label column for display (authoritative name lives on
     # the master-joined kpi_df).
     out["display"] = out.apply(_label_id_name, axis=1)
+    # Per-feature top-3 問題分類 (Redmine) — single-feature variant of the
+    # assignee-level rollup used in View 2.
+    if defects_df is not None and not defects_df.empty:
+        out["top3_problems"] = out["機能ID"].map(
+            lambda fid: _top3_problem_classes_for(defects_df, [str(fid)])
+        )
+    else:
+        out["top3_problems"] = "—"
     # Worst-first so reviewers see the problem features at the top.
     if "incident_rate" in out.columns:
         out = out.sort_values("incident_rate",
@@ -5682,6 +5922,279 @@ def _build_assignee_problem_crosstab(
     # at the top of the heatmap.
     row_totals = ct.sum(axis=1).sort_values(ascending=False)
     return ct.loc[row_totals.index]
+
+
+# ----- Advanced per-assignee viz (案A bubble + 案C problem-share strip) -----
+# Plotly colours for the dominant-role categorical axis, kept in sync with
+# the matplotlib fallbacks below so the PDF version matches the screen.
+_ROLE_COLOR_MAP: dict[str, str] = {
+    "dev":       "#4a90e2",   # blue
+    "test_spec": "#4ec78a",   # green
+    "test_exec": "#f5a623",   # orange
+}
+
+
+def _build_assignee_bubble_df(
+    role_df: pd.DataFrame,
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Per-assignee coordinates for the bubble map.
+
+    Each row is one assignee with:
+      - feature_count        : X-axis (breadth)
+      - avg_incident_rate    : Y-axis (quality signal; 0..1)
+      - defect_total         : bubble size (exposure)
+      - dominant_role        : bubble colour (tie → dev > test_spec > test_exec)
+      - role_count_{dev,...} : raw role counts, surfaced in the hover card
+    """
+    cols = ["assignee", "feature_count", "avg_incident_rate",
+            "defect_total", "dominant_role"]
+    if role_df.empty:
+        return pd.DataFrame(columns=cols)
+
+    counts = (role_df.groupby(["assignee", "role"]).size()
+              .unstack("role").fillna(0).astype(int))
+    for rk in ROLE_KEYWORDS:
+        if rk not in counts.columns:
+            counts[rk] = 0
+    counts = counts[list(ROLE_KEYWORDS.keys())]
+
+    # Dominant role with a stable tie-break: roles listed first in
+    # ROLE_KEYWORDS win ties so dev > test_spec > test_exec.
+    role_order = list(ROLE_KEYWORDS.keys())
+
+    def _dominant(row):
+        best = None
+        best_n = -1
+        for r in role_order:
+            if int(row[r]) > best_n:
+                best_n = int(row[r])
+                best = r
+        return best if best_n > 0 else role_order[0]
+    dominant = counts.apply(_dominant, axis=1)
+
+    features_per = (role_df.groupby("assignee")["機能ID"]
+                    .apply(lambda s: sorted(set(str(x) for x in s))))
+    feature_counts = features_per.map(len)
+
+    if (defects_df is not None and not defects_df.empty
+            and "機能ID" in defects_df.columns):
+        dfd = defects_df.copy()
+        dfd["機能ID"] = dfd["機能ID"].astype(str)
+
+        def _defect_total(fids):
+            return int(dfd[dfd["機能ID"].isin(fids)].shape[0])
+        defect_totals = features_per.map(_defect_total)
+    else:
+        defect_totals = pd.Series([0] * len(features_per),
+                                  index=features_per.index)
+
+    if "incident_rate" in kpi_df.columns:
+        kpi_sub = (kpi_df[["機能ID", "incident_rate"]]
+                   .drop_duplicates(subset=["機能ID"])
+                   .assign(機能ID=lambda d: d["機能ID"].astype(str))
+                   .set_index("機能ID"))
+
+        def _avg_rate(fids):
+            vals = pd.to_numeric(
+                kpi_sub.reindex(fids)["incident_rate"], errors="coerce"
+            ).dropna()
+            return float(vals.mean()) if len(vals) else float("nan")
+        avg_rates = features_per.map(_avg_rate)
+    else:
+        avg_rates = pd.Series([float("nan")] * len(features_per),
+                              index=features_per.index)
+
+    out = pd.DataFrame({
+        "assignee": counts.index,
+        "feature_count": feature_counts.reindex(counts.index).fillna(0)
+                        .astype(int).values,
+        "avg_incident_rate": avg_rates.reindex(counts.index).values,
+        "defect_total": defect_totals.reindex(counts.index).fillna(0)
+                        .astype(int).values,
+        "dominant_role": dominant.reindex(counts.index).values,
+        "role_count_dev":       counts["dev"].values,
+        "role_count_test_spec": counts["test_spec"].values,
+        "role_count_test_exec": counts["test_exec"].values,
+    })
+    # Drop rows with no touchable quality signal (NaN Y) AND no defects —
+    # they'd render as invisible zero-size markers on NaN coordinates.
+    has_signal = (out["avg_incident_rate"].notna()
+                  | (out["defect_total"] > 0)
+                  | (out["feature_count"] > 0))
+    return out[has_signal].reset_index(drop=True)
+
+
+def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
+    """Plotly bubble map: X=feature_count, Y=avg_incident_rate(%),
+    size=defect_total, color=dominant_role, label=assignee.
+
+    Adds dashed reference lines at the overall mean Y and the median X so
+    readers can place each person in a quadrant at a glance."""
+    if bubble_df is None or bubble_df.empty:
+        return None
+    df = bubble_df.copy()
+    df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
+                                    errors="coerce") * 100.0
+    role_labels_local = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    df["role_label"] = df["dominant_role"].map(role_labels_local)
+    # Hover card: enumerate per-role counts so the mixed-role case reads
+    # clearly ("mostly dev, but also 2 test_exec sub-tasks").
+    df["hover_roles"] = df.apply(
+        lambda r: (
+            f"{t('role_count_dev')}: {int(r['role_count_dev'])} · "
+            f"{t('role_count_test_spec')}: {int(r['role_count_test_spec'])} · "
+            f"{t('role_count_test_exec')}: {int(r['role_count_test_exec'])}"
+        ),
+        axis=1,
+    )
+    color_map_local = {role_labels_local[k]: v
+                        for k, v in _ROLE_COLOR_MAP.items()}
+    fig = px.scatter(
+        df,
+        x="feature_count",
+        y="rate_pct",
+        size="defect_total",
+        color="role_label",
+        text="assignee",
+        size_max=60,
+        color_discrete_map=color_map_local,
+        custom_data=["assignee", "feature_count", "rate_pct",
+                     "defect_total", "hover_roles"],
+    )
+    fig.update_traces(
+        textposition="top center",
+        textfont=dict(size=11),
+        marker=dict(line=dict(color="#444", width=0.7), opacity=0.85),
+        hovertemplate=(
+            "<b>%{customdata[0]}</b><br>"
+            f"{t('col_feature_count')}: %{{customdata[1]}}<br>"
+            f"{t('col_avg_incident_rate')}: %{{customdata[2]:.1f}}%<br>"
+            f"{t('col_defect_total')}: %{{customdata[3]}}<br>"
+            "%{customdata[4]}"
+            "<extra></extra>"
+        ),
+    )
+
+    # Reference lines: overall mean Y and the median X. These anchor the
+    # quadrant interpretation in the chart caption.
+    rates = df["rate_pct"].dropna()
+    if len(rates):
+        mean_y = float(rates.mean())
+        fig.add_hline(y=mean_y, line_dash="dash", line_color="#888",
+                      annotation_text=f"avg {mean_y:.1f}%",
+                      annotation_position="top right",
+                      annotation_font=dict(color="#888", size=10))
+    fc = pd.to_numeric(df["feature_count"], errors="coerce").dropna()
+    if len(fc):
+        med_x = float(fc.median())
+        fig.add_vline(x=med_x, line_dash="dash", line_color="#888",
+                      annotation_text=f"median {med_x:g}",
+                      annotation_position="top left",
+                      annotation_font=dict(color="#888", size=10))
+
+    fig.update_layout(
+        height=max(380, 32 * len(df) // 3 + 320),
+        margin=_INLINE_MARGIN_DEFAULT,
+        xaxis_title=t("col_feature_count"),
+        yaxis_title=t("col_avg_incident_rate"),
+        legend_title_text=t("role_analytics_bubble_color_legend"),
+    )
+    fig.update_xaxes(automargin=True,
+                     range=[-0.5,
+                            max(1, float(df["feature_count"].max()) * 1.15)])
+    y_max = float(df["rate_pct"].max()) if df["rate_pct"].notna().any() else 10.0
+    fig.update_yaxes(automargin=True, range=[0, max(10.0, y_max * 1.15)])
+    return fig
+
+
+def _build_assignee_problem_share_df(
+    role_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame],
+) -> Optional[pd.DataFrame]:
+    """Per-assignee row of 問題分類 percentages (each row sums to 100 across
+    the columns). The heat-strip renderer below stacks these as a horizontal
+    bar per assignee so readers can scan "who attracts what kind of defect"
+    across the team.
+
+    Rows include a `_total` column (raw defect count) used for sort order
+    and as an annotation alongside each bar."""
+    ct = _build_assignee_problem_crosstab(role_df, defects_df)
+    if ct is None or ct.empty:
+        return None
+    totals = ct.sum(axis=1)
+    pct = ct.div(totals, axis=0).fillna(0.0) * 100.0
+    pct["_total"] = totals
+    # Row order by defect total desc (ct already does this) — keep that.
+    return pct
+
+
+def _chart_assignee_problem_strip(
+    strip_df: pd.DataFrame,
+) -> Optional[go.Figure]:
+    """Horizontal 100%-stacked bar per assignee, segments = 問題分類.
+
+    One row per person, each segment showing `<category> N件 (pct%)`. Total
+    defect count appears as an annotation to the right of each bar so scale
+    isn't lost in the percent view."""
+    if strip_df is None or strip_df.empty:
+        return None
+    df = strip_df.copy()
+    totals = df.pop("_total")
+    if df.empty or df.shape[1] == 0:
+        return None
+    # Limit to a reasonable number of categories; everything past N folds
+    # into a collapsed "その他" bucket so the strip stays legible.
+    MAX_CATS = 8
+    if df.shape[1] > MAX_CATS:
+        head = df.iloc[:, :MAX_CATS - 1]
+        tail = df.iloc[:, MAX_CATS - 1:].sum(axis=1)
+        head[t("role_analytics_strip_other")] = tail
+        df = head
+    # Plotly stacked horizontal bar — iterate categories so legend + colours
+    # are deterministic (px.bar auto-inference sometimes rotates colours per
+    # re-render which is disorienting on an interactive page).
+    palette = ["#3c78d8", "#e06666", "#6aa84f", "#f1c232", "#674ea7",
+                "#16a2a2", "#d5a6bd", "#a64d79"]
+    assignees = df.index.tolist()
+    fig = go.Figure()
+    for i, cat in enumerate(df.columns):
+        vals = df[cat].astype(float).tolist()
+        fig.add_bar(
+            y=assignees, x=vals, orientation="h",
+            name=str(cat),
+            marker_color=palette[i % len(palette)],
+            hovertemplate=(
+                "<b>%{y}</b><br>"
+                f"{cat}: %{{x:.1f}}%"
+                "<extra></extra>"
+            ),
+        )
+    fig.update_layout(
+        barmode="stack",
+        height=max(260, 30 * len(assignees) + 120),
+        margin=_INLINE_MARGIN_LONG_Y,
+        xaxis_title="%",
+        yaxis_title=None,
+        legend_title_text=t("chart_defect_class_col_class"),
+    )
+    fig.update_xaxes(range=[0, 100], automargin=True, ticksuffix="%")
+    fig.update_yaxes(autorange="reversed", automargin=True)
+    # Right-hand annotation with the raw total count per assignee, so
+    # "this person is 80% data / 20% logic" is read alongside "of only
+    # 5 total defects".
+    for name, tot in zip(assignees, totals.reindex(assignees).values):
+        fig.add_annotation(
+            x=101, y=name, xref="x", yref="y",
+            text=f"n={int(tot)}", showarrow=False,
+            xanchor="left", font=dict(color="#666", size=10),
+        )
+    return fig
 
 
 def _chart_loc_trend() -> Optional[go.Figure]:
@@ -6430,6 +6943,165 @@ def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
     ax1.legend(l1 + l2, lbl1 + lbl2, loc="upper left")
     ax1.grid(True, linestyle=":", alpha=0.3)
     fig.autofmt_xdate()
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
+    """Matplotlib bubble map for the role-analytics PDF export.
+
+    Mirrors _chart_assignee_bubble: X=feature_count, Y=avg_incident_rate%,
+    marker size ∝ defect_total, colour by dominant role (via _ROLE_COLOR_MAP).
+    Adds mean-Y / median-X reference lines + labels each bubble with the
+    assignee name."""
+    if bubble_df is None or bubble_df.empty:
+        return None
+    df = bubble_df.copy()
+    df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
+                                    errors="coerce") * 100.0
+    df["_defect_total"] = pd.to_numeric(df["defect_total"],
+                                         errors="coerce").fillna(0)
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 6), dpi=_MPL_DPI)
+
+    # Marker size: scale by defect total so the largest is legible and the
+    # smallest still shows. Minimum of 80pt² means 0-defect bubbles still
+    # read as a dot.
+    sizes = df["_defect_total"].values.astype(float)
+    max_d = float(sizes.max()) if len(sizes) and sizes.max() > 0 else 1.0
+    marker_sizes = 80.0 + (sizes / max_d) * 1800.0
+    colors = [_ROLE_COLOR_MAP.get(r, "#888888")
+              for r in df["dominant_role"]]
+    ax.scatter(
+        df["feature_count"], df["rate_pct"],
+        s=marker_sizes, c=colors,
+        alpha=0.75, edgecolors="#333", linewidth=0.8,
+    )
+    # Label every bubble just above its centre.
+    for _, r in df.iterrows():
+        ax.annotate(
+            r["assignee"],
+            xy=(r["feature_count"], r["rate_pct"] if pd.notna(r["rate_pct"])
+                else 0),
+            xytext=(0, 10), textcoords="offset points",
+            ha="center", fontsize=9, color="#222",
+        )
+    # Reference lines
+    rates = df["rate_pct"].dropna()
+    if len(rates):
+        ax.axhline(float(rates.mean()), ls="--", color="#888", lw=1)
+    fc = pd.to_numeric(df["feature_count"], errors="coerce").dropna()
+    if len(fc):
+        ax.axvline(float(fc.median()), ls="--", color="#888", lw=1)
+    ax.set_xlabel(t("col_feature_count"))
+    ax.set_ylabel(t("col_avg_incident_rate") + " (%)")
+    # Y axis starts at 0; X axis starts slightly left of 0 for breathing.
+    y_max = float(df["rate_pct"].max()) if df["rate_pct"].notna().any() else 10.0
+    ax.set_ylim(0, max(10.0, y_max * 1.15))
+    ax.set_xlim(-0.5, max(1, float(df["feature_count"].max()) * 1.15))
+    ax.grid(True, linestyle=":", alpha=0.3)
+
+    # Custom legend: one proxy marker per dominant role actually present.
+    import matplotlib.lines as _mlines
+    role_labels_local = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    present = [r for r in ("dev", "test_spec", "test_exec")
+               if r in df["dominant_role"].unique()]
+    handles = [
+        _mlines.Line2D([], [], marker="o", color="w",
+                        markerfacecolor=_ROLE_COLOR_MAP[r],
+                        markersize=10, markeredgecolor="#333",
+                        label=role_labels_local[r])
+        for r in present
+    ]
+    if handles:
+        ax.legend(handles=handles, loc="upper left",
+                   title=t("role_analytics_bubble_color_legend"),
+                   fontsize=9, title_fontsize=9, framealpha=0.9)
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_assignee_problem_strip(strip_df: pd.DataFrame):
+    """Matplotlib 100%-stacked horizontal bar per assignee — PDF counterpart
+    of _chart_assignee_problem_strip."""
+    if strip_df is None or strip_df.empty:
+        return None
+    df = strip_df.copy()
+    totals = df.pop("_total")
+    if df.empty or df.shape[1] == 0:
+        return None
+    MAX_CATS = 8
+    if df.shape[1] > MAX_CATS:
+        head = df.iloc[:, :MAX_CATS - 1]
+        tail = df.iloc[:, MAX_CATS - 1:].sum(axis=1)
+        head[t("role_analytics_strip_other")] = tail
+        df = head
+    palette = ["#3c78d8", "#e06666", "#6aa84f", "#f1c232", "#674ea7",
+                "#16a2a2", "#d5a6bd", "#a64d79"]
+    plt = _mpl_plt()
+    n = len(df.index)
+    fig_h = max(3.0, 0.45 * n + 1.2)
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
+    y = np.arange(n)
+    assignees = df.index.tolist()
+    left = np.zeros(n, dtype=float)
+    for i, cat in enumerate(df.columns):
+        vals = df[cat].astype(float).values
+        ax.barh(y, vals, left=left, color=palette[i % len(palette)],
+                 edgecolor="white", label=str(cat))
+        left += vals
+    # Raw totals on the right
+    for yi, name in enumerate(assignees):
+        ax.text(101, yi, f"n={int(totals.reindex(assignees).iloc[yi])}",
+                va="center", fontsize=9, color="#666")
+    ax.set_yticks(y)
+    ax.set_yticklabels(assignees)
+    ax.invert_yaxis()
+    ax.set_xlim(0, 108)   # leave room for n= annotation
+    ax.set_xlabel("%")
+    ax.grid(axis="x", linestyle=":", alpha=0.3)
+    ax.legend(loc="upper center",
+               bbox_to_anchor=(0.5, -0.08),
+               ncol=min(len(df.columns), 5),
+               fontsize=9, frameon=False,
+               title=t("chart_defect_class_col_class"))
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
+def _mpl_chart_assignee_problem_heatmap(ct: pd.DataFrame):
+    """Matplotlib version of View 3's Assignee × 問題分類 imshow, used by
+    the role-analytics PDF. Mirrors the colour scale and axis orientation
+    of the on-screen Plotly chart."""
+    if ct is None or ct.empty:
+        return None
+    plt = _mpl_plt()
+    n_rows = len(ct.index)
+    n_cols = len(ct.columns)
+    fig_h = max(3.0, 0.45 * n_rows + 1.4)
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
+    im = ax.imshow(ct.values.astype(float), aspect="auto", cmap="YlOrRd")
+    ax.set_xticks(np.arange(n_cols))
+    ax.set_xticklabels(ct.columns, rotation=-30, ha="left", fontsize=9)
+    ax.set_yticks(np.arange(n_rows))
+    ax.set_yticklabels(ct.index)
+    # Cell text — only when the grid isn't too dense to read.
+    if n_rows * n_cols <= 120:
+        for r_i in range(n_rows):
+            for c_i in range(n_cols):
+                v = int(ct.values[r_i, c_i])
+                if v:
+                    ax.text(c_i, r_i, str(v), ha="center", va="center",
+                            fontsize=8,
+                            color=("white" if v > ct.values.max() * 0.55
+                                   else "#222"))
+    ax.set_xlabel(t("chart_defect_class_col_class"))
+    ax.set_ylabel(t("col_assignee"))
+    fig.colorbar(im, ax=ax, label=t("chart_defect_class_col_count"))
     fig.tight_layout()
     return _mpl_save(fig)
 
@@ -7314,6 +7986,432 @@ def generate_test_density_pdf(
     return pdf
 
 
+def generate_role_analytics_pdf(
+    kpi_df: pd.DataFrame,
+    wbs_df: Optional[pd.DataFrame],
+    defects_df: Optional[pd.DataFrame],
+    fid_filter_active: bool = False,
+) -> bytes:
+    """Standalone PDF for the 担当者×ロール分析 section.
+
+    Layout: title (+ filter banner) → inputs table → role-classification
+    rules → View 1 table (feature × assignees × KPIs) → View 2 table
+    (assignee summary) → bubble map PNG → problem-class strip PNG →
+    View 3 heatmap PNG → era-icon footer. A4 portrait; ReportLab
+    auto-paginates where the tables / charts overflow."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
+        TableStyle,
+    )
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    JP_FONT = "HeiseiKakuGo-W5"
+
+    page_size = A4
+    page_w, _ = page_size
+    inner_w = page_w - 3 * cm
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "RaTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=18, alignment=1, spaceAfter=8,
+    )
+    filter_style = ParagraphStyle(
+        "RaFilter", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=11, alignment=1, textColor=colors.red,
+        spaceBefore=2, spaceAfter=10,
+    )
+    meta_style = ParagraphStyle(
+        "RaMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, alignment=1, textColor=colors.grey, spaceAfter=14,
+    )
+    h2_style = ParagraphStyle(
+        "RaH2", parent=styles["Heading2"], fontName=JP_FONT,
+        fontSize=12, spaceAfter=4, spaceBefore=14,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    body_style = ParagraphStyle(
+        "RaBody", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, leading=14,
+    )
+    caption_style = ParagraphStyle(
+        "RaCaption", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=8, textColor=colors.grey, leading=12,
+    )
+    small_body = ParagraphStyle(
+        "RaSmallBody", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=8, leading=11,
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=page_size,
+        leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+        topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+    )
+    story: list = []
+
+    # --- Title -------------------------------------------------------------
+    title_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=6)),
+        width=60, height=48,
+    )
+    title_icon.hAlign = "CENTER"
+    story.append(title_icon)
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(t("ra_pdf_title"), title_style))
+    if fid_filter_active:
+        story.append(Paragraph(t("ra_pdf_filter_active"), filter_style))
+    story.append(Paragraph(
+        t("ra_pdf_footer",
+          when=datetime.now().strftime("%Y-%m-%d %H:%M")),
+        meta_style,
+    ))
+
+    # --- Inputs ------------------------------------------------------------
+    story.append(Paragraph(t("ra_pdf_h_inputs"), h2_style))
+    wbs_origin = (
+        st.session_state.get("origin_names", {}).get("wbs") or "—"
+    )
+    defects_origin = (
+        st.session_state.get("origin_names", {}).get("defects") or "—"
+    )
+    tests_origin = (
+        st.session_state.get("origin_names", {}).get("tests") or "—"
+    )
+    inp_rows = [
+        [
+            Paragraph(t("ra_pdf_input_wbs"), body_style),
+            Paragraph(
+                f"{wbs_origin}<br/>"
+                f"<font size=8 color='grey'>{t('ra_pdf_input_wbs_note')}</font>",
+                body_style,
+            ),
+        ],
+        [
+            Paragraph(t("ra_pdf_input_defects"), body_style),
+            Paragraph(
+                f"{defects_origin}<br/>"
+                f"<font size=8 color='grey'>"
+                f"{t('ra_pdf_input_defects_note')}</font>",
+                body_style,
+            ),
+        ],
+        [
+            Paragraph(t("ra_pdf_input_tests"), body_style),
+            Paragraph(
+                f"{tests_origin}<br/>"
+                f"<font size=8 color='grey'>"
+                f"{t('ra_pdf_input_tests_note')}</font>",
+                body_style,
+            ),
+        ],
+    ]
+    inp_tbl = Table(inp_rows, colWidths=[inner_w * 0.30, inner_w * 0.70])
+    inp_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#e8efe8")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+    ]))
+    story.append(inp_tbl)
+
+    # --- Rules --------------------------------------------------------------
+    story.append(Paragraph(t("ra_pdf_h_rules"), h2_style))
+    story.append(Paragraph(t("ra_pdf_rules_body"), body_style))
+    story.append(Spacer(1, 4))
+    story.append(Paragraph(f"・{t('ra_pdf_rule_dev')}", body_style))
+    story.append(Paragraph(f"・{t('ra_pdf_rule_test_spec')}", body_style))
+    story.append(Paragraph(f"・{t('ra_pdf_rule_test_exec')}", body_style))
+
+    # --- Build role_df for all downstream views ----------------------------
+    role_df = _extract_role_assignments(wbs_df)
+    if role_df.empty:
+        story.append(Spacer(1, 10))
+        story.append(Paragraph(t("role_analytics_no_matches"), body_style))
+        doc.build(story)
+        pdf = buf.getvalue()
+        buf.close()
+        return pdf
+
+    # --- View 1 table -------------------------------------------------------
+    story.append(Paragraph(t("ra_pdf_h_view1"), h2_style))
+    ft = _build_feature_role_table(role_df, kpi_df, defects_df)
+    if ft.empty:
+        story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
+    else:
+        header1 = [
+            t("col_feature"),
+            t("role_dev"), t("role_test_spec"), t("role_test_exec"),
+            t("col_test_run_rate"), t("col_test_density"),
+            t("col_defect_total"), t("col_incident_rate"), t("col_test_ng"),
+            t("col_top3_problems"),
+        ]
+        rows1 = [[Paragraph(h, small_body) for h in header1]]
+        for _, r in ft.iterrows():
+            def _pct_or_dash(v):
+                vv = pd.to_numeric(v, errors="coerce")
+                return "—" if pd.isna(vv) else f"{vv * 100:.1f}%"
+
+            def _f2_or_dash(v):
+                vv = pd.to_numeric(v, errors="coerce")
+                return "—" if pd.isna(vv) else f"{vv:.2f}"
+
+            def _int_or_dash(v):
+                vv = pd.to_numeric(v, errors="coerce")
+                return "—" if pd.isna(vv) else f"{int(vv)}"
+            rows1.append([
+                Paragraph(str(r.get("display") or ""), small_body),
+                Paragraph(str(r.get("dev") or ""), small_body),
+                Paragraph(str(r.get("test_spec") or ""), small_body),
+                Paragraph(str(r.get("test_exec") or ""), small_body),
+                Paragraph(_pct_or_dash(r.get("test_run_rate")), small_body),
+                Paragraph(_f2_or_dash(r.get("test_density")), small_body),
+                Paragraph(_int_or_dash(r.get("defect_total")), small_body),
+                Paragraph(_pct_or_dash(r.get("incident_rate")), small_body),
+                Paragraph(_int_or_dash(r.get("NG")), small_body),
+                Paragraph(str(r.get("top3_problems") or "—"), small_body),
+            ])
+        col_ws = [
+            inner_w * 0.14, inner_w * 0.09, inner_w * 0.09, inner_w * 0.09,
+            inner_w * 0.07, inner_w * 0.07, inner_w * 0.06,
+            inner_w * 0.07, inner_w * 0.06, inner_w * 0.26,
+        ]
+        v1_tbl = Table(rows1, colWidths=col_ws, repeatRows=1)
+        v1_tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4ec")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("ALIGN", (4, 1), (8, -1), "RIGHT"),
+        ]))
+        story.append(v1_tbl)
+
+    # --- View 2 table -------------------------------------------------------
+    story.append(Paragraph(t("ra_pdf_h_view2"), h2_style))
+    asum = _build_assignee_summary(role_df, kpi_df, defects_df)
+    if asum.empty:
+        story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
+    else:
+        header2 = [
+            t("col_assignee"),
+            t("role_count_dev"), t("role_count_test_spec"),
+            t("role_count_test_exec"),
+            t("col_feature_count"), t("col_defect_total"),
+            t("col_avg_incident_rate"), t("col_top3_problems"),
+        ]
+        rows2 = [[Paragraph(h, small_body) for h in header2]]
+        for _, r in asum.iterrows():
+            air = pd.to_numeric(r.get("avg_incident_rate"), errors="coerce")
+            rows2.append([
+                Paragraph(str(r.get("担当者") or ""), small_body),
+                Paragraph(f"{int(r.get('dev', 0) or 0)}", small_body),
+                Paragraph(f"{int(r.get('test_spec', 0) or 0)}", small_body),
+                Paragraph(f"{int(r.get('test_exec', 0) or 0)}", small_body),
+                Paragraph(
+                    f"{int(r.get('feature_count', 0) or 0)}", small_body),
+                Paragraph(
+                    f"{int(r.get('defect_total', 0) or 0)}", small_body),
+                Paragraph(
+                    "—" if pd.isna(air) else f"{air * 100:.1f}%", small_body),
+                Paragraph(str(r.get("top3_problems") or "—"), small_body),
+            ])
+        v2_ws = [
+            inner_w * 0.14, inner_w * 0.08, inner_w * 0.09, inner_w * 0.09,
+            inner_w * 0.08, inner_w * 0.08, inner_w * 0.11, inner_w * 0.33,
+        ]
+        v2_tbl = Table(rows2, colWidths=v2_ws, repeatRows=1)
+        v2_tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4ec")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("ALIGN", (1, 1), (-2, -1), "RIGHT"),
+        ]))
+        story.append(v2_tbl)
+
+    # --- Bubble map ---------------------------------------------------------
+    bubble_df = _build_assignee_bubble_df(role_df, kpi_df, defects_df)
+    if not bubble_df.empty:
+        story.append(PageBreak())
+        story.append(Paragraph(t("ra_pdf_h_bubble"), h2_style))
+        story.append(Paragraph(
+            t("role_analytics_bubble_caption"), caption_style))
+        story.append(Spacer(1, 6))
+        result = _mpl_chart_assignee_bubble(bubble_df)
+        if result is not None:
+            png, w_px, h_px = result
+            aspect = h_px / w_px if w_px else 0.5
+            disp_w = inner_w
+            disp_h = min(disp_w * aspect, 17 * cm)
+            story.append(Image(
+                io.BytesIO(png), width=disp_w, height=disp_h))
+        else:
+            story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
+
+    # --- Problem-class strip ------------------------------------------------
+    strip_df = _build_assignee_problem_share_df(role_df, defects_df)
+    if strip_df is not None and not strip_df.empty:
+        story.append(Paragraph(t("ra_pdf_h_strip"), h2_style))
+        story.append(Paragraph(
+            t("role_analytics_strip_caption"), caption_style))
+        story.append(Spacer(1, 4))
+        result = _mpl_chart_assignee_problem_strip(strip_df)
+        if result is not None:
+            png, w_px, h_px = result
+            aspect = h_px / w_px if w_px else 0.5
+            disp_w = inner_w
+            disp_h = min(disp_w * aspect, 15 * cm)
+            story.append(Image(
+                io.BytesIO(png), width=disp_w, height=disp_h))
+
+    # --- View 3 heatmap -----------------------------------------------------
+    ct = _build_assignee_problem_crosstab(role_df, defects_df)
+    if ct is not None and not ct.empty:
+        story.append(PageBreak())
+        story.append(Paragraph(t("ra_pdf_h_heatmap"), h2_style))
+        story.append(Paragraph(
+            t("role_analytics_view3_caption"), caption_style))
+        story.append(Spacer(1, 6))
+        result = _mpl_chart_assignee_problem_heatmap(ct)
+        if result is not None:
+            png, w_px, h_px = result
+            aspect = h_px / w_px if w_px else 0.5
+            disp_w = inner_w
+            disp_h = min(disp_w * aspect, 17 * cm)
+            story.append(Image(
+                io.BytesIO(png), width=disp_w, height=disp_h))
+
+    # --- Footer accent (era icons) -----------------------------------------
+    story.append(Spacer(1, 18))
+    footer_icons = []
+    for _name in ("volcano", "fossil", "palm", "egg", "footprint", "fern"):
+        footer_icons.append(Image(
+            io.BytesIO(_pixel_icon_png(_name, scale=4)),
+            width=14, height=14,
+        ))
+    footer_cells = []
+    for i, ic in enumerate(footer_icons):
+        if i:
+            footer_cells.append("")
+        footer_cells.append(ic)
+    footer_tbl = Table(
+        [footer_cells],
+        colWidths=[14 if c == "" else 16 for c in footer_cells],
+    )
+    footer_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    footer_tbl.hAlign = "CENTER"
+    story.append(footer_tbl)
+
+    doc.build(story)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+
+def _render_role_analytics_header(
+    kpi_df: pd.DataFrame,
+    wbs_df: Optional[pd.DataFrame],
+    defects_df: Optional[pd.DataFrame],
+    role_df: pd.DataFrame,
+) -> None:
+    """Section header for 担当者×ロール分析 with an inline 📄 PDF button.
+
+    Mirrors the test-density header pattern: invalidates cached bytes via a
+    fingerprint over (FID filter, lang, role_df shape/content) so the
+    download always matches what's on screen."""
+    sig: tuple = (
+        tuple(_get_global_fids()),
+        st.session_state.get("lang", "ja"),
+        int(len(role_df)),
+        int(len(wbs_df)) if wbs_df is not None else 0,
+        int(len(defects_df)) if defects_df is not None else 0,
+        int(len(kpi_df)),
+    )
+    have_fresh = (
+        st.session_state.get("ra_pdf_bytes")
+        and st.session_state.get("ra_pdf_sig") == sig
+    )
+
+    dino_name = CHART_DINOS.get("role_analytics_title", _DEFAULT_SECTION_DINO)
+    icon_uri = dino_data_uri(dino_name)
+    icon_col, title_col, btn_col = st.columns(
+        [1, 19, 5], gap="small", vertical_alignment="center",
+    )
+    with icon_col:
+        st.markdown(
+            f'<img src="{icon_uri}" alt="{dino_name}" '
+            'style="width:36px;height:36px;display:block;margin:0 auto;" />',
+            unsafe_allow_html=True,
+        )
+    with title_col:
+        st.subheader(t("role_analytics_title"),
+                     help=t("help_role_analytics"))
+    with btn_col:
+        if role_df is None or role_df.empty:
+            return
+        if have_fresh:
+            fname = (
+                "role_analytics_report_"
+                f"{date.today().strftime('%Y%m%d')}.pdf"
+            )
+            st.download_button(
+                label=t("ra_pdf_btn_download"),
+                data=st.session_state.ra_pdf_bytes,
+                file_name=fname,
+                mime="application/pdf",
+                key="ra_pdf_download",
+                help=t("ra_pdf_btn_generate_help"),
+                use_container_width=True,
+            )
+        else:
+            if st.button(t("ra_pdf_btn_generate"),
+                         key="ra_pdf_generate",
+                         help=t("ra_pdf_btn_generate_help"),
+                         use_container_width=True):
+                try:
+                    pdf_bytes = generate_role_analytics_pdf(
+                        kpi_df, wbs_df, defects_df,
+                        fid_filter_active=bool(_get_global_fids()),
+                    )
+                    st.session_state.ra_pdf_bytes = pdf_bytes
+                    st.session_state.ra_pdf_sig = sig
+                    st.rerun()
+                except Exception as exc:
+                    _get_logger().exception(
+                        f"[ra_pdf] build failed: {exc}"
+                    )
+                    st.error(t("pdf_error", err=str(exc)))
+
+
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
 def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     """Two-stage modal for PDF export, implemented without st.rerun()
@@ -7496,19 +8594,18 @@ def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame]
 
 
 def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
-    """Section: three cross-analysis views tying WBS sub-task assignees
-    (N column on rows marked ● in L) to Redmine defects + test-spec NG.
+    """Section: cross-analysis views tying WBS sub-task assignees (N column
+    on rows marked ● in L) to Redmine defects + test-spec NG.
 
-    All three views honour the global Function ID filter by re-slicing
-    wbs/defects to match — kpi_df is already filtered by the caller.
-    Rendered at the bottom of the Charts tab."""
+    Rendered on the Charts tab. Everything honours the global FID filter by
+    re-slicing wbs/defects to match — kpi_df is already filtered by the
+    caller. A PDF button at the top of the section exports View 1/2 as
+    tables plus the bubble map / heat-strip / View-3 heatmap as PNGs."""
     wbs_df = st.session_state.dfs.get("wbs")
     if wbs_df is None or wbs_df.empty:
         return
     if "is_subtask" not in wbs_df.columns:
         return
-    # Short-circuit if there are no sub-tasks at all — the entire section
-    # depends on them.
     if not wbs_df["is_subtask"].fillna(False).astype(bool).any():
         return
 
@@ -7524,14 +8621,11 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         ]
 
     role_df = _extract_role_assignments(wbs_df)
-    section_header("role_analytics_title", "help_role_analytics")
+    _render_role_analytics_header(kpi_df, wbs_df, defects_df, role_df)
     if role_df.empty:
-        # Sub-tasks exist in the overall WBS but either the filter dropped
-        # them all, or none of their names carry a role keyword.
         st.caption(t("role_analytics_no_matches"))
         return
 
-    # Pretty role labels used by every column config below.
     role_labels = {
         "dev":       t("role_dev"),
         "test_spec": t("role_test_spec"),
@@ -7542,28 +8636,34 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         "test_spec": t("role_count_test_spec"),
         "test_exec": t("role_count_test_exec"),
     }
+    role_count_helps = {
+        "dev":       t("help_role_count_dev"),
+        "test_spec": t("help_role_count_test_spec"),
+        "test_exec": t("help_role_count_test_exec"),
+    }
+    role_assignee_helps = {
+        "dev":       t("help_role_assignees_dev"),
+        "test_spec": t("help_role_assignees_test_spec"),
+        "test_exec": t("help_role_assignees_test_exec"),
+    }
 
-    # Excel-style data bar: ProgressColumn when the column has a positive
-    # maximum so the bar is meaningful; NumberColumn when everything is
-    # zero/NaN (ProgressColumn divides by max_value and would render empty).
     def _bar_col(label: str, series: "pd.Series", fmt: str,
-                 max_value: Optional[float] = None):
+                 max_value: Optional[float] = None, help: Optional[str] = None):
         s = pd.to_numeric(series, errors="coerce")
         hi = (float(max_value) if max_value is not None
               else (float(s.max()) if s.notna().any() else 0.0))
         if hi and hi > 0:
             return st.column_config.ProgressColumn(
-                label, format=fmt, min_value=0, max_value=hi,
+                label, format=fmt, min_value=0, max_value=hi, help=help,
             )
-        return st.column_config.NumberColumn(label, format=fmt)
+        return st.column_config.NumberColumn(label, format=fmt, help=help)
 
-    # ----- View 1: Feature × assignee-by-role + KPIs -----
-    ft = _build_feature_role_table(role_df, kpi_df)
+    # ----- View 1: Feature × assignee-by-role + KPIs + top-3 問題分類 -----
+    ft = _build_feature_role_table(role_df, kpi_df, defects_df)
     if not ft.empty:
         st.markdown(f"**{t('role_analytics_view1_title')}**")
         st.caption(t("role_analytics_view1_caption"))
         ft_disp = ft.copy()
-        # Convert fraction columns to percent for st.column_config display.
         if "test_run_rate" in ft_disp.columns:
             ft_disp["test_run_rate"] = (
                 pd.to_numeric(ft_disp["test_run_rate"], errors="coerce")
@@ -7575,32 +8675,41 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
                 * 100.0
             )
         cols_v1 = ["display"] + list(ROLE_KEYWORDS.keys()) + [
-            c for c in ("test_run_rate", "defect_total",
-                        "incident_rate", "NG")
+            c for c in ("test_run_rate", "test_density", "defect_total",
+                        "incident_rate", "NG", "top3_problems")
             if c in ft_disp.columns
         ]
         col_config_v1: dict = {
-            "display": st.column_config.TextColumn(t("col_feature")),
-            **{rk: st.column_config.TextColumn(role_labels[rk])
+            "display": st.column_config.TextColumn(
+                t("col_feature"), help=t("help_col_feature")),
+            **{rk: st.column_config.TextColumn(
+                role_labels[rk], help=role_assignee_helps[rk])
                for rk in ROLE_KEYWORDS},
         }
-        # Rates are already on the 0..100 scale; pin the bar domain to 100
-        # so percentages read absolutely (85% always fills 85% of the cell)
-        # rather than rescaling to the current top feature.
         if "test_run_rate" in ft_disp.columns:
             col_config_v1["test_run_rate"] = _bar_col(
                 t("col_test_run_rate"), ft_disp["test_run_rate"],
-                "%.1f%%", max_value=100.0)
+                "%.1f%%", max_value=100.0, help=t("help_test_run_rate"))
+        if "test_density" in ft_disp.columns:
+            col_config_v1["test_density"] = _bar_col(
+                t("col_test_density"), ft_disp["test_density"], "%.2f",
+                help=t("help_test_density"))
         if "defect_total" in ft_disp.columns:
             col_config_v1["defect_total"] = _bar_col(
-                t("col_defect_total"), ft_disp["defect_total"], "%d")
+                t("col_defect_total"), ft_disp["defect_total"], "%d",
+                help=t("help_defect_total"))
         if "incident_rate" in ft_disp.columns:
             col_config_v1["incident_rate"] = _bar_col(
                 t("col_incident_rate"), ft_disp["incident_rate"],
-                "%.1f%%", max_value=100.0)
+                "%.1f%%", max_value=100.0, help=t("help_incident_rate"))
         if "NG" in ft_disp.columns:
             col_config_v1["NG"] = _bar_col(
-                t("col_test_ng"), ft_disp["NG"], "%d")
+                t("col_test_ng"), ft_disp["NG"], "%d",
+                help=t("help_test_ng"))
+        if "top3_problems" in ft_disp.columns:
+            col_config_v1["top3_problems"] = st.column_config.TextColumn(
+                t("col_top3_problems"),
+                help=t("help_col_feature_top3_problems"))
         st.dataframe(
             ft_disp[cols_v1], use_container_width=True, hide_index=True,
             column_config=col_config_v1,
@@ -7623,28 +8732,49 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
             if c in asum_disp.columns
         ]
         col_config_v2: dict = {
-            "担当者": st.column_config.TextColumn(t("col_assignee")),
-            **{rk: _bar_col(role_count_labels[rk],
-                            asum_disp[rk], "%d")
+            "担当者": st.column_config.TextColumn(
+                t("col_assignee"), help=t("help_col_assignee")),
+            **{rk: _bar_col(role_count_labels[rk], asum_disp[rk],
+                            "%d", help=role_count_helps[rk])
                for rk in ROLE_KEYWORDS if rk in asum_disp.columns},
             "top3_problems": st.column_config.TextColumn(
-                t("col_top3_problems")),
+                t("col_top3_problems"), help=t("help_col_top3_problems")),
         }
         if "feature_count" in asum_disp.columns:
             col_config_v2["feature_count"] = _bar_col(
-                t("col_feature_count"), asum_disp["feature_count"], "%d")
+                t("col_feature_count"), asum_disp["feature_count"], "%d",
+                help=t("help_col_feature_count"))
         if "defect_total" in asum_disp.columns:
             col_config_v2["defect_total"] = _bar_col(
-                t("col_defect_total"), asum_disp["defect_total"], "%d")
+                t("col_defect_total"), asum_disp["defect_total"], "%d",
+                help=t("help_defect_total"))
         if "avg_incident_rate" in asum_disp.columns:
             col_config_v2["avg_incident_rate"] = _bar_col(
                 t("col_avg_incident_rate"),
                 asum_disp["avg_incident_rate"], "%.1f%%",
-                max_value=100.0)
+                max_value=100.0, help=t("help_col_avg_incident_rate"))
         st.dataframe(
             asum_disp[cols_v2], use_container_width=True, hide_index=True,
             column_config=col_config_v2,
         )
+
+    # ----- Advanced viz 1/2: 案A 担当者バブルマップ -----
+    bubble_df = _build_assignee_bubble_df(role_df, kpi_df, defects_df)
+    if not bubble_df.empty:
+        st.markdown(f"**{t('role_analytics_bubble_title')}**")
+        st.caption(t("role_analytics_bubble_caption"))
+        fig_b = _chart_assignee_bubble(bubble_df)
+        if fig_b is not None:
+            st.plotly_chart(fig_b, use_container_width=True)
+
+    # ----- Advanced viz 2/2: 案C 問題分類ヒートストリップ -----
+    strip_df = _build_assignee_problem_share_df(role_df, defects_df)
+    if strip_df is not None and not strip_df.empty:
+        st.markdown(f"**{t('role_analytics_strip_title')}**")
+        st.caption(t("role_analytics_strip_caption"))
+        fig_s = _chart_assignee_problem_strip(strip_df)
+        if fig_s is not None:
+            st.plotly_chart(fig_s, use_container_width=True)
 
     # ----- View 3: Assignee × 問題分類 heatmap -----
     st.markdown(f"**{t('role_analytics_view3_title')}**")
@@ -7657,6 +8787,7 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         options=[rk for rk, _ in role_options],
         format_func=dict(role_options).__getitem__,
         key="role_analytics_role_filter",
+        help=t("help_role_analytics_view3_role_filter"),
     )
     ct = _build_assignee_problem_crosstab(
         role_df, defects_df, role_filter=role_choice,
@@ -8863,7 +9994,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.41</span>
+    <span class="ver">Ver1.0.42</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
