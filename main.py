@@ -5026,25 +5026,17 @@ def _mime_for_filename(name: str) -> str:
 
 
 def _render_card_download_row(spec: dict) -> None:
-    """Render the per-card template / sample / latest download row.
+    """Render the per-card sample / latest download row.
 
-    Each of the three icon-only `st.download_button`s renders only when
-    its source exists: template_fn for the slot, a sample file on disk,
-    or a latest snapshot under input/<date>/<slot>/. The row is hidden
-    entirely when none of the three are available, so cards stay compact.
+    Two icon-only `st.download_button`s; either renders only when its
+    source exists. Hidden entirely when neither is available.
+
+    Template download was dropped in v1.0.53 — the sample file already
+    ships with the right headers (and, for calendar, the 75 Japanese
+    holidays), so users edit the sample directly instead of starting
+    from a separate empty template.
     """
-    # 1. Template — only when the spec provides a generator.
-    tpl_bytes: Optional[bytes] = None
-    tpl_fn = spec.get("template_fn")
-    if tpl_fn is not None:
-        try:
-            tpl_bytes = tpl_fn()
-        except Exception as exc:
-            _get_logger().exception(
-                f"[template] {spec['key']} build failed: {exc}")
-            tpl_bytes = None
-
-    # 2. Sample — only when the sample file exists on disk.
+    # 1. Sample — only when the sample file exists on disk.
     sample_bytes: Optional[bytes] = None
     sample_filename = spec.get("sample_filename")
     sample_path: Optional[Path] = None
@@ -5058,7 +5050,7 @@ def _render_card_download_row(spec: dict) -> None:
                     f"[sample] {spec['key']} read failed: {exc}")
                 sample_bytes = None
 
-    # 3. Latest snapshot — only when input/<date>/<slot>/ has any file.
+    # 2. Latest snapshot — only when input/<date>/<slot>/ has any file.
     latest_path = find_latest_for_slot(spec["key"])
     latest_bytes: Optional[bytes] = None
     if latest_path is not None:
@@ -5070,22 +5062,10 @@ def _render_card_download_row(spec: dict) -> None:
             latest_bytes = None
 
     # Bail cleanly when the card has nothing to offer yet.
-    if tpl_bytes is None and sample_bytes is None and latest_bytes is None:
+    if sample_bytes is None and latest_bytes is None:
         return
 
-    c_tpl, c_sam, c_lat = st.columns(3, gap="small")
-    if tpl_bytes:
-        with c_tpl:
-            st.download_button(
-                label="📝", data=tpl_bytes,
-                file_name=spec.get("template_filename",
-                                   f"{spec['key']}_template.xlsx"),
-                mime=_mime_for_filename(
-                    spec.get("template_filename", ".xlsx")),
-                key=f"template_{spec['key']}",
-                help=t("card_dl_template_help"),
-                use_container_width=True,
-            )
+    c_sam, c_lat = st.columns(2, gap="small")
     if sample_bytes and sample_path is not None:
         with c_sam:
             st.download_button(
@@ -10910,7 +10890,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.52</span>
+    <span class="ver">Ver1.0.53</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
