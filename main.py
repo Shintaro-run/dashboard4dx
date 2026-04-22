@@ -3078,6 +3078,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 Fault rate (Redmine)**\n\n"
             "🧮 Redmine `defect_total` ÷ test-spec `実施済` "
             "(Redmine fault count over executed tests).\n\n"
+            "📂 Source: Redmine defect list (tracker='不具合管理') × "
+            "test counts column D.\n\n"
             "💡 How often a Redmine-tracked fault was raised per executed "
             "test case.\n\n"
             "⚠ This is **not** *Defect rate – test spec* (NG / Total tests). "
@@ -3110,6 +3112,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_test_notrun": (
             "**🦕 Not run (未実施)**\n\n"
             "🧮 総テスト − 実施済.\n\n"
+            "📂 Source: derived from test counts columns C and D.\n\n"
             "💡 Visible work remaining to complete the test plan."
         ),
         "help_loc": (
@@ -3161,32 +3164,38 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_bug_density": (
             "**🦕 Defect density – test spec**\n\n"
             "🧮 NG ÷ LoC (test-spec NG count over lines of code).\n\n"
+            "📂 Source: test counts column F ÷ code-LoC column B.\n\n"
             "💡 Defects per line of code. Higher = more buggy.\n\n"
             "⚠ This is **not** the Redmine fault count (*Fault count (Redmine)*)."
         ),
         "help_test_density": (
             "**🦕 Test density**\n\n"
             "🧮 総テスト ÷ 設計書ページ数.\n\n"
+            "📂 Source: test counts column C ÷ design pages (manual input).\n\n"
             "💡 Tests per design page. Low values may indicate under-tested specs."
         ),
         "help_complexity": (
             "**🦕 Complexity**\n\n"
             "🧮 LoC ÷ 設計書ページ数.\n\n"
+            "📂 Source: code-LoC column B ÷ design pages (manual input).\n\n"
             "💡 Implementation density per page of design."
         ),
         "help_test_run_rate": (
             "**🦕 Test run rate**\n\n"
             "🧮 実施済 ÷ 総テスト.\n\n"
+            "📂 Source: test counts column D ÷ column C.\n\n"
             "💡 Test execution progress. 100% = every planned test ran."
         ),
         "help_test_pass_rate": (
             "**🦕 Test pass rate**\n\n"
             "🧮 OK ÷ 実施済.\n\n"
+            "📂 Source: test counts column E ÷ column D.\n\n"
             "💡 Quality of executed tests. Drops below 90% warrant investigation."
         ),
         "help_defect_rate": (
             "**🦕 Defect rate – test spec**\n\n"
             "🧮 NG ÷ 総テスト (test-spec NG over planned test cases).\n\n"
+            "📂 Source: test counts column F ÷ column C.\n\n"
             "💡 Failure rate against the full test plan.\n\n"
             "⚠ This is **not** the Redmine fault rate (*Fault rate (Redmine)*)."
         ),
@@ -3194,17 +3203,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 Delay (days)**\n\n"
             "🧮 max(0, actual_end − planned_end). For ongoing items: "
             "today − planned_end (if positive).\n\n"
+            "📂 Source: WBS column R (planned end) and column T (actual end).\n\n"
             "💡 0 = on time. Positive numbers grow until the work completes."
         ),
         "help_delay_rate": (
             "**🦕 Delay rate**\n\n"
             "🧮 delay_days ÷ planned duration, capped at 1.0.\n\n"
+            "📂 Source: WBS columns Q (planned start) and R (planned end) "
+            "give the duration; delay_days is derived above.\n\n"
             "💡 0 = on time. 1.0 = at least double the planned timeline."
         ),
         "help_health_score": (
             "**🦕 Health score**\n\n"
             "🧮 test_run_rate − *Defect rate – test spec* − delay_rate "
             "(range ≈ −2…1).\n\n"
+            "📂 Source: derived from the three metrics above "
+            "(= test counts × WBS).\n\n"
             "💡 Higher is healthier. Negative values flag trouble."
         ),
         "help_risk_score": (
@@ -3212,6 +3226,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "🧮 Weighted blend of normalized inputs:\n"
             "0.4×*Unresolved faults (Redmine)* + 0.2×not_run + 0.2×delay_days "
             "+ 0.2×*Defect density – test spec*.\n\n"
+            "📂 Source: Redmine defects × test counts × WBS × code-LoC.\n\n"
             "💡 Each input is min-max normalized within the dataset, so 0…1. "
             "≥0.5 marks an at-risk function."
         ),
@@ -3411,45 +3426,77 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "problem_class_uncategorized": "(uncategorized)",
         # Column tooltips (hover help) for the role-analytics tables.
         "help_col_feature": (
-            "Function ID followed by 機能名 (master-authoritative)."
+            "**🦕 Function ID : Name**\n\n"
+            "Function ID followed by 機能名 (master-authoritative).\n\n"
+            "📂 Source: Function master columns F (ID) + G (name)."
         ),
         "help_col_assignee": (
-            "WBS sub-task assignee (N column). Name normalization "
-            "collapses full-width / doubled / padded spaces."
+            "**🦕 Assignee**\n\n"
+            "WBS sub-task assignee name.\n\n"
+            "📂 Source: WBS column N (rows marked ● in column L).\n\n"
+            "💡 Full-width / doubled / padded spaces are normalized so "
+            "the same person doesn't split into two groups."
         ),
         "help_col_feature_count": (
+            "**🦕 Features touched**\n\n"
             "Number of distinct Function IDs this person has a WBS "
-            "sub-task on, across any role."
+            "sub-task on, across any role.\n\n"
+            "📂 Source: WBS sub-task rows (L=● AND N has a name)."
         ),
         "help_col_avg_incident_rate": (
-            "Mean of this person's features' Redmine fault rates "
-            "(defect_total ÷ 実施済)."
+            "**🦕 Avg fault rate (Redmine)**\n\n"
+            "🧮 Mean of this person's features' Redmine fault rates "
+            "(defect_total ÷ 実施済).\n\n"
+            "📂 Source: Redmine defects × test counts column D "
+            "(features drawn from WBS).\n\n"
+            "💡 Feel for the quality of the features they touched."
         ),
         "help_col_top3_problems": (
-            "Top-3 Redmine 問題分類 on the related features, with counts."
-        ),
-        "help_role_count_dev": (
-            "How many 「プログラム開発」 sub-tasks this person is on."
-        ),
-        "help_role_count_test_spec": (
-            "How many 「テスト仕様書作成」 sub-tasks this person is on."
-        ),
-        "help_role_count_test_exec": (
-            "How many 「テスト実施」 sub-tasks this person is on."
-        ),
-        "help_role_assignees_dev": (
-            "Distinct assignees on this feature's 「プログラム開発」 "
-            "sub-tasks."
-        ),
-        "help_role_assignees_test_spec": (
-            "Distinct assignees on this feature's 「テスト仕様書作成」 "
-            "sub-tasks."
-        ),
-        "help_role_assignees_test_exec": (
-            "Distinct assignees on this feature's 「テスト実施」 sub-tasks."
+            "**🦕 Top-3 問題分類 (per assignee)**\n\n"
+            "Top-3 Redmine 問題分類 on the related features, with counts.\n\n"
+            "📂 Source: Redmine defect list 問題分類 column, "
+            "filtered to the assignee's features."
         ),
         "help_col_feature_top3_problems": (
-            "Top-3 Redmine 問題分類 for defects on THIS feature only."
+            "**🦕 Top-3 問題分類 (per feature)**\n\n"
+            "Top-3 Redmine 問題分類 for defects on THIS feature only.\n\n"
+            "📂 Source: Redmine defect list 問題分類 column, "
+            "filtered to this Function ID."
+        ),
+        "help_role_count_dev": (
+            "**🦕 Dev (# sub-tasks)**\n\n"
+            "How many sub-tasks this person is on whose name includes "
+            "`開発` or `実装`.\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
+        ),
+        "help_role_count_test_spec": (
+            "**🦕 Test-spec (# sub-tasks)**\n\n"
+            "How many sub-tasks this person is on whose name includes "
+            "`テスト仕様書作成`.\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
+        ),
+        "help_role_count_test_exec": (
+            "**🦕 Test-exec (# sub-tasks)**\n\n"
+            "How many sub-tasks this person is on whose name includes "
+            "`テスト実施`. **`再テスト実施` is excluded.**\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
+        ),
+        "help_role_assignees_dev": (
+            "**🦕 Dev assignees**\n\n"
+            "Distinct assignees on this feature's dev sub-tasks "
+            "(`開発` / `実装`).\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
+        ),
+        "help_role_assignees_test_spec": (
+            "**🦕 Test-spec assignees**\n\n"
+            "Distinct assignees on this feature's `テスト仕様書作成` sub-tasks.\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
+        ),
+        "help_role_assignees_test_exec": (
+            "**🦕 Test-exec assignees**\n\n"
+            "Distinct assignees on this feature's `テスト実施` sub-tasks. "
+            "**`再テスト実施` is excluded.**\n\n"
+            "📂 Source: WBS sub-task names (L=●) + N column (assignee)."
         ),
         # ----- PDF report -----
         "pdf_btn_generate": "Generate PDF report",
@@ -3986,6 +4033,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 障害発生率（Redmine）**\n\n"
             "🧮 Redmine `defect_total` ÷ 仕様書別テスト集計 `実施済` "
             "（Redmine の障害件数を実施済テスト件数で割ったもの）。\n\n"
+            "📂 出典: Redmine不具合一覧（トラッカー='不具合管理'） × "
+            "仕様書別テスト集計 D列。\n\n"
             "💡 実施1件あたりに Redmine 起票の障害がどれだけ出たかの目安。\n\n"
             "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
             "分子と分母の出典が違います。"
@@ -4014,6 +4063,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_test_notrun": (
             "**🦕 未実施**\n\n"
             "🧮 総テスト − 実施済。\n\n"
+            "📂 出典: 仕様書別テスト集計 C列 と D列 から算出。\n\n"
             "💡 残作業量の見える化。"
         ),
         "help_loc": (
@@ -4059,48 +4109,58 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_bug_density": (
             "**🦕 不具合密度（テスト仕様書）**\n\n"
             "🧮 NG ÷ LoC（テスト仕様書の NG 件数 ÷ コード行数）。\n\n"
+            "📂 出典: 仕様書別テスト集計 F列 ÷ 機能ID別コード行数 B列。\n\n"
             "💡 コード1行あたりの不具合数。高いほど不具合多。\n\n"
             "⚠ これは**Redmine の障害件数（障害件数（Redmine））ではありません**。"
         ),
         "help_test_density": (
             "**🦕 テスト密度**\n\n"
             "🧮 総テスト ÷ 設計書ページ数。\n\n"
+            "📂 出典: 仕様書別テスト集計 C列 ÷ 設計書ページ数（手動入力）。\n\n"
             "💡 設計1ページあたりのテスト件数。低い場合は仕様のテスト不足の可能性。"
         ),
         "help_complexity": (
             "**🦕 複雑度**\n\n"
             "🧮 LoC ÷ 設計書ページ数。\n\n"
+            "📂 出典: 機能ID別コード行数 B列 ÷ 設計書ページ数（手動入力）。\n\n"
             "💡 設計1ページあたりの実装行数。"
         ),
         "help_test_run_rate": (
             "**🦕 テスト実施率**\n\n"
             "🧮 実施済 ÷ 総テスト。\n\n"
+            "📂 出典: 仕様書別テスト集計 D列 ÷ C列。\n\n"
             "💡 テストの消化進捗。100% で全件実施。"
         ),
         "help_test_pass_rate": (
             "**🦕 テスト成功率**\n\n"
             "🧮 OK ÷ 実施済。\n\n"
+            "📂 出典: 仕様書別テスト集計 E列 ÷ D列。\n\n"
             "💡 実施済テストの品質。90%未満は要調査。"
         ),
         "help_defect_rate": (
             "**🦕 不具合率（テスト仕様書）**\n\n"
             "🧮 NG ÷ 総テスト（テスト仕様書の NG ÷ 計画テスト件数）。\n\n"
+            "📂 出典: 仕様書別テスト集計 F列 ÷ C列。\n\n"
             "💡 全テスト計画に対する不合格率。\n\n"
             "⚠ これは**「障害発生率（Redmine）」ではありません**。"
         ),
         "help_delay_days": (
             "**🦕 遅延日数**\n\n"
             "🧮 max(0, 終了実績日 − 終了予定日)。進行中の場合: 今日 − 終了予定日（正のとき）。\n\n"
+            "📂 出典: WBS R列（終了予定日）と T列（終了実績日）から算出。\n\n"
             "💡 0 = 予定通り。完了するまで増え続けます。"
         ),
         "help_delay_rate": (
             "**🦕 遅延率**\n\n"
             "🧮 遅延日数 ÷ 計画期間（最大1.0）。\n\n"
+            "📂 出典: WBS Q列（開始予定日）〜R列（終了予定日）の計画期間 と "
+            "遅延日数 から算出。\n\n"
             "💡 0 = 予定通り。1.0 = 計画期間の倍以上。"
         ),
         "help_health_score": (
             "**🦕 健全性スコア**\n\n"
             "🧮 テスト実施率 − 不具合率（テスト仕様書） − 遅延率（範囲 ≈ −2…1）。\n\n"
+            "📂 出典: 上記3指標から算出（= 仕様書別テスト集計 × WBS）。\n\n"
             "💡 高いほど健全。負の値は要注意。"
         ),
         "help_risk_score": (
@@ -4108,6 +4168,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "🧮 正規化された値の重み付き和:\n"
             "0.4×未解決障害（Redmine） + 0.2×未実施 + 0.2×遅延 + "
             "0.2×不具合密度（テスト仕様書）。\n\n"
+            "📂 出典: Redmine不具合一覧 × 仕様書別テスト集計 × WBS × 機能ID別コード行数。\n\n"
             "💡 各要素はデータセット内 min-max 正規化で 0…1。0.5以上で高リスク機能としてカウント。"
         ),
         # チャート / カレンダー
@@ -4303,41 +4364,71 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "problem_class_uncategorized": "（未分類）",
         # 列のマウスオーバー説明（担当者×ロール分析の各テーブル用）
         "help_col_feature": (
-            "機能IDに機能名（機能ID一覧を正）を付けた表示ラベル。"
+            "**🦕 機能ID：機能名**\n\n"
+            "機能IDに機能名（機能ID一覧を正）を付けた表示ラベル。\n\n"
+            "📂 出典: 機能ID一覧 F列（機能ID）＋ G列（機能名称）。"
         ),
         "help_col_assignee": (
-            "WBSサブタスクの担当者（N列）。全角/半角・連続/前後空白は"
-            "正規化されて同一人物として集計されます。"
+            "**🦕 担当者**\n\n"
+            "WBSサブタスクの担当者名。\n\n"
+            "📂 出典: WBS N列（L列=● のサブタスク行）。\n\n"
+            "💡 全角/半角・連続/前後空白は自動で揃え、同一人物として集計します。"
         ),
         "help_col_feature_count": (
-            "この人がWBSサブタスクで関わった一意な機能IDの数（ロール問わず）。"
+            "**🦕 関与機能数**\n\n"
+            "この人がWBSサブタスクで関わった一意な機能IDの数（ロール問わず）。\n\n"
+            "📂 出典: WBS サブタスク行（L列=● かつ N列に担当者名）から集計。"
         ),
         "help_col_avg_incident_rate": (
-            "関与機能の障害発生率（Redmine; 障害件数 ÷ 実施済）の平均値。"
+            "**🦕 平均障害発生率（Redmine）**\n\n"
+            "🧮 関与機能の障害発生率（障害件数 ÷ 実施済）の平均値。\n\n"
+            "📂 出典: Redmine不具合一覧 × 仕様書別テスト集計 D列 "
+            "（関与機能は WBS から抽出）。\n\n"
+            "💡 担当した機能の平均的な障害率の肌感。"
         ),
         "help_col_top3_problems": (
-            "関与機能で発生した Redmine 障害の問題分類 Top3（件数付き）。"
-        ),
-        "help_role_count_dev": (
-            "この人が「プログラム開発」で担当しているサブタスクの件数。"
-        ),
-        "help_role_count_test_spec": (
-            "この人が「テスト仕様書作成」で担当しているサブタスクの件数。"
-        ),
-        "help_role_count_test_exec": (
-            "この人が「テスト実施」で担当しているサブタスクの件数。"
-        ),
-        "help_role_assignees_dev": (
-            "この機能の「プログラム開発」サブタスクの担当者（重複排除）。"
-        ),
-        "help_role_assignees_test_spec": (
-            "この機能の「テスト仕様書作成」サブタスクの担当者（重複排除）。"
-        ),
-        "help_role_assignees_test_exec": (
-            "この機能の「テスト実施」サブタスクの担当者（重複排除）。"
+            "**🦕 問題分類 Top3（担当者別）**\n\n"
+            "関与機能で発生した Redmine 障害の問題分類を件数順に上位3件。\n\n"
+            "📂 出典: Redmine不具合一覧「問題分類」列（関与機能でフィルタ）。"
         ),
         "help_col_feature_top3_problems": (
-            "この機能で発生した Redmine 障害の問題分類 Top3。"
+            "**🦕 問題分類 Top3（機能別）**\n\n"
+            "この機能で発生した Redmine 障害の問題分類を件数順に上位3件。\n\n"
+            "📂 出典: Redmine不具合一覧「問題分類」列（当該機能IDでフィルタ）。"
+        ),
+        "help_role_count_dev": (
+            "**🦕 開発担当件数**\n\n"
+            "この人が「開発」「実装」キーワードを含むサブタスクで"
+            "担当している件数。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
+        ),
+        "help_role_count_test_spec": (
+            "**🦕 仕様書作成担当件数**\n\n"
+            "この人が「テスト仕様書作成」キーワードを含むサブタスクで"
+            "担当している件数。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
+        ),
+        "help_role_count_test_exec": (
+            "**🦕 テスト実施担当件数**\n\n"
+            "この人が「テスト実施」キーワードを含むサブタスクで"
+            "担当している件数。**「再テスト実施」は除外**。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
+        ),
+        "help_role_assignees_dev": (
+            "**🦕 開発担当者**\n\n"
+            "この機能の「開発」「実装」サブタスクの担当者（重複排除）。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
+        ),
+        "help_role_assignees_test_spec": (
+            "**🦕 仕様書作成担当者**\n\n"
+            "この機能の「テスト仕様書作成」サブタスクの担当者（重複排除）。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
+        ),
+        "help_role_assignees_test_exec": (
+            "**🦕 テスト実施担当者**\n\n"
+            "この機能の「テスト実施」サブタスクの担当者（重複排除）。"
+            "**「再テスト実施」は除外**。\n\n"
+            "📂 出典: WBS サブタスク名（L列=●）＋ N列（担当者）。"
         ),
         # ----- PDF レポート -----
         "pdf_btn_generate": "PDFレポート生成",
@@ -11132,7 +11223,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.58</span>
+    <span class="ver">Ver1.0.59</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
