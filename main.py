@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import logging
+import math
 import re
 import time
 import traceback
@@ -2712,6 +2713,74 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_section_schedule": "Schedule",
         "pdf_no_chart": "No data to plot for this section.",
         "pdf_chart_definition": "Definition",
+        # ----- PDF: test-density focused report -----
+        "td_pdf_btn_generate":      "📄 PDF",
+        "td_pdf_btn_generate_help": (
+            "Export this chart as a standalone PDF report "
+            "(inputs → density → below-threshold list → advice)."
+        ),
+        "td_pdf_btn_download":      "⬇ PDF",
+        "td_pdf_title":             "Test density per Function ID — report",
+        "td_pdf_filter_active":     "⚠ Function ID filter is active — this report only covers the filtered subset.",
+        "td_pdf_h_inputs":          "1. Inputs (where the numbers come from)",
+        "td_pdf_col_item":          "Item",
+        "td_pdf_col_source":        "Source file / location",
+        "td_pdf_col_method":        "Method",
+        "td_pdf_input_tests":       "Total tests (総テスト)",
+        "td_pdf_input_pages":       "Design pages — visual count (設計書頁数（目視確認）)",
+        "td_pdf_input_master":      "Function master (ID / name)",
+        "td_pdf_method_auto":       "Auto-loaded CSV/XLSX",
+        "td_pdf_method_manual":     "Manual (Dashboard settings)",
+        "td_pdf_input_tests_note":  "(column C of the test counts CSV)",
+        "td_pdf_input_pages_note":  "(input/design_pages.json, edited in the Design-pages tab)",
+        "td_pdf_h_output":          "2. Output (the density metric)",
+        "td_pdf_output_formula":    "<b>Test density</b> = Total tests ÷ Design pages (visual count)",
+        "td_pdf_output_unit":       "Unit: tests per design-spec page",
+        "td_pdf_output_meaning":    (
+            "Meaning: how many planned tests exist per page of the design spec. "
+            "A low value suggests the test plan under-covers the specification."
+        ),
+        "td_pdf_h_summary":         "3. Summary",
+        "td_pdf_summary_total":     "Function IDs in scope",
+        "td_pdf_summary_threshold": "Warning threshold",
+        "td_pdf_summary_above":     "≥ threshold",
+        "td_pdf_summary_below":     "< threshold (needs attention)",
+        "td_pdf_summary_mean":      "Mean density",
+        "td_pdf_summary_median":    "Median density",
+        "td_pdf_summary_min_max":   "Min / Max density",
+        "td_pdf_h_chart":           "4. Test density per Function ID (ascending)",
+        "td_pdf_h_below":           "5. Function IDs below threshold",
+        "td_pdf_col_fid":           "Function ID",
+        "td_pdf_col_name":          "Name",
+        "td_pdf_col_tests":         "Total tests",
+        "td_pdf_col_pages":         "Design pages (visual)",
+        "td_pdf_col_density":       "Density",
+        "td_pdf_col_gap":           "Gap vs threshold",
+        "td_pdf_below_none":        "No Function IDs are below the threshold — nothing to escalate.",
+        "td_pdf_h_catchup":         "6. Estimated tests needed to reach the threshold",
+        "td_pdf_col_current":       "Current density",
+        "td_pdf_col_target":        "Target",
+        "td_pdf_col_additional":    "Additional tests (approx.)",
+        "td_pdf_catchup_note":      "Additional tests = ceil((threshold − current density) × design pages).",
+        "td_pdf_h_advice":          "7. Recommended action to exceed the threshold",
+        "td_pdf_advice_body":       (
+            "<b>Walk through the design spec one page at a time and audit "
+            "test-viewpoint coverage.</b><br/>"
+            "For each page, re-estimate how many tests are actually required "
+            "across viewpoints such as normal / abnormal / boundary / "
+            "permission / performance / logging."
+        ),
+        "td_pdf_h_notes":           "Notes",
+        "td_pdf_notes_body":        (
+            "・This metric gauges <b>test-count sufficiency</b>; it does not "
+            "measure the quality or completeness of the tests themselves.<br/>"
+            "・Design-page counts are manual visual counts — apply a consistent "
+            "counting rule (e.g. exclude TOC / revision history).<br/>"
+            "・Simple features may legitimately sit below the threshold. "
+            "Combine this signal with feature risk before acting."
+        ),
+        "td_pdf_footer":            "Generated {when} · snapshot file: {src}",
+        "td_pdf_pages":              "{n} / {total}",
         "help_chart_loc_trend": (
             "**🦕 LoC trend**\n\n"
             "Total LoC across saved code snapshots over time.\n\n"
@@ -3325,6 +3394,72 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_section_schedule": "スケジュール",
         "pdf_no_chart": "このセクションに表示するデータがありません。",
         "pdf_chart_definition": "定義",
+        # ----- PDF: テスト密度単体レポート -----
+        "td_pdf_btn_generate":      "📄 PDF",
+        "td_pdf_btn_generate_help": (
+            "このグラフを単体PDFレポートとして出力します"
+            "（入力→密度→閾値未満一覧→アドバイス）。"
+        ),
+        "td_pdf_btn_download":      "⬇ PDF",
+        "td_pdf_title":             "機能ID別テスト密度 レポート",
+        "td_pdf_filter_active":     "⚠ 機能IDフィルタ適用中 — フィルタ後の対象のみを集計しています。",
+        "td_pdf_h_inputs":          "1. インプット（数値の出どころ）",
+        "td_pdf_col_item":          "項目",
+        "td_pdf_col_source":        "ファイル / 保管先",
+        "td_pdf_col_method":        "取得方法",
+        "td_pdf_input_tests":       "総テスト",
+        "td_pdf_input_pages":       "設計書頁数（目視確認）",
+        "td_pdf_input_master":      "機能マスタ（機能ID / 名称）",
+        "td_pdf_method_auto":       "自動取込",
+        "td_pdf_method_manual":     "目視確認・手動入力",
+        "td_pdf_input_tests_note":  "（テスト集計CSVのC列）",
+        "td_pdf_input_pages_note":  "（input/design_pages.json、設計書頁数タブで編集）",
+        "td_pdf_h_output":          "2. アウトプット（算出する密度）",
+        "td_pdf_output_formula":    "<b>テスト密度</b> ＝ 総テスト ÷ 設計書頁数（目視確認）",
+        "td_pdf_output_unit":       "単位：テスト件数 / 設計書1ページ",
+        "td_pdf_output_meaning":    (
+            "意味：設計書1ページあたりのテスト計画件数。"
+            "低い場合は仕様に対するテスト件数不足の疑いがあります。"
+        ),
+        "td_pdf_h_summary":         "3. サマリ",
+        "td_pdf_summary_total":     "対象機能ID",
+        "td_pdf_summary_threshold": "警告閾値",
+        "td_pdf_summary_above":     "閾値以上",
+        "td_pdf_summary_below":     "閾値未満（要対応）",
+        "td_pdf_summary_mean":      "平均密度",
+        "td_pdf_summary_median":    "中央値",
+        "td_pdf_summary_min_max":   "最小 / 最大",
+        "td_pdf_h_chart":           "4. 機能ID別テスト密度（昇順）",
+        "td_pdf_h_below":           "5. 閾値未満の機能ID一覧",
+        "td_pdf_col_fid":           "機能ID",
+        "td_pdf_col_name":          "機能名称",
+        "td_pdf_col_tests":         "総テスト",
+        "td_pdf_col_pages":         "設計書頁数 (目視確認)",
+        "td_pdf_col_density":       "密度",
+        "td_pdf_col_gap":           "閾値との差",
+        "td_pdf_below_none":        "閾値を下回る機能IDはありません — 対応不要。",
+        "td_pdf_h_catchup":         "6. 目標達成のために追加すべきテスト件数（試算）",
+        "td_pdf_col_current":       "現密度",
+        "td_pdf_col_target":        "目標",
+        "td_pdf_col_additional":    "追加テスト件数（概算）",
+        "td_pdf_catchup_note":      "追加テスト件数 ＝ ⌈(閾値 − 現密度) × 設計書頁数⌉。",
+        "td_pdf_h_advice":          "7. 閾値を上回るためのアクション（推奨）",
+        "td_pdf_advice_body":       (
+            "<b>設計書を1ページずつ棚卸しし、テスト観点の抜け漏れを点検する</b><br/>"
+            "各ページに対し、正常系 / 異常系 / 境界値 / 権限 / 性能 / ログ "
+            "の観点別で必要テスト件数を見積り直します。"
+        ),
+        "td_pdf_h_notes":           "注意事項",
+        "td_pdf_notes_body":        (
+            "・本指標は<b>「テスト件数の充足率」</b>であり、テストの網羅性・"
+            "期待値の妥当性そのものは測りません。件数が多いだけでは品質は担保できません。<br/>"
+            "・設計書頁数は目視確認の手動入力値です。カウント基準を運用で統一"
+            "してください（目次・改版履歴の除外など）。<br/>"
+            "・単純機能では閾値未満でも妥当な場合があります。機能特性と合わせて"
+            "総合判断してください。"
+        ),
+        "td_pdf_footer":            "生成: {when} / スナップショット: {src}",
+        "td_pdf_pages":              "{n} / {total}",
         "help_chart_loc_trend": (
             "**🦕 LoC推移**\n\n"
             "保存済 code スナップショットの総LoC推移。\n\n"
@@ -6248,6 +6383,322 @@ def generate_report_pdf(
     return pdf
 
 
+def generate_test_density_pdf(
+    kpi_df: pd.DataFrame,
+    fid_filter_active: bool = False,
+) -> bytes:
+    """Standalone PDF for the 機能ID別テスト密度 chart.
+
+    Layout: title (+ red banner when the global FID filter is active) →
+    input-source table → output formula → summary → bar chart PNG →
+    below-threshold list → catch-up test estimate → fixed advisory → notes.
+    A4 portrait; ReportLab auto-paginates when the tables grow long.
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle,
+    )
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    JP_FONT = "HeiseiKakuGo-W5"
+
+    page_size = A4
+    page_w, _ = page_size
+    inner_w = page_w - 3 * cm  # 1.5 cm margins each side
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "TdTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=17, alignment=1, spaceAfter=6,
+    )
+    filter_style = ParagraphStyle(
+        "TdFilter", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=11, alignment=1, textColor=colors.red,
+        spaceBefore=2, spaceAfter=8,
+    )
+    meta_style = ParagraphStyle(
+        "TdMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, alignment=1, textColor=colors.grey, spaceAfter=10,
+    )
+    h2_style = ParagraphStyle(
+        "TdH2", parent=styles["Heading2"], fontName=JP_FONT,
+        fontSize=12, spaceAfter=4, spaceBefore=10,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    body_style = ParagraphStyle(
+        "TdBody", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, leading=13,
+    )
+    caption_style = ParagraphStyle(
+        "TdCaption", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=8, textColor=colors.grey,
+    )
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=page_size,
+        leftMargin=1.5 * cm, rightMargin=1.5 * cm,
+        topMargin=1.2 * cm, bottomMargin=1.4 * cm,
+    )
+    story: list = []
+
+    # --- Title + filter banner ----------------------------------------------
+    story.append(Paragraph(t("td_pdf_title"), title_style))
+    if fid_filter_active:
+        story.append(Paragraph(t("td_pdf_filter_active"), filter_style))
+    tests_origin = (
+        st.session_state.get("origin_names", {}).get("tests") or "—"
+    )
+    master_origin = (
+        st.session_state.get("origin_names", {}).get("master") or "—"
+    )
+    story.append(Paragraph(
+        t("td_pdf_footer",
+          when=datetime.now().strftime("%Y-%m-%d %H:%M"),
+          src=tests_origin),
+        meta_style,
+    ))
+
+    # --- Inputs table -------------------------------------------------------
+    story.append(Paragraph(t("td_pdf_h_inputs"), h2_style))
+    input_rows = [
+        [t("td_pdf_col_item"), t("td_pdf_col_source"),
+         t("td_pdf_col_method")],
+        [t("td_pdf_input_tests"),
+         f"{tests_origin}<br/><font size=8 color='grey'>"
+         f"{t('td_pdf_input_tests_note')}</font>",
+         t("td_pdf_method_auto")],
+        [t("td_pdf_input_pages"),
+         f"design_pages.json<br/><font size=8 color='grey'>"
+         f"{t('td_pdf_input_pages_note')}</font>",
+         t("td_pdf_method_manual")],
+        [t("td_pdf_input_master"),
+         master_origin,
+         t("td_pdf_method_auto")],
+    ]
+    input_rows = [
+        [Paragraph(str(c), body_style) for c in row]
+        for row in input_rows
+    ]
+    input_tbl = Table(
+        input_rows,
+        colWidths=[inner_w * 0.25, inner_w * 0.50, inner_w * 0.25],
+    )
+    input_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8efe8")),
+        ("VALIGN",    (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING",    (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, colors.grey),
+        ("GRID",      (0, 0), (-1, -1), 0.25, colors.lightgrey),
+    ]))
+    story.append(input_tbl)
+
+    # --- Output formula -----------------------------------------------------
+    story.append(Paragraph(t("td_pdf_h_output"), h2_style))
+    story.append(Paragraph(t("td_pdf_output_formula"), body_style))
+    story.append(Paragraph(t("td_pdf_output_unit"), body_style))
+    story.append(Paragraph(t("td_pdf_output_meaning"), body_style))
+
+    # --- Summary ------------------------------------------------------------
+    threshold = _test_density_threshold()
+    df = kpi_df.copy()
+    if "test_density" in df.columns:
+        df = df.dropna(subset=["test_density"])
+    else:
+        df = df.iloc[0:0]
+
+    if df.empty:
+        story.append(Paragraph(t("td_pdf_h_summary"), h2_style))
+        story.append(Paragraph(t("pdf_no_chart"), caption_style))
+        doc.build(story)
+        pdf = buf.getvalue()
+        buf.close()
+        return pdf
+
+    densities = df["test_density"].astype(float)
+    below_mask = densities < threshold
+    n_total = int(len(df))
+    n_below = int(below_mask.sum())
+    n_above = n_total - n_below
+
+    def _pct(n: int) -> str:
+        return f"{n / n_total * 100:.1f}%" if n_total else "—"
+
+    story.append(Paragraph(t("td_pdf_h_summary"), h2_style))
+    sum_rows = [
+        [t("td_pdf_summary_total"),     f"{n_total}"],
+        [t("td_pdf_summary_threshold"), f"{threshold:g} tests/page"],
+        [t("td_pdf_summary_above"),     f"{n_above} ({_pct(n_above)})"],
+        [t("td_pdf_summary_below"),     f"{n_below} ({_pct(n_below)})"],
+        [t("td_pdf_summary_mean"),      f"{float(densities.mean()):.2f}"],
+        [t("td_pdf_summary_median"),    f"{float(densities.median()):.2f}"],
+        [t("td_pdf_summary_min_max"),
+         f"{float(densities.min()):.2f} / {float(densities.max()):.2f}"],
+    ]
+    sum_tbl = Table(sum_rows, colWidths=[inner_w * 0.55, inner_w * 0.45])
+    sum_tbl.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f4f0")),
+        ("ALIGN",  (1, 0), (1, -1), "RIGHT"),
+        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING",   (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        # Highlight the "below threshold" row so it stands out.
+        ("TEXTCOLOR", (1, 3), (1, 3),
+         colors.HexColor("#a02020") if n_below else colors.black),
+        ("FONTNAME", (1, 3), (1, 3), JP_FONT),
+    ]))
+    story.append(sum_tbl)
+
+    # --- Chart --------------------------------------------------------------
+    story.append(Paragraph(t("td_pdf_h_chart"), h2_style))
+    mpl_result = _mpl_chart_test_density(kpi_df)
+    if mpl_result is None:
+        story.append(Paragraph(t("pdf_no_chart"), caption_style))
+    else:
+        png, w_px, h_px = mpl_result
+        aspect = h_px / w_px if w_px else 0.5
+        disp_w = inner_w
+        disp_h = disp_w * aspect
+        # Hard-cap the chart height so it doesn't shove the tables off the
+        # first-page block; ReportLab will paginate afterwards.
+        max_h = 18 * cm
+        if disp_h > max_h:
+            disp_h = max_h
+            disp_w = disp_h / aspect
+        story.append(Image(io.BytesIO(png), width=disp_w, height=disp_h))
+
+    # --- Below-threshold list ----------------------------------------------
+    below_df = (
+        df[below_mask][["機能ID", "機能名称", "総テスト",
+                        "設計書ページ数", "test_density"]]
+        .sort_values("test_density", ascending=True)
+        .reset_index(drop=True)
+    )
+    story.append(Paragraph(
+        f"{t('td_pdf_h_below')} ({n_below})", h2_style,
+    ))
+    if below_df.empty:
+        story.append(Paragraph(t("td_pdf_below_none"), body_style))
+    else:
+        header = [
+            t("td_pdf_col_fid"), t("td_pdf_col_name"),
+            t("td_pdf_col_tests"), t("td_pdf_col_pages"),
+            t("td_pdf_col_density"), t("td_pdf_col_gap"),
+        ]
+        rows = [[Paragraph(h, body_style) for h in header]]
+        for _, r in below_df.iterrows():
+            tests_v = r.get("総テスト")
+            pages_v = r.get("設計書ページ数")
+            rows.append([
+                Paragraph(str(r["機能ID"]), body_style),
+                Paragraph(str(r.get("機能名称") or ""), body_style),
+                Paragraph(
+                    f"{int(tests_v):,}" if pd.notna(tests_v) else "—",
+                    body_style),
+                Paragraph(
+                    f"{float(pages_v):g}" if pd.notna(pages_v) else "—",
+                    body_style),
+                Paragraph(f"{float(r['test_density']):.2f}", body_style),
+                Paragraph(
+                    f"{float(r['test_density']) - threshold:+.2f}",
+                    body_style),
+            ])
+        below_tbl = Table(
+            rows,
+            colWidths=[
+                inner_w * 0.10, inner_w * 0.32, inner_w * 0.12,
+                inner_w * 0.16, inner_w * 0.13, inner_w * 0.17,
+            ],
+            repeatRows=1,
+        )
+        below_tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fbe6e6")),
+            ("TEXTCOLOR",  (0, 0), (-1, 0), colors.HexColor("#a02020")),
+            ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+            ("TOPPADDING",    (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story.append(below_tbl)
+
+    # --- Catch-up estimate (only if there is something to fix) -------------
+    if not below_df.empty:
+        story.append(Paragraph(t("td_pdf_h_catchup"), h2_style))
+        header2 = [
+            t("td_pdf_col_fid"), t("td_pdf_col_name"),
+            t("td_pdf_col_current"), t("td_pdf_col_target"),
+            t("td_pdf_col_additional"),
+        ]
+        rows2 = [[Paragraph(h, body_style) for h in header2]]
+        for _, r in below_df.iterrows():
+            pages_v = r.get("設計書ページ数")
+            if pd.isna(pages_v) or float(pages_v) <= 0:
+                additional = "—"
+            else:
+                gap = max(0.0, threshold - float(r["test_density"]))
+                additional = f"+{math.ceil(gap * float(pages_v))}"
+            rows2.append([
+                Paragraph(str(r["機能ID"]), body_style),
+                Paragraph(str(r.get("機能名称") or ""), body_style),
+                Paragraph(f"{float(r['test_density']):.2f}", body_style),
+                Paragraph(f"{threshold:g}", body_style),
+                Paragraph(additional, body_style),
+            ])
+        catchup_tbl = Table(
+            rows2,
+            colWidths=[
+                inner_w * 0.10, inner_w * 0.40, inner_w * 0.13,
+                inner_w * 0.10, inner_w * 0.27,
+            ],
+            repeatRows=1,
+        )
+        catchup_tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef4ec")),
+            ("ALIGN", (2, 1), (-1, -1), "RIGHT"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 5),
+            ("TOPPADDING",    (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ]))
+        story.append(catchup_tbl)
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(t("td_pdf_catchup_note"), caption_style))
+
+    # --- Advice + notes -----------------------------------------------------
+    story.append(Paragraph(t("td_pdf_h_advice"), h2_style))
+    story.append(Paragraph(t("td_pdf_advice_body"), body_style))
+
+    story.append(Paragraph(t("td_pdf_h_notes"), h2_style))
+    story.append(Paragraph(t("td_pdf_notes_body"), body_style))
+
+    doc.build(story)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
 def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     """Two-stage modal for PDF export, implemented without st.rerun()
@@ -6470,6 +6921,77 @@ def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
         st.plotly_chart(fig, use_container_width=True)
 
 
+def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
+    """Header row for the 機能ID別テスト密度 chart with an inline PDF button.
+
+    The button generates a standalone single-topic PDF report on click; the
+    resulting bytes are cached in session_state (keyed by the FID filter +
+    threshold + a fingerprint of `test_density`), and replaced with a
+    Download button on the next rerun. Invalidates automatically when the
+    global FID filter, threshold, or underlying data changes.
+    """
+    sig: tuple = (
+        tuple(_get_global_fids()),
+        _test_density_threshold(),
+        int(len(kpi_df)),
+        (float(kpi_df["test_density"].fillna(0).sum())
+         if "test_density" in kpi_df.columns else 0.0),
+        st.session_state.get("lang", "ja"),
+    )
+    have_fresh = (
+        st.session_state.get("td_pdf_bytes")
+        and st.session_state.get("td_pdf_sig") == sig
+    )
+
+    dino_name = CHART_DINOS.get("chart_test_density", "trex")
+    icon_uri = dino_data_uri(dino_name)
+    icon_col, title_col, btn_col = st.columns(
+        [1, 19, 5], gap="small", vertical_alignment="center",
+    )
+    with icon_col:
+        st.markdown(
+            f'<img src="{icon_uri}" alt="{dino_name}" '
+            'style="width:36px;height:36px;display:block;margin:0 auto;" />',
+            unsafe_allow_html=True,
+        )
+    with title_col:
+        st.subheader(t("chart_test_density"),
+                     help=t("help_chart_test_density"))
+    with btn_col:
+        if have_fresh:
+            fname = (
+                "test_density_report_"
+                f"{date.today().strftime('%Y%m%d')}.pdf"
+            )
+            st.download_button(
+                label=t("td_pdf_btn_download"),
+                data=st.session_state.td_pdf_bytes,
+                file_name=fname,
+                mime="application/pdf",
+                key="td_pdf_download",
+                help=t("td_pdf_btn_generate_help"),
+                use_container_width=True,
+            )
+        else:
+            if st.button(t("td_pdf_btn_generate"),
+                         key="td_pdf_generate",
+                         help=t("td_pdf_btn_generate_help"),
+                         use_container_width=True):
+                try:
+                    pdf_bytes = generate_test_density_pdf(
+                        kpi_df,
+                        fid_filter_active=bool(_get_global_fids()),
+                    )
+                    st.session_state.td_pdf_bytes = pdf_bytes
+                    st.session_state.td_pdf_sig = sig
+                    st.rerun()
+                except Exception as exc:
+                    _get_logger().exception(
+                        f"[td_pdf] build failed: {exc}"
+                    )
+                    st.error(t("pdf_error", err=str(exc)))
+
+
 def render_charts_tab() -> None:
     """Tab — visualizations of the current KPI dataframe and time-series
     derived from saved snapshots in input/."""
@@ -6520,7 +7042,7 @@ def render_charts_tab() -> None:
 
     fig = _chart_test_density(kpi_df)
     if fig is not None:
-        section_header("chart_test_density", "help_chart_test_density")
+        _render_test_density_section_header(kpi_df)
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_incident_rate(kpi_df)
@@ -7482,7 +8004,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.30</span>
+    <span class="ver">Ver1.0.31</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
