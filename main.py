@@ -985,6 +985,10 @@ class WbsCols:
     actual_end: str = "T"
     actual_effort: str = "U"
     actual_progress: str = "V"
+    # N column carries the assignee (担当者) on sub-task rows. Parent rows
+    # often leave it blank; that's OK — role analytics downstream operate
+    # solely on sub-task rows where is_subtask=True.
+    assignee: str = "N"
     planned_progress: str = "AA"
 
 
@@ -2783,6 +2787,62 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 Red rows are concerning across multiple dimensions."
         ),
         "chart_risk_dims_legend": "Legend — what each row means",
+        # ----- Role analytics (WBS sub-task assignees × Redmine defects) -----
+        "role_analytics_title":   "Assignee × role analysis",
+        "help_role_analytics": (
+            "**🦕 Assignee × role analysis**\n\n"
+            "Cross-references WBS sub-task assignees (N column on rows marked "
+            "with ● in L) against Redmine defect counts and test-spec NG, to "
+            "surface who touched which feature in which role — and how the "
+            "features they worked on are doing in terms of quality.\n\n"
+            "📂 Source: WBS (sub-task 担当者 + task name) × Redmine defects × "
+            "test counts.\n\n"
+            "💡 Roles are derived from keywords in each sub-task's name: "
+            "`プログラム開発` → Development, `テスト仕様書作成` → Test-spec, "
+            "`テスト実施` → Test-execution."
+        ),
+        "role_analytics_view1_title":   "View 1 — Feature × assignee-by-role + quality KPIs",
+        "role_analytics_view1_caption": (
+            "One row per Function ID. Columns list the distinct assignees "
+            "for each role; KPIs are the feature's quality signals. Sorted "
+            "by Redmine fault rate (worst first)."
+        ),
+        "role_analytics_view2_title":   "View 2 — Assignee summary",
+        "role_analytics_view2_caption": (
+            "One row per assignee. Counts are # of sub-tasks per role, "
+            "linked-feature counts, total Redmine defects on features they "
+            "touched, average fault rate on those features, and their top-3 "
+            "Redmine 問題分類."
+        ),
+        "role_analytics_view3_title":   "View 3 — Assignee × 問題分類 heatmap",
+        "role_analytics_view3_caption": (
+            "Counts Redmine defects on each assignee's features, broken down "
+            "by 問題分類. Use the role filter to see, e.g., what kinds of "
+            "defects the developers' features attract vs. the test writers'."
+        ),
+        "role_analytics_view3_role_label": "Filter by role",
+        "role_analytics_view3_role_all":   "All roles",
+        "role_analytics_no_subtasks": (
+            "No WBS sub-tasks (rows marked ● in column L) are available — "
+            "upload a WBS with sub-task entries to populate this section."
+        ),
+        "role_analytics_no_matches": (
+            "No sub-task names contain the role keywords "
+            "(プログラム開発 / テスト仕様書作成 / テスト実施)."
+        ),
+        "role_dev":          "Development (プログラム開発)",
+        "role_test_spec":    "Test-spec (テスト仕様書作成)",
+        "role_test_exec":    "Test-execution (テスト実施)",
+        "role_unassigned":   "(unassigned)",
+        "role_count_dev":       "Dev (# sub-tasks)",
+        "role_count_test_spec": "Test-spec (# sub-tasks)",
+        "role_count_test_exec": "Test-exec (# sub-tasks)",
+        "col_feature":          "Function ID : Name",
+        "col_assignee":         "Assignee",
+        "col_feature_count":    "Features touched",
+        "col_avg_incident_rate": "Avg fault rate (Redmine)",
+        "col_top3_problems":    "Top-3 問題分類",
+        "problem_class_uncategorized": "(uncategorized)",
         # ----- PDF report -----
         "pdf_btn_generate": "Generate PDF report",
         "pdf_btn_download": "Download PDF",
@@ -3466,6 +3526,62 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "💡 赤い行ほど複数次元で危険。"
         ),
         "chart_risk_dims_legend": "凡例 — 各行の意味",
+        # ----- 担当者×ロール分析（WBSサブタスク担当者 × Redmine障害） -----
+        "role_analytics_title":   "担当者 × ロール分析",
+        "help_role_analytics": (
+            "**🦕 担当者×ロール分析**\n\n"
+            "WBSのサブタスク（L列=●）に対して N列の担当者を取得し、"
+            "サブタスク名のキーワードで担当ロール（プログラム開発／"
+            "テスト仕様書作成／テスト実施）を自動判定。機能ごとの"
+            "品質KPI（障害件数/発生率、NG、実施率）や、担当者ごとの"
+            "関与機能の品質傾向を見るための分析セクションです。\n\n"
+            "📂 出典: WBS（サブタスクの担当者・タスク名）× Redmine "
+            "障害一覧 × 仕様書別テスト集計。\n\n"
+            "💡 同じサブタスク名に複数キーワードが含まれる場合は、"
+            "該当する全ロールにカウントされます。N列が空欄の場合は"
+            "「（未割当）」として集計します。"
+        ),
+        "role_analytics_view1_title":   "View 1 — 機能別 担当者ロールマップ & 品質KPI",
+        "role_analytics_view1_caption": (
+            "機能IDごとに1行。各ロール列は重複排除した担当者名を「 / 」"
+            "区切りで列挙。右側のKPIは機能の品質シグナル。"
+            "障害発生率の降順（悪い順）で並びます。"
+        ),
+        "role_analytics_view2_title":   "View 2 — 担当者サマリ",
+        "role_analytics_view2_caption": (
+            "担当者ごとに1行。ロール列はそのロールで担当したサブタスク件数、"
+            "関与機能数・総障害件数・平均障害発生率・Redmine 問題分類"
+            "Top3 を表示。総障害件数の降順。"
+        ),
+        "role_analytics_view3_title":   "View 3 — 担当者 × 問題分類 ヒートマップ",
+        "role_analytics_view3_caption": (
+            "担当者が関与した機能に紐づくRedmine障害を問題分類別にカウント。"
+            "ロールで絞ると「開発担当者の機能はロジック系バグが多い」"
+            "などの偏りが見えます。"
+        ),
+        "role_analytics_view3_role_label": "ロールで絞る",
+        "role_analytics_view3_role_all":   "全ロール",
+        "role_analytics_no_subtasks": (
+            "WBSのサブタスク行（L列=●）が見つかりません。"
+            "サブタスク記載のあるWBSを取り込むと本セクションが表示されます。"
+        ),
+        "role_analytics_no_matches": (
+            "サブタスク名に「プログラム開発 / テスト仕様書作成 / "
+            "テスト実施」のいずれも含まれていません。"
+        ),
+        "role_dev":          "プログラム開発",
+        "role_test_spec":    "テスト仕様書作成",
+        "role_test_exec":    "テスト実施",
+        "role_unassigned":   "（未割当）",
+        "role_count_dev":       "開発(件)",
+        "role_count_test_spec": "仕様書作成(件)",
+        "role_count_test_exec": "テスト実施(件)",
+        "col_feature":          "機能ID：機能名",
+        "col_assignee":         "担当者",
+        "col_feature_count":    "関与機能数",
+        "col_avg_incident_rate": "平均障害発生率（Redmine）",
+        "col_top3_problems":    "問題分類 Top3",
+        "problem_class_uncategorized": "（未分類）",
         # ----- PDF レポート -----
         "pdf_btn_generate": "PDFレポート生成",
         "pdf_btn_download": "PDFをダウンロード",
@@ -5298,6 +5414,210 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+# =============================================================================
+# Role analytics — cross-reference WBS sub-task assignees × Redmine defects
+# =============================================================================
+# Map each WBS sub-task `task_label` keyword to a role. Keywords are matched
+# via NFKC-normalized substring test so full-width / half-width / mixed-case
+# variants all hit. Multiple keywords in one label attribute to all matching
+# roles (e.g. "プログラム開発兼テスト実施" → dev + test_exec).
+ROLE_KEYWORDS: dict[str, str] = {
+    "dev":       "プログラム開発",
+    "test_spec": "テスト仕様書作成",
+    "test_exec": "テスト実施",
+}
+
+
+def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """Flatten sub-task rows into long-form (機能ID, role, assignee) records.
+
+    A sub-task row contributes one record per ROLE_KEYWORDS match on its
+    `task_label`; sub-tasks with an empty assignee cell are surfaced as
+    `(未割当)` so orphaned work shows up in the analytics instead of being
+    silently dropped. Parent rows, and sub-tasks whose label matches none
+    of the keywords, are skipped.
+    """
+    cols = ["機能ID", "role", "assignee"]
+    if wbs_df is None or wbs_df.empty:
+        return pd.DataFrame(columns=cols)
+    if "is_subtask" not in wbs_df.columns:
+        return pd.DataFrame(columns=cols)
+    subs = wbs_df[wbs_df["is_subtask"].fillna(False).astype(bool)]
+    if subs.empty or "task_label" not in subs.columns:
+        return pd.DataFrame(columns=cols)
+    unassigned = t("role_unassigned")
+    kw_norm = {role: unicodedata.normalize("NFKC", kw)
+               for role, kw in ROLE_KEYWORDS.items()}
+
+    rows: list[dict] = []
+    for _, r in subs.iterrows():
+        fid = str(r.get("機能ID") or "")
+        label = str(r.get("task_label") or "")
+        if not fid or not label:
+            continue
+        label_n = unicodedata.normalize("NFKC", label)
+        assignee_raw = r.get("assignee")
+        try:
+            if pd.isna(assignee_raw):
+                assignee_raw = ""
+        except (TypeError, ValueError):
+            pass
+        assignee = str(assignee_raw or "").strip() or unassigned
+        for role, kw in kw_norm.items():
+            if kw in label_n:
+                rows.append({"機能ID": fid, "role": role,
+                             "assignee": assignee})
+    return pd.DataFrame(rows, columns=cols)
+
+
+def _build_feature_role_table(
+    role_df: pd.DataFrame, kpi_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Per-機能ID pivot: {dev / test_spec / test_exec} assignee lists joined
+    with the feature's quality KPIs. Assignees within the same (FID, role)
+    are de-duplicated and joined with ' / '."""
+    if role_df.empty:
+        return pd.DataFrame()
+    pivot = (role_df.groupby(["機能ID", "role"])["assignee"]
+             .apply(lambda s: " / ".join(sorted(set(s))))
+             .unstack("role"))
+    for rk in ROLE_KEYWORDS:
+        if rk not in pivot.columns:
+            pivot[rk] = ""
+    pivot = pivot[list(ROLE_KEYWORDS.keys())].fillna("").reset_index()
+    kpi_cols = ["機能ID"]
+    for c in ("機能名称", "test_run_rate", "defect_total",
+              "incident_rate", "NG"):
+        if c in kpi_df.columns:
+            kpi_cols.append(c)
+    kpi_subset = kpi_df[kpi_cols].drop_duplicates(subset=["機能ID"])
+    out = pivot.merge(kpi_subset, on="機能ID", how="left")
+    # Build FID：Name label column for display (authoritative name lives on
+    # the master-joined kpi_df).
+    out["display"] = out.apply(_label_id_name, axis=1)
+    # Worst-first so reviewers see the problem features at the top.
+    if "incident_rate" in out.columns:
+        out = out.sort_values("incident_rate",
+                              ascending=False, na_position="last")
+    return out.reset_index(drop=True)
+
+
+def _build_assignee_summary(
+    role_df: pd.DataFrame, kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame],
+) -> pd.DataFrame:
+    """Per-assignee rollup: role participation counts, feature breadth,
+    defects on all features they touched, average incident rate on those
+    features, and top-3 Redmine 問題分類 on those features."""
+    if role_df.empty:
+        return pd.DataFrame()
+    role_counts = (role_df.groupby(["assignee", "role"]).size()
+                   .unstack("role").fillna(0).astype(int))
+    for rk in ROLE_KEYWORDS:
+        if rk not in role_counts.columns:
+            role_counts[rk] = 0
+    role_counts = role_counts[list(ROLE_KEYWORDS.keys())]
+
+    features_per = (role_df.groupby("assignee")["機能ID"]
+                    .apply(lambda s: sorted(set(str(x) for x in s))))
+    feature_counts = features_per.map(len)
+
+    if (defects_df is not None and not defects_df.empty
+            and "機能ID" in defects_df.columns):
+        dfd = defects_df.copy()
+        dfd["機能ID"] = dfd["機能ID"].astype(str)
+
+        def _defect_total(fids):
+            return int(dfd[dfd["機能ID"].isin(fids)].shape[0])
+        defect_totals = features_per.map(_defect_total)
+    else:
+        dfd = None
+        defect_totals = pd.Series([0] * len(features_per),
+                                   index=features_per.index)
+
+    if "incident_rate" in kpi_df.columns:
+        kpi_sub = (kpi_df[["機能ID", "incident_rate"]]
+                   .drop_duplicates(subset=["機能ID"])
+                   .assign(機能ID=lambda d: d["機能ID"].astype(str))
+                   .set_index("機能ID"))
+
+        def _avg_rate(fids):
+            vals = pd.to_numeric(
+                kpi_sub.reindex(fids)["incident_rate"], errors="coerce"
+            ).dropna()
+            return float(vals.mean()) if len(vals) else float("nan")
+        avg_rates = features_per.map(_avg_rate)
+    else:
+        avg_rates = pd.Series([float("nan")] * len(features_per),
+                              index=features_per.index)
+
+    if dfd is not None and "問題分類" in dfd.columns:
+        uncat = t("problem_class_uncategorized")
+
+        def _top3(fids):
+            d = dfd[dfd["機能ID"].isin(fids)]
+            if d.empty:
+                return "—"
+            vc = (d["問題分類"].fillna("").astype(str).replace("", uncat)
+                  .value_counts())
+            return " / ".join(f"{cat}:{n}"
+                              for cat, n in vc.head(3).items())
+        top3 = features_per.map(_top3)
+    else:
+        top3 = pd.Series(["—"] * len(features_per),
+                         index=features_per.index)
+
+    out = role_counts.copy()
+    out["feature_count"] = feature_counts
+    out["defect_total"] = defect_totals
+    out["avg_incident_rate"] = avg_rates
+    out["top3_problems"] = top3
+    out = out.reset_index().rename(columns={"assignee": "担当者"})
+    return out.sort_values("defect_total", ascending=False,
+                            kind="stable").reset_index(drop=True)
+
+
+def _build_assignee_problem_crosstab(
+    role_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame],
+    role_filter: Optional[str] = None,
+) -> Optional[pd.DataFrame]:
+    """Assignee × 問題分類 counts for features the assignee touched (via any
+    role, or a specific role when `role_filter` is supplied). Returns None
+    when there's nothing to plot."""
+    if role_df.empty:
+        return None
+    if defects_df is None or defects_df.empty:
+        return None
+    if "問題分類" not in defects_df.columns or "機能ID" not in defects_df.columns:
+        return None
+    rd = role_df
+    if role_filter and role_filter != "all":
+        rd = rd[rd["role"] == role_filter]
+    if rd.empty:
+        return None
+    pairs = (rd[["assignee", "機能ID"]]
+             .assign(機能ID=lambda d: d["機能ID"].astype(str))
+             .drop_duplicates())
+    dfd = (defects_df[["機能ID", "問題分類"]].copy()
+           .assign(機能ID=lambda d: d["機能ID"].astype(str)))
+    uncat = t("problem_class_uncategorized")
+    dfd["問題分類"] = (dfd["問題分類"].fillna("").astype(str)
+                       .replace("", uncat))
+    merged = pairs.merge(dfd, on="機能ID")
+    if merged.empty:
+        return None
+    ct = (merged.groupby(["assignee", "問題分類"]).size()
+          .unstack("問題分類").fillna(0).astype(int))
+    # Columns ordered by overall frequency (most common class first).
+    col_totals = ct.sum(axis=0).sort_values(ascending=False)
+    ct = ct[col_totals.index]
+    # Rows ordered by total defect count so the heaviest contributors sit
+    # at the top of the heatmap.
+    row_totals = ct.sum(axis=1).sort_values(ascending=False)
+    return ct.loc[row_totals.index]
+
+
 def _chart_loc_trend() -> Optional[go.Figure]:
     snaps = load_all_snapshots_for_slot("code", load_code_counts)
     if len(snaps) < 2:
@@ -7055,6 +7375,171 @@ def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame]
     )
 
 
+def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
+    """Section: three cross-analysis views tying WBS sub-task assignees
+    (N column on rows marked ● in L) to Redmine defects + test-spec NG.
+
+    All three views honour the global Function ID filter by re-slicing
+    wbs/defects to match — kpi_df is already filtered by the caller.
+    Rendered at the bottom of the Charts tab."""
+    wbs_df = st.session_state.dfs.get("wbs")
+    if wbs_df is None or wbs_df.empty:
+        return
+    if "is_subtask" not in wbs_df.columns:
+        return
+    # Short-circuit if there are no sub-tasks at all — the entire section
+    # depends on them.
+    if not wbs_df["is_subtask"].fillna(False).astype(bool).any():
+        return
+
+    selected_fids = _get_global_fids()
+    if selected_fids:
+        wbs_df = wbs_df[wbs_df["機能ID"].astype(str).isin(selected_fids)]
+
+    defects_df = st.session_state.dfs.get("defects")
+    if (defects_df is not None and not defects_df.empty
+            and selected_fids):
+        defects_df = defects_df[
+            defects_df["機能ID"].astype(str).isin(selected_fids)
+        ]
+
+    role_df = _extract_role_assignments(wbs_df)
+    section_header("role_analytics_title", "help_role_analytics")
+    if role_df.empty:
+        # Sub-tasks exist in the overall WBS but either the filter dropped
+        # them all, or none of their names carry a role keyword.
+        st.caption(t("role_analytics_no_matches"))
+        return
+
+    # Pretty role labels used by every column config below.
+    role_labels = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    role_count_labels = {
+        "dev":       t("role_count_dev"),
+        "test_spec": t("role_count_test_spec"),
+        "test_exec": t("role_count_test_exec"),
+    }
+
+    # ----- View 1: Feature × assignee-by-role + KPIs -----
+    ft = _build_feature_role_table(role_df, kpi_df)
+    if not ft.empty:
+        st.markdown(f"**{t('role_analytics_view1_title')}**")
+        st.caption(t("role_analytics_view1_caption"))
+        ft_disp = ft.copy()
+        # Convert fraction columns to percent for st.column_config display.
+        if "test_run_rate" in ft_disp.columns:
+            ft_disp["test_run_rate"] = (
+                pd.to_numeric(ft_disp["test_run_rate"], errors="coerce")
+                * 100.0
+            )
+        if "incident_rate" in ft_disp.columns:
+            ft_disp["incident_rate"] = (
+                pd.to_numeric(ft_disp["incident_rate"], errors="coerce")
+                * 100.0
+            )
+        cols_v1 = ["display"] + list(ROLE_KEYWORDS.keys()) + [
+            c for c in ("test_run_rate", "defect_total",
+                        "incident_rate", "NG")
+            if c in ft_disp.columns
+        ]
+        col_config_v1: dict = {
+            "display": st.column_config.TextColumn(t("col_feature")),
+            **{rk: st.column_config.TextColumn(role_labels[rk])
+               for rk in ROLE_KEYWORDS},
+        }
+        if "test_run_rate" in ft_disp.columns:
+            col_config_v1["test_run_rate"] = st.column_config.NumberColumn(
+                t("col_test_run_rate"), format="%.1f%%")
+        if "defect_total" in ft_disp.columns:
+            col_config_v1["defect_total"] = st.column_config.NumberColumn(
+                t("col_defect_total"), format="%d")
+        if "incident_rate" in ft_disp.columns:
+            col_config_v1["incident_rate"] = st.column_config.NumberColumn(
+                t("col_incident_rate"), format="%.1f%%")
+        if "NG" in ft_disp.columns:
+            col_config_v1["NG"] = st.column_config.NumberColumn(
+                t("col_test_ng"), format="%d")
+        st.dataframe(
+            ft_disp[cols_v1], use_container_width=True, hide_index=True,
+            column_config=col_config_v1,
+        )
+
+    # ----- View 2: Assignee summary -----
+    asum = _build_assignee_summary(role_df, kpi_df, defects_df)
+    if not asum.empty:
+        st.markdown(f"**{t('role_analytics_view2_title')}**")
+        st.caption(t("role_analytics_view2_caption"))
+        asum_disp = asum.copy()
+        if "avg_incident_rate" in asum_disp.columns:
+            asum_disp["avg_incident_rate"] = (
+                pd.to_numeric(asum_disp["avg_incident_rate"],
+                              errors="coerce") * 100.0
+            )
+        cols_v2 = ["担当者"] + list(ROLE_KEYWORDS.keys()) + [
+            c for c in ("feature_count", "defect_total",
+                        "avg_incident_rate", "top3_problems")
+            if c in asum_disp.columns
+        ]
+        col_config_v2: dict = {
+            "担当者": st.column_config.TextColumn(t("col_assignee")),
+            **{rk: st.column_config.NumberColumn(
+                role_count_labels[rk], format="%d")
+               for rk in ROLE_KEYWORDS},
+            "feature_count": st.column_config.NumberColumn(
+                t("col_feature_count"), format="%d"),
+            "defect_total": st.column_config.NumberColumn(
+                t("col_defect_total"), format="%d"),
+            "avg_incident_rate": st.column_config.NumberColumn(
+                t("col_avg_incident_rate"), format="%.1f%%"),
+            "top3_problems": st.column_config.TextColumn(
+                t("col_top3_problems")),
+        }
+        st.dataframe(
+            asum_disp[cols_v2], use_container_width=True, hide_index=True,
+            column_config=col_config_v2,
+        )
+
+    # ----- View 3: Assignee × 問題分類 heatmap -----
+    st.markdown(f"**{t('role_analytics_view3_title')}**")
+    st.caption(t("role_analytics_view3_caption"))
+    role_options = [("all", t("role_analytics_view3_role_all"))] + [
+        (rk, role_labels[rk]) for rk in ROLE_KEYWORDS
+    ]
+    role_choice = st.selectbox(
+        t("role_analytics_view3_role_label"),
+        options=[rk for rk, _ in role_options],
+        format_func=dict(role_options).__getitem__,
+        key="role_analytics_role_filter",
+    )
+    ct = _build_assignee_problem_crosstab(
+        role_df, defects_df, role_filter=role_choice,
+    )
+    if ct is None or ct.empty:
+        st.caption(t("chart_no_defects"))
+    else:
+        fig = px.imshow(
+            ct.values,
+            x=list(ct.columns),
+            y=list(ct.index),
+            color_continuous_scale="YlOrRd",
+            aspect="auto",
+            labels=dict(x=t("chart_defect_class_col_class"),
+                        y=t("col_assignee"),
+                        color=t("chart_defect_class_col_count")),
+            text_auto=True,
+        )
+        fig.update_layout(
+            height=max(260, 26 * len(ct.index) + 120),
+            margin=_INLINE_MARGIN_HEATMAP,
+        )
+        fig.update_xaxes(automargin=True, tickangle=-30)
+        fig.update_yaxes(automargin=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+
 def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
     """Section: 機能ID-filterable KPI cards + 4-metric comparison chart.
 
@@ -7279,6 +7764,8 @@ def render_charts_tab() -> None:
         st.caption(t("chart_no_defects"))
 
     _render_defect_class_breakdown(defects_df)
+
+    _render_role_analytics(kpi_df)
 
 
 _CALENDAR_CSS = """
@@ -8229,7 +8716,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.34</span>
+    <span class="ver">Ver1.0.35</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
