@@ -8435,7 +8435,10 @@ def _render_role_analytics_header(
         int(len(defects_df)) if defects_df is not None else 0,
         int(len(kpi_df)),
     )
-    have_fresh = (
+    # `bool()` coerces the `and` short-circuit: when ra_pdf_bytes is None
+    # (first run) the expression would otherwise be None, which is invalid
+    # as a disabled= value on st.button (protobuf rejects non-bool).
+    have_fresh = bool(
         st.session_state.get("ra_pdf_bytes")
         and st.session_state.get("ra_pdf_sig") == sig
     )
@@ -9038,7 +9041,9 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
          if "test_density" in kpi_df.columns else 0.0),
         st.session_state.get("lang", "ja"),
     )
-    have_fresh = (
+    # See note in _render_role_analytics_header — bool() coerces the
+    # `and` short-circuit so disabled= stays a real bool on first render.
+    have_fresh = bool(
         st.session_state.get("td_pdf_bytes")
         and st.session_state.get("td_pdf_sig") == sig
     )
@@ -10201,7 +10206,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.45</span>
+    <span class="ver">Ver1.0.46</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
