@@ -2862,8 +2862,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_strip_caption": (
             "Each horizontal bar is one assignee's defect pool (100%), "
-            "broken down by 問題分類. `n=` to the right is the raw "
-            "defect count the percentages are computed from."
+            "broken down by 問題分類. Numbers inside each segment are "
+            "the raw defect counts for that (person, category) pair; "
+            "hover for '<count>件 (<pct>%)'. `n=` to the right is the "
+            "per-assignee total the percentages divide."
         ),
         "role_analytics_strip_other": "Other",
         # Role analytics PDF-export labels
@@ -3722,8 +3724,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_strip_caption": (
             "1行＝1担当者。その人の関与機能で発生した Redmine 障害を "
-            "100% として問題分類別に積み上げ。右端の「n=」は"
-            "パーセントの分母になっている実件数です。"
+            "100% として問題分類別に積み上げ。各セグメント内の数字は"
+            "その (人, 問題分類) の**件数**、ホバーで「N件 (X.X%)」。"
+            "右端の「n=」は分母となる担当者の総件数です。"
         ),
         "role_analytics_strip_other": "その他",
         # 担当者×ロール分析 PDF出力
@@ -6116,14 +6119,17 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
 def _build_assignee_problem_share_df(
     role_df: pd.DataFrame,
     defects_df: Optional[pd.DataFrame],
-) -> Optional[pd.DataFrame]:
-    """Per-assignee row of 問題分類 percentages (each row sums to 100 across
-    the columns). The heat-strip renderer below stacks these as a horizontal
-    bar per assignee so readers can scan "who attracts what kind of defect"
-    across the team.
+) -> Optional[tuple[pd.DataFrame, pd.DataFrame]]:
+    """Per-assignee (pct_df, count_df) pair for the strip chart.
 
-    Rows include a `_total` column (raw defect count) used for sort order
-    and as an annotation alongside each bar."""
+    Both frames share the same index (assignee) and columns (問題分類);
+    `pct_df` rows sum to 100 (the 100%-stacked bar width), `count_df` is
+    the matching raw defect counts so each segment can display "N件"
+    alongside the percent. `pct_df` carries a `_total` sentinel column —
+    the raw defect total per row — which the renderer pops off and uses
+    as the right-hand annotation.
+
+    Returns None when no defects tie back to any assignee's features."""
     ct = _build_assignee_problem_crosstab(role_df, defects_df)
     if ct is None or ct.empty:
         return None
@@ -6131,47 +6137,81 @@ def _build_assignee_problem_share_df(
     pct = ct.div(totals, axis=0).fillna(0.0) * 100.0
     pct["_total"] = totals
     # Row order by defect total desc (ct already does this) — keep that.
-    return pct
+    return pct, ct.copy()
+
+
+def _collapse_strip_to_top_n(
+    pct_df: pd.DataFrame, cnt_df: pd.DataFrame, max_cats: int = 8,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Fold columns beyond `max_cats` into a collapsed 「その他」 bucket so
+    the strip stays legible with many problem classes. Keeps pct and cnt
+    in lock-step so segment widths and embedded counts still agree."""
+    if pct_df.shape[1] <= max_cats:
+        return pct_df, cnt_df
+    other_label = t("role_analytics_strip_other")
+    pct_head = pct_df.iloc[:, :max_cats - 1].copy()
+    pct_head[other_label] = pct_df.iloc[:, max_cats - 1:].sum(axis=1)
+    cnt_head = cnt_df.iloc[:, :max_cats - 1].copy()
+    cnt_head[other_label] = cnt_df.iloc[:, max_cats - 1:].sum(axis=1)
+    return pct_head, cnt_head
 
 
 def _chart_assignee_problem_strip(
-    strip_df: pd.DataFrame,
+    strip: "tuple[pd.DataFrame, pd.DataFrame] | pd.DataFrame | None",
 ) -> Optional[go.Figure]:
     """Horizontal 100%-stacked bar per assignee, segments = 問題分類.
 
-    One row per person, each segment showing `<category> N件 (pct%)`. Total
-    defect count appears as an annotation to the right of each bar so scale
-    isn't lost in the percent view."""
-    if strip_df is None or strip_df.empty:
+    Accepts either the (pct_df, count_df) pair emitted by
+    _build_assignee_problem_share_df or a legacy single pct_df (older
+    callers). Each segment shows `N件` as in-bar text; the hover tooltip
+    combines `N件 (X.X%)`; a right-hand `n=<total>` annotation shows the
+    per-assignee total so percent scale and absolute volume read together."""
+    if strip is None:
         return None
-    df = strip_df.copy()
-    totals = df.pop("_total")
-    if df.empty or df.shape[1] == 0:
+    if isinstance(strip, tuple):
+        pct_df, cnt_df = strip
+    else:
+        pct_df, cnt_df = strip, None
+    if pct_df is None or pct_df.empty:
         return None
-    # Limit to a reasonable number of categories; everything past N folds
-    # into a collapsed "その他" bucket so the strip stays legible.
-    MAX_CATS = 8
-    if df.shape[1] > MAX_CATS:
-        head = df.iloc[:, :MAX_CATS - 1]
-        tail = df.iloc[:, MAX_CATS - 1:].sum(axis=1)
-        head[t("role_analytics_strip_other")] = tail
-        df = head
-    # Plotly stacked horizontal bar — iterate categories so legend + colours
-    # are deterministic (px.bar auto-inference sometimes rotates colours per
-    # re-render which is disorienting on an interactive page).
+    pct_df = pct_df.copy()
+    totals = pct_df.pop("_total")
+    if pct_df.empty or pct_df.shape[1] == 0:
+        return None
+    if cnt_df is None:
+        # Fallback for the legacy single-df path — reconstruct counts from
+        # pct × total (rounded to int). Not perfectly faithful at odd
+        # divisions but close enough for display.
+        cnt_df = (pct_df.multiply(totals, axis=0) / 100.0).round().astype(int)
+    pct_df, cnt_df = _collapse_strip_to_top_n(pct_df, cnt_df)
+
     palette = ["#3c78d8", "#e06666", "#6aa84f", "#f1c232", "#674ea7",
                 "#16a2a2", "#d5a6bd", "#a64d79"]
-    assignees = df.index.tolist()
+    assignees = pct_df.index.tolist()
     fig = go.Figure()
-    for i, cat in enumerate(df.columns):
-        vals = df[cat].astype(float).tolist()
+    for i, cat in enumerate(pct_df.columns):
+        pcts = pct_df[cat].astype(float).tolist()
+        cnts = cnt_df[cat].astype(int).tolist() \
+            if cat in cnt_df.columns else [0] * len(pcts)
+        # Per-segment in-bar text: count only (Plotly also clips the text
+        # when segment is too narrow, which is fine).
+        seg_text = [f"{c}" if p > 0 else "" for c, p in zip(cnts, pcts)]
+        # Hover customdata carries both count and percent so one template
+        # reads as "42件 (33.3%)".
+        customdata = list(zip(cnts, pcts))
         fig.add_bar(
-            y=assignees, x=vals, orientation="h",
+            y=assignees, x=pcts, orientation="h",
             name=str(cat),
             marker_color=palette[i % len(palette)],
+            text=seg_text, textposition="inside",
+            insidetextanchor="middle",
+            textfont=dict(color="white", size=10),
+            cliponaxis=False,
+            customdata=customdata,
             hovertemplate=(
                 "<b>%{y}</b><br>"
-                f"{cat}: %{{x:.1f}}%"
+                f"{cat}: %{{customdata[0]}}件 "
+                "(%{customdata[1]:.1f}%)"
                 "<extra></extra>"
             ),
         )
@@ -6182,12 +6222,13 @@ def _chart_assignee_problem_strip(
         xaxis_title="%",
         yaxis_title=None,
         legend_title_text=t("chart_defect_class_col_class"),
+        uniformtext_minsize=9, uniformtext_mode="hide",
     )
     fig.update_xaxes(range=[0, 100], automargin=True, ticksuffix="%")
     fig.update_yaxes(autorange="reversed", automargin=True)
-    # Right-hand annotation with the raw total count per assignee, so
-    # "this person is 80% data / 20% logic" is read alongside "of only
-    # 5 total defects".
+    # Right-hand "n=<total>" annotation — absolute volume, so percent bars
+    # don't mislead (a 100%-of-tiny person looks equal to a 100%-of-huge
+    # person without this).
     for name, tot in zip(assignees, totals.reindex(assignees).values):
         fig.add_annotation(
             x=101, y=name, xref="x", yref="y",
@@ -7025,35 +7066,52 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     return _mpl_save(fig)
 
 
-def _mpl_chart_assignee_problem_strip(strip_df: pd.DataFrame):
+def _mpl_chart_assignee_problem_strip(strip):
     """Matplotlib 100%-stacked horizontal bar per assignee — PDF counterpart
-    of _chart_assignee_problem_strip."""
-    if strip_df is None or strip_df.empty:
+    of _chart_assignee_problem_strip. Accepts the (pct_df, count_df) pair
+    and prints the raw count inside each segment wide enough to hold it."""
+    if strip is None:
         return None
-    df = strip_df.copy()
-    totals = df.pop("_total")
-    if df.empty or df.shape[1] == 0:
+    if isinstance(strip, tuple):
+        pct_df, cnt_df = strip
+    else:
+        pct_df, cnt_df = strip, None
+    if pct_df is None or pct_df.empty:
         return None
-    MAX_CATS = 8
-    if df.shape[1] > MAX_CATS:
-        head = df.iloc[:, :MAX_CATS - 1]
-        tail = df.iloc[:, MAX_CATS - 1:].sum(axis=1)
-        head[t("role_analytics_strip_other")] = tail
-        df = head
+    pct_df = pct_df.copy()
+    totals = pct_df.pop("_total")
+    if pct_df.empty or pct_df.shape[1] == 0:
+        return None
+    if cnt_df is None:
+        cnt_df = (pct_df.multiply(totals, axis=0) / 100.0).round().astype(int)
+    pct_df, cnt_df = _collapse_strip_to_top_n(pct_df, cnt_df)
+
     palette = ["#3c78d8", "#e06666", "#6aa84f", "#f1c232", "#674ea7",
                 "#16a2a2", "#d5a6bd", "#a64d79"]
     plt = _mpl_plt()
-    n = len(df.index)
-    fig_h = max(3.0, 0.45 * n + 1.2)
+    n = len(pct_df.index)
+    fig_h = max(3.0, 0.45 * n + 1.4)
     fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
     y = np.arange(n)
-    assignees = df.index.tolist()
+    assignees = pct_df.index.tolist()
     left = np.zeros(n, dtype=float)
-    for i, cat in enumerate(df.columns):
-        vals = df[cat].astype(float).values
-        ax.barh(y, vals, left=left, color=palette[i % len(palette)],
+    # Minimum segment width (in percent units of the 100-wide X axis) a
+    # count label needs to print inside without visually crowding. Tuned so
+    # two digits stay readable; narrower segments drop the label.
+    MIN_LABEL_PCT = 5.0
+    for i, cat in enumerate(pct_df.columns):
+        pct_vals = pct_df[cat].astype(float).values
+        cnt_vals = (cnt_df[cat].astype(int).values
+                    if cat in cnt_df.columns else np.zeros(n, dtype=int))
+        ax.barh(y, pct_vals, left=left, color=palette[i % len(palette)],
                  edgecolor="white", label=str(cat))
-        left += vals
+        # In-bar count labels — only where the segment has enough width.
+        for yi, (pv, cv, lf) in enumerate(zip(pct_vals, cnt_vals, left)):
+            if pv >= MIN_LABEL_PCT and cv > 0:
+                ax.text(lf + pv / 2, yi, f"{int(cv)}",
+                        ha="center", va="center",
+                        fontsize=8, color="white")
+        left += pct_vals
     # Raw totals on the right
     for yi, name in enumerate(assignees):
         ax.text(101, yi, f"n={int(totals.reindex(assignees).iloc[yi])}",
@@ -7066,7 +7124,7 @@ def _mpl_chart_assignee_problem_strip(strip_df: pd.DataFrame):
     ax.grid(axis="x", linestyle=":", alpha=0.3)
     ax.legend(loc="upper center",
                bbox_to_anchor=(0.5, -0.08),
-               ncol=min(len(df.columns), 5),
+               ncol=min(len(pct_df.columns), 5),
                fontsize=9, frameon=False,
                title=t("chart_defect_class_col_class"))
     fig.tight_layout()
@@ -8270,36 +8328,22 @@ def generate_role_analytics_pdf(
         else:
             story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
 
-    # --- Problem-class strip ------------------------------------------------
-    strip_df = _build_assignee_problem_share_df(role_df, defects_df)
-    if strip_df is not None and not strip_df.empty:
+    # --- Problem-class strip (includes raw counts per segment) -------------
+    # Heatmap section was removed in v1.0.43 — the strip now carries the
+    # same (assignee × 問題分類) counts in-bar, so the separate heatmap
+    # was pure redundancy.
+    strip = _build_assignee_problem_share_df(role_df, defects_df)
+    if strip is not None:
         story.append(Paragraph(t("ra_pdf_h_strip"), h2_style))
         story.append(Paragraph(
             t("role_analytics_strip_caption"), caption_style))
         story.append(Spacer(1, 4))
-        result = _mpl_chart_assignee_problem_strip(strip_df)
+        result = _mpl_chart_assignee_problem_strip(strip)
         if result is not None:
             png, w_px, h_px = result
             aspect = h_px / w_px if w_px else 0.5
             disp_w = inner_w
             disp_h = min(disp_w * aspect, 15 * cm)
-            story.append(Image(
-                io.BytesIO(png), width=disp_w, height=disp_h))
-
-    # --- View 3 heatmap -----------------------------------------------------
-    ct = _build_assignee_problem_crosstab(role_df, defects_df)
-    if ct is not None and not ct.empty:
-        story.append(PageBreak())
-        story.append(Paragraph(t("ra_pdf_h_heatmap"), h2_style))
-        story.append(Paragraph(
-            t("role_analytics_view3_caption"), caption_style))
-        story.append(Spacer(1, 6))
-        result = _mpl_chart_assignee_problem_heatmap(ct)
-        if result is not None:
-            png, w_px, h_px = result
-            aspect = h_px / w_px if w_px else 0.5
-            disp_w = inner_w
-            disp_h = min(disp_w * aspect, 17 * cm)
             story.append(Image(
                 io.BytesIO(png), width=disp_w, height=disp_h))
 
@@ -8767,52 +8811,17 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         if fig_b is not None:
             st.plotly_chart(fig_b, use_container_width=True)
 
-    # ----- Advanced viz 2/2: 案C 問題分類ヒートストリップ -----
-    strip_df = _build_assignee_problem_share_df(role_df, defects_df)
-    if strip_df is not None and not strip_df.empty:
+    # ----- Advanced viz 2/2: 案C 問題分類ストリップ (件数埋め込み) -----
+    # Strip now embeds `N件` inside each segment and shows
+    # "N件 (X.X%)" on hover, which makes the previous View 3 heatmap
+    # redundant — it's been removed both on-screen and from the PDF.
+    strip = _build_assignee_problem_share_df(role_df, defects_df)
+    if strip is not None:
         st.markdown(f"**{t('role_analytics_strip_title')}**")
         st.caption(t("role_analytics_strip_caption"))
-        fig_s = _chart_assignee_problem_strip(strip_df)
+        fig_s = _chart_assignee_problem_strip(strip)
         if fig_s is not None:
             st.plotly_chart(fig_s, use_container_width=True)
-
-    # ----- View 3: Assignee × 問題分類 heatmap -----
-    st.markdown(f"**{t('role_analytics_view3_title')}**")
-    st.caption(t("role_analytics_view3_caption"))
-    role_options = [("all", t("role_analytics_view3_role_all"))] + [
-        (rk, role_labels[rk]) for rk in ROLE_KEYWORDS
-    ]
-    role_choice = st.selectbox(
-        t("role_analytics_view3_role_label"),
-        options=[rk for rk, _ in role_options],
-        format_func=dict(role_options).__getitem__,
-        key="role_analytics_role_filter",
-        help=t("help_role_analytics_view3_role_filter"),
-    )
-    ct = _build_assignee_problem_crosstab(
-        role_df, defects_df, role_filter=role_choice,
-    )
-    if ct is None or ct.empty:
-        st.caption(t("chart_no_defects"))
-    else:
-        fig = px.imshow(
-            ct.values,
-            x=list(ct.columns),
-            y=list(ct.index),
-            color_continuous_scale="YlOrRd",
-            aspect="auto",
-            labels=dict(x=t("chart_defect_class_col_class"),
-                        y=t("col_assignee"),
-                        color=t("chart_defect_class_col_count")),
-            text_auto=True,
-        )
-        fig.update_layout(
-            height=max(260, 26 * len(ct.index) + 120),
-            margin=_INLINE_MARGIN_HEATMAP,
-        )
-        fig.update_xaxes(automargin=True, tickangle=-30)
-        fig.update_yaxes(automargin=True)
-        st.plotly_chart(fig, use_container_width=True)
 
 
 def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
@@ -9994,7 +10003,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.42</span>
+    <span class="ver">Ver1.0.43</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
