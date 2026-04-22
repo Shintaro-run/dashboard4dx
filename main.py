@@ -5448,6 +5448,29 @@ ROLE_KEYWORDS: dict[str, str] = {
 }
 
 
+def _normalize_assignee(raw) -> str:
+    """Canonicalize an assignee name so cosmetic input drift doesn't split
+    one person into two groups.
+
+    NFKC folds full-width letters/digits/punctuation to ASCII; the ideographic
+    space U+3000 is NOT touched by NFKC so it's replaced explicitly. Any run
+    of whitespace (ASCII spaces, tabs, ideographic spaces left over from
+    mixed-encoding pastes, etc.) collapses to a single ASCII space, and the
+    result is trimmed. Returns '' for None / NaN / empty — the caller decides
+    how to surface the unassigned case."""
+    if raw is None:
+        return ""
+    try:
+        if pd.isna(raw):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = unicodedata.normalize("NFKC", str(raw))
+    s = s.replace("　", " ")
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
     """Flatten sub-task rows into long-form (機能ID, role, assignee) records.
 
@@ -5476,13 +5499,7 @@ def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
         if not fid or not label:
             continue
         label_n = unicodedata.normalize("NFKC", label)
-        assignee_raw = r.get("assignee")
-        try:
-            if pd.isna(assignee_raw):
-                assignee_raw = ""
-        except (TypeError, ValueError):
-            pass
-        assignee = str(assignee_raw or "").strip() or unassigned
+        assignee = _normalize_assignee(r.get("assignee")) or unassigned
         for role, kw in kw_norm.items():
             if kw in label_n:
                 rows.append({"機能ID": fid, "role": role,
@@ -8766,7 +8783,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.38</span>
+    <span class="ver">Ver1.0.39</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
