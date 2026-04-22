@@ -8716,7 +8716,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.35</span>
+    <span class="ver">Ver1.0.36</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

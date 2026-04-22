@@ -113,7 +113,38 @@ def make_function_master() -> Path:
 
 
 # ----- 2. WBS xlsm ------------------------------------------------------------
-WBS_SUBTASK_LABELS = ["設計", "実装", "単体テスト", "結合テスト", "レビュー"]
+# Sub-task label pool. The keyword-bearing labels are what the role
+# analytics section keys on (プログラム開発 / テスト仕様書作成 / テスト実施);
+# mixed in with a handful of non-keyword labels for realism. Each tuple is
+# (label, role) where role is the key in ROLE_ASSIGNEES below; role=None
+# means the label doesn't map to any analytics role (still rendered on the
+# Gantt, just not in the 担当者×ロール views).
+WBS_SUBTASK_POOL: list[tuple[str, object]] = [
+    ("詳細設計",                     None),
+    ("コードレビュー",                None),
+    ("プログラム開発",                "dev"),
+    ("プログラム開発（リファクタ）",  "dev"),
+    ("テスト仕様書作成",              "test_spec"),
+    ("テスト仕様書作成（正常系）",    "test_spec"),
+    ("テスト仕様書作成（異常系）",    "test_spec"),
+    ("テスト実施",                    "test_exec"),
+    ("単体テスト実施",                "test_exec"),
+    ("結合テスト実施",                "test_exec"),
+]
+
+# Rough role specialization so the analytics output has a readable pattern
+# (a name tends to own either dev or test work across features). Keep the
+# pools overlapping a bit — real teams aren't strictly siloed.
+WBS_ROLE_ASSIGNEES: dict[object, list[str]] = {
+    "dev":       ["田中", "佐藤", "高橋", "伊藤"],
+    "test_spec": ["鈴木", "小林", "田中"],
+    "test_exec": ["渡辺", "中村", "小林", "佐藤"],
+    None:        ["田中", "佐藤", "鈴木", "渡辺", "高橋"],
+}
+
+# Chance that a sub-task row's 担当者 (N column) is left blank — surfaces as
+# 「（未割当）」in the analytics and exercises that fallback path.
+WBS_UNASSIGNED_PROB = 0.15
 
 
 def _write_percent(ws, coord: str, pct: int) -> None:
@@ -140,9 +171,14 @@ def make_wbs() -> Path:
     appears as '機能ID：XXXX' somewhere in cols E–I, key columns at P/Q/R/S/T/U/V/AA.
 
     Some Function IDs also carry sub-task breakdown rows: rows *without* a
-    Function ID where L column is "●" (fixed marker). In those rows the
-    column right of the parent's Function ID column holds a task label
-    (設計 / 実装 / etc.) and P..V/AA carry that sub-task's own schedule.
+    Function ID where L column is "●" (fixed marker). In those rows:
+      - the column right of the parent's Function ID column holds a task
+        label (プログラム開発 / テスト仕様書作成 / テスト実施 / レビューなど);
+      - P..V/AA carry the sub-task's own schedule;
+      - **N column carries the 担当者** — consumed by the Charts tab's
+        担当者×ロール analytics to attribute each role to a person.
+    A small fraction of sub-tasks are intentionally left unassigned (empty
+    N) so the '（未割当）' fallback is exercised by the sample too.
 
     For exercising loader behavior the sample also includes a small number
     of intentionally-skipped shapes:
@@ -182,8 +218,11 @@ def make_wbs() -> Path:
     ws["AA14"] = "計画進捗率"
 
     # ~40% of Function IDs get sub-task breakdowns so both patterns appear.
+    # ~70% of Function IDs get sub-task breakdowns — higher than strictly
+    # realistic, but the Charts-tab 担当者×ロール analytics needs enough
+    # coverage in the demo file to produce a legible heatmap / table.
     with_subs = set(random.sample(UNIQUE_IDS,
-                                  k=max(3, int(len(UNIQUE_IDS) * 0.4))))
+                                  k=max(3, int(len(UNIQUE_IDS) * 0.7))))
 
     today = date(2026, 4, 20)
     row = 16
@@ -223,14 +262,26 @@ def make_wbs() -> Path:
         if fid not in with_subs:
             continue
 
-        # Emit 2–4 sub-task rows that split the parent's planned window.
-        n_subs = random.randint(2, 4)
-        subs = random.sample(WBS_SUBTASK_LABELS, k=n_subs)
+        # Every feature with sub-tasks gets one row per analytics role so
+        # the Charts-tab role views are populated; plus a 50/50 prefix
+        # row (設計 or レビュー — no role keyword) for realism. Order is
+        # roughly dev → test_spec → test_exec so the schedule slices flow.
+        subs: list[tuple[str, object]] = []
+        if random.random() < 0.5:
+            subs.append(random.choice(
+                [p for p in WBS_SUBTASK_POOL if p[1] is None]
+            ))
+        for role_key in ("dev", "test_spec", "test_exec"):
+            subs.append(random.choice(
+                [p for p in WBS_SUBTASK_POOL if p[1] == role_key]
+            ))
+
+        n_subs = len(subs)
         total_days = max(n_subs, (end_plan - start_plan).days)
         chunk = total_days // n_subs
         remaining_effort = planned_effort
         remaining_actual = actual_effort
-        for i, sub_label in enumerate(subs):
+        for i, (sub_label, role_key) in enumerate(subs):
             s_start_plan = start_plan + timedelta(days=i * chunk)
             s_end_plan = (end_plan if i == n_subs - 1
                           else start_plan + timedelta(days=(i + 1) * chunk - 1))
@@ -245,8 +296,17 @@ def make_wbs() -> Path:
             remaining_effort -= s_planned_effort
             remaining_actual -= s_actual_effort
 
+            # Pick 担当者 from the role pool so a name tends to own either
+            # dev or test work consistently. Blank ~15% of the time to
+            # exercise the (未割当) surface in the analytics.
+            if random.random() < WBS_UNASSIGNED_PROB:
+                assignee = ""
+            else:
+                assignee = random.choice(WBS_ROLE_ASSIGNEES[role_key])
+
             ws[f"A{row}"] = "Task"
             ws[f"L{row}"] = "●"
+            ws[f"N{row}"] = assignee
             ws[f"{sub_col}{row}"] = sub_label
             ws[f"P{row}"] = s_planned_effort
             ws[f"Q{row}"] = _fmt_md(s_start_plan)
