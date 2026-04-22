@@ -4433,7 +4433,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_h_notes":           "注意事項",
         "td_pdf_notes_body":        (
             "・本指標は<b>「テスト件数の充足率」</b>であり、テストの網羅性・"
-            "期待値の妥当性そのものは測りません。件数が多いだけでは品質は担保できません。<br/>"
+            "期待値の妥当性そのものは測りません。<br/>"
             "・設計書頁数は目視確認の手動入力値です。"
             "目視確認のため、ミスがある可能性があります。<br/>"
             "・単純機能では閾値未満でも妥当な場合があります。機能特性と合わせて"
@@ -11095,7 +11095,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.56</span>
+    <span class="ver">Ver1.0.57</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
