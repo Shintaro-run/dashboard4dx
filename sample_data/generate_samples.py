@@ -480,33 +480,43 @@ def make_roster() -> Path:
 
 
 def make_calendar() -> Path:
-    """2-sheet calendar xlsx. `イベント` + `非稼働日`. Dates straddle the
-    project phase window so some events land on the Gantt too."""
-    wb = Workbook()
-    # --- Events sheet --------------------------------------------------
-    ws_e = wb.active
-    ws_e.title = "イベント"
-    for col_idx, h in enumerate(["日付", "タイトル", "説明"], start=1):
-        ws_e.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
-    events = [
+    """2-sheet calendar xlsx. Events sheet starts from the main-side
+    template (which seeds all 2024–2027 Japanese holidays) and appends
+    our demo company events on top. Non-working sheet is hand-rolled so
+    the demo names line up with the WBS roster.
+
+    Re-uses main.generate_calendar_template so the sample calendar ships
+    the same holiday list as any template a user downloads from the
+    dashboard — avoids drift when the base holiday table changes."""
+    import sys
+    sys.path.insert(0, str(OUT_DIR.parent))
+    import main as _app  # noqa: E402
+
+    # Base template (holidays + a few demo events) — write to disk, then
+    # reopen to append our non-working rows + customised sample events.
+    out = OUT_DIR / "calendar.xlsx"
+    out.write_bytes(_app.generate_calendar_template(sample=False))
+
+    # Reopen to add demo events + non-working entries on top of holidays.
+    from openpyxl import load_workbook as _load
+    wb = _load(out)
+    ws_e = wb["イベント"]
+    # Append demo events right after the last holiday row.
+    next_row = ws_e.max_row + 1
+    demo_events = [
         (date(2026, 1, 15), "キックオフMTG",      "全社キックオフ"),
         (date(2026, 3, 15), "Designレビュー",     "中間レビュー+意思決定"),
         (date(2026, 4, 20), "リリース判定会議",   "Goサインの有無確認"),
         (date(2026, 5, 20), "ポストモーテム",     "品質振り返り"),
     ]
-    for i, (d, title, desc) in enumerate(events, start=2):
+    for i, (d, title, desc) in enumerate(demo_events, start=next_row):
         ws_e.cell(row=i, column=1, value=d).number_format = "yyyy-mm-dd"
         ws_e.cell(row=i, column=2, value=title)
         ws_e.cell(row=i, column=3, value=desc)
-    for col_idx, width in enumerate([14, 28, 40], start=1):
-        ws_e.column_dimensions[ws_e.cell(row=1, column=col_idx)
-                                 .column_letter].width = width
 
-    # --- Non-working sheet --------------------------------------------
-    ws_n = wb.create_sheet("非稼働日")
-    for col_idx, h in enumerate(["担当者名", "開始日", "終了日", "理由"],
-                                 start=1):
-        ws_n.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
+    # Fill the 非稼働日 sheet (empty in template; we seed realistic rows
+    # that match WBS assignee names so the 担当者×ロール demo stays coherent).
+    ws_n = wb["非稼働日"]
     nonwork = [
         ("田中", date(2026, 2, 9),  date(2026, 2, 10), "有給"),
         ("佐藤", date(2026, 3, 2),  date(2026, 3, 2),  "半休"),
@@ -520,11 +530,7 @@ def make_calendar() -> Path:
         ws_n.cell(row=i, column=2, value=s).number_format = "yyyy-mm-dd"
         ws_n.cell(row=i, column=3, value=e).number_format = "yyyy-mm-dd"
         ws_n.cell(row=i, column=4, value=reason)
-    for col_idx, width in enumerate([22, 14, 14, 28], start=1):
-        ws_n.column_dimensions[ws_n.cell(row=1, column=col_idx)
-                                 .column_letter].width = width
 
-    out = OUT_DIR / "calendar.xlsx"
     wb.save(out)
     return out
 

@@ -1507,6 +1507,113 @@ CAL_DISPLAY_START = date(2024, 1, 1)
 CAL_DISPLAY_END   = date(2027, 12, 31)
 
 
+# -----------------------------------------------------------------------------
+# Japanese national holidays seeded into the calendar template.
+# Only "base" holidays are enumerated below — 振替休日 (the next non-holiday
+# weekday after a Sunday holiday) and 国民の休日 (a weekday sandwiched
+# between two other holidays) are derived at runtime by _jp_holidays().
+# Equinox dates come from the National Astronomical Observatory of Japan's
+# published values for 2024–2027; extend here if CAL_DISPLAY_END moves.
+# -----------------------------------------------------------------------------
+_JP_BASE_HOLIDAYS: dict[int, list[tuple[int, int, str]]] = {
+    2024: [
+        (1, 1, "元日"), (1, 8, "成人の日"),
+        (2, 11, "建国記念の日"), (2, 23, "天皇誕生日"),
+        (3, 20, "春分の日"),
+        (4, 29, "昭和の日"),
+        (5, 3, "憲法記念日"), (5, 4, "みどりの日"), (5, 5, "こどもの日"),
+        (7, 15, "海の日"),
+        (8, 11, "山の日"),
+        (9, 16, "敬老の日"), (9, 22, "秋分の日"),
+        (10, 14, "スポーツの日"),
+        (11, 3, "文化の日"), (11, 23, "勤労感謝の日"),
+    ],
+    2025: [
+        (1, 1, "元日"), (1, 13, "成人の日"),
+        (2, 11, "建国記念の日"), (2, 23, "天皇誕生日"),
+        (3, 20, "春分の日"),
+        (4, 29, "昭和の日"),
+        (5, 3, "憲法記念日"), (5, 4, "みどりの日"), (5, 5, "こどもの日"),
+        (7, 21, "海の日"),
+        (8, 11, "山の日"),
+        (9, 15, "敬老の日"), (9, 23, "秋分の日"),
+        (10, 13, "スポーツの日"),
+        (11, 3, "文化の日"), (11, 23, "勤労感謝の日"),
+    ],
+    2026: [
+        (1, 1, "元日"), (1, 12, "成人の日"),
+        (2, 11, "建国記念の日"), (2, 23, "天皇誕生日"),
+        (3, 20, "春分の日"),
+        (4, 29, "昭和の日"),
+        (5, 3, "憲法記念日"), (5, 4, "みどりの日"), (5, 5, "こどもの日"),
+        (7, 20, "海の日"),
+        (8, 11, "山の日"),
+        (9, 21, "敬老の日"), (9, 23, "秋分の日"),
+        (10, 12, "スポーツの日"),
+        (11, 3, "文化の日"), (11, 23, "勤労感謝の日"),
+    ],
+    2027: [
+        (1, 1, "元日"), (1, 11, "成人の日"),
+        (2, 11, "建国記念の日"), (2, 23, "天皇誕生日"),
+        (3, 21, "春分の日"),
+        (4, 29, "昭和の日"),
+        (5, 3, "憲法記念日"), (5, 4, "みどりの日"), (5, 5, "こどもの日"),
+        (7, 19, "海の日"),
+        (8, 11, "山の日"),
+        (9, 20, "敬老の日"), (9, 23, "秋分の日"),
+        (10, 11, "スポーツの日"),
+        (11, 3, "文化の日"), (11, 23, "勤労感謝の日"),
+    ],
+}
+
+
+def _jp_holidays_for_year(year: int) -> list[tuple[date, str]]:
+    """Return (date, name) tuples for `year` including substitute holidays.
+
+    Substitute rules applied automatically on top of _JP_BASE_HOLIDAYS:
+      1. 振替休日 — a base holiday on Sunday pushes to the next non-holiday
+         weekday (skipping any adjacent base holidays).
+      2. 国民の休日 — a single non-holiday weekday sandwiched between two
+         holidays (both Monday-Friday, exactly one day apart) becomes a
+         holiday itself (applies to e.g. 2026-09-22 between 敬老の日 and
+         秋分の日).
+    """
+    base = _JP_BASE_HOLIDAYS.get(year, [])
+    holidays: list[tuple[date, str]] = [
+        (date(year, m, d), name) for (m, d, name) in base
+    ]
+    holiday_dates = {d for d, _ in holidays}
+    # Rule 1: Sunday → next non-holiday day
+    for d, _name in list(holidays):
+        if d.weekday() == 6:  # Sunday
+            sub = d + timedelta(days=1)
+            while sub in holiday_dates:
+                sub += timedelta(days=1)
+            holidays.append((sub, "振替休日"))
+            holiday_dates.add(sub)
+    # Rule 2: 国民の休日 (gap of exactly one weekday between two holidays)
+    sorted_dates = sorted(holiday_dates)
+    for i in range(len(sorted_dates) - 1):
+        d1, d2 = sorted_dates[i], sorted_dates[i + 1]
+        if (d2 - d1).days == 2:
+            gap = d1 + timedelta(days=1)
+            if gap.weekday() < 5 and gap not in holiday_dates:
+                holidays.append((gap, "国民の休日"))
+                holiday_dates.add(gap)
+    return sorted(holidays)
+
+
+def _jp_holidays_in_range(start: date, end: date) -> list[tuple[date, str]]:
+    """Concatenate _jp_holidays_for_year over the year range, clipped
+    to [start, end]. Used to seed the calendar template with公休."""
+    out: list[tuple[date, str]] = []
+    for year in range(start.year, end.year + 1):
+        for d, name in _jp_holidays_for_year(year):
+            if start <= d <= end:
+                out.append((d, name))
+    return out
+
+
 def load_calendar(file_bytes: bytes) -> pd.DataFrame:
     """Parse the calendar xlsx (2 sheets) into one long-form dataframe.
 
@@ -1592,9 +1699,16 @@ def load_calendar(file_bytes: bytes) -> pd.DataFrame:
 
 
 def generate_calendar_template(sample: bool = True) -> bytes:
-    """Build the 2-sheet calendar template. Empty rows otherwise; `sample`
-    adds a handful of example entries in each sheet so users see the
-    shape expected (date format, assignee name, open-ended description)."""
+    """Build the 2-sheet calendar template.
+
+    Japanese national holidays for the full CAL_DISPLAY_START..END range
+    are ALWAYS pre-seeded in the 「イベント」 sheet (not gated on `sample`)
+    so every generated template ships with 公休 info out of the box —
+    振替休日 / 国民の休日 are derived automatically.
+
+    `sample=True` additionally seeds a few ordinary company events and
+    non-working-day rows so first-time users see the expected shape.
+    """
     wb = Workbook()
     # --- Events sheet ------------------------------------------------------
     ws_e = wb.active
@@ -1602,17 +1716,26 @@ def generate_calendar_template(sample: bool = True) -> bytes:
     for col_idx, h in enumerate(CAL_EVENT_COLS_ORDER, start=1):
         c = ws_e.cell(row=1, column=col_idx, value=h)
         c.font = Font(bold=True)
+
+    # Jp holidays first — users can delete rows they don't want, and the
+    # "description" column is preset with 公休 so it's obvious on a glance.
+    seed_rows: list[tuple[date, str, str]] = []
+    for d, name in _jp_holidays_in_range(CAL_DISPLAY_START, CAL_DISPLAY_END):
+        seed_rows.append((d, name, "公休（日本の祝日）"))
+
     if sample:
-        seed_events = [
+        seed_rows.extend([
             (date(2025, 4, 1),  "年度開始",        "全社キックオフ"),
             (date(2025, 10, 1), "下期キックオフ",  "半期レビュー+方針"),
             (date(2025, 12, 25),"全社MTG（年末）", ""),
-        ]
-        for i, row in enumerate(seed_events, start=2):
-            ws_e.cell(row=i, column=1, value=row[0])
-            ws_e.cell(row=i, column=1).number_format = "yyyy-mm-dd"
-            ws_e.cell(row=i, column=2, value=row[1])
-            ws_e.cell(row=i, column=3, value=row[2])
+        ])
+    # Chronological order for editing comfort.
+    seed_rows.sort(key=lambda r: r[0])
+    for i, (d, title, desc) in enumerate(seed_rows, start=2):
+        ws_e.cell(row=i, column=1, value=d)
+        ws_e.cell(row=i, column=1).number_format = "yyyy-mm-dd"
+        ws_e.cell(row=i, column=2, value=title)
+        ws_e.cell(row=i, column=3, value=desc)
     for col_idx, width in enumerate([14, 28, 40], start=1):
         ws_e.column_dimensions[ws_e.cell(row=1, column=col_idx)
                                  .column_letter].width = width
@@ -10628,7 +10751,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.48</span>
+    <span class="ver">Ver1.0.49</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
