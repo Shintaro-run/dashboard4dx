@@ -3455,6 +3455,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "card_drop_label": "Drop {label} here",
         "status_waiting": "waiting for file…",
         "status_ok": "OK · {n} rows · {u} unique IDs",
+        "status_ok_no_fid": "OK · {n} rows",
         "status_failed": "validation failed",
         "origin_upload": "just uploaded",
         "origin_auto": "auto-loaded from input/",
@@ -4315,6 +4316,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "card_drop_label": "{label} をここにドロップ",
         "status_waiting": "ファイル待ち…",
         "status_ok": "OK · {n}行 · ID {u}件",
+        "status_ok_no_fid": "OK · {n}行",
         "status_failed": "検証失敗",
         "origin_upload": "今アップロード",
         "origin_auto": "input/ から自動読込",
@@ -4979,15 +4981,22 @@ def render_upload_card(spec: dict) -> None:
 
         # OK summary line + source provenance.
         n_str = f"{len(df):,}"
-        u_str = f"{df['機能ID'].nunique():,}"
         ok_text = (t("validation_warnings") if warn_steps
                    else t("validation_passed"))
+        # Not every source keys on 機能ID — roster rows are per-assignee,
+        # calendar rows are per-event / per-non-working-day. Fall back to
+        # a count-only line when the dataframe has no 機能ID column.
+        if "機能ID" in df.columns:
+            u_str = f"{df['機能ID'].nunique():,}"
+            status_text = t("status_ok", n=n_str, u=u_str)
+        else:
+            status_text = t("status_ok_no_fid", n=n_str)
         st.markdown(
             "<div class='d4dx-dino-row'>"
             f"<span style='color:#4ec78a;font-weight:600;font-size:13px;'>"
             f"{ok_text}</span>"
             f"<span class='d4dx-dino-meta'>· "
-            f"{t('status_ok', n=n_str, u=u_str)}</span>"
+            f"{status_text}</span>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -10619,7 +10628,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.47</span>
+    <span class="ver">Ver1.0.48</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
