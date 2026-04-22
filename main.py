@@ -2892,6 +2892,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # In-tab navigation for the Charts tab.
         "toc_jump_label":    "Jump to",
         "toc_back_to_top":   "Back to top",
+        # Unified PDF-button microcopy.
+        "pdf_btn_generate_short":  "Generate PDF",
+        "pdf_btn_download_short":  "Download PDF",
+        "pdf_generating":          "Generating PDF…",
         # Role analytics PDF-export labels
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -3756,6 +3760,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         # Charts タブのページ内ナビゲーション
         "toc_jump_label":    "ジャンプ",
         "toc_back_to_top":   "最上部へ",
+        # PDF ボタンの統一マイクロコピー
+        "pdf_btn_generate_short":  "PDFを生成",
+        "pdf_btn_download_short":  "PDFをダウンロード",
+        "pdf_generating":          "PDF を生成中…",
         # 担当者×ロール分析 PDF出力
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -8449,33 +8457,27 @@ def _render_role_analytics_header(
                      help=t("help_role_analytics"),
                      anchor=ra_anchor)
     _register_toc_entry(ra_anchor, t("role_analytics_title"))
+    # Unified PDF controls: icon-only 📄 (generate) + ⬇ (download), same
+    # pattern as the test-density header above. Generation wrapped in
+    # st.spinner so the user sees motion during the synchronous build.
     with btn_col:
         if role_df is None or role_df.empty:
             return
-        if have_fresh:
-            fname = (
-                "role_analytics_report_"
-                f"{date.today().strftime('%Y%m%d')}.pdf"
-            )
-            st.download_button(
-                label=t("ra_pdf_btn_download"),
-                data=st.session_state.ra_pdf_bytes,
-                file_name=fname,
-                mime="application/pdf",
-                key="ra_pdf_download",
+        gen_slot, dl_slot = st.columns([1, 1], gap="small")
+        with gen_slot:
+            if st.button(
+                "", icon=":material/picture_as_pdf:",
+                key="ra_pdf_generate",
                 help=t("ra_pdf_btn_generate_help"),
                 use_container_width=True,
-            )
-        else:
-            if st.button(t("ra_pdf_btn_generate"),
-                         key="ra_pdf_generate",
-                         help=t("ra_pdf_btn_generate_help"),
-                         use_container_width=True):
+                disabled=have_fresh,
+            ):
                 try:
-                    pdf_bytes = generate_role_analytics_pdf(
-                        kpi_df, wbs_df, defects_df,
-                        fid_filter_active=bool(_get_global_fids()),
-                    )
+                    with st.spinner(t("pdf_generating")):
+                        pdf_bytes = generate_role_analytics_pdf(
+                            kpi_df, wbs_df, defects_df,
+                            fid_filter_active=bool(_get_global_fids()),
+                        )
                     st.session_state.ra_pdf_bytes = pdf_bytes
                     st.session_state.ra_pdf_sig = sig
                     st.rerun()
@@ -8484,6 +8486,21 @@ def _render_role_analytics_header(
                         f"[ra_pdf] build failed: {exc}"
                     )
                     st.error(t("pdf_error", err=str(exc)))
+        with dl_slot:
+            if have_fresh:
+                fname = (
+                    "role_analytics_report_"
+                    f"{date.today().strftime('%Y%m%d')}.pdf"
+                )
+                st.download_button(
+                    label="", icon=":material/download:",
+                    data=st.session_state.ra_pdf_bytes,
+                    file_name=fname,
+                    mime="application/pdf",
+                    key="ra_pdf_download",
+                    help=t("pdf_btn_download_short"),
+                    use_container_width=True,
+                )
 
 
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
@@ -9043,31 +9060,27 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
                      help=t("help_chart_test_density"),
                      anchor=td_anchor)
     _register_toc_entry(td_anchor, t("chart_test_density"))
+    # Unified PDF controls: one icon-only 📄 button (generation) that
+    # swaps for an icon-only ⬇ button (download) after the bytes are in
+    # session state. Generation itself is wrapped in st.spinner so the
+    # user sees a "generating…" motion in place of the button during the
+    # synchronous build.
     with btn_col:
-        if have_fresh:
-            fname = (
-                "test_density_report_"
-                f"{date.today().strftime('%Y%m%d')}.pdf"
-            )
-            st.download_button(
-                label=t("td_pdf_btn_download"),
-                data=st.session_state.td_pdf_bytes,
-                file_name=fname,
-                mime="application/pdf",
-                key="td_pdf_download",
+        gen_slot, dl_slot = st.columns([1, 1], gap="small")
+        with gen_slot:
+            if st.button(
+                "", icon=":material/picture_as_pdf:",
+                key="td_pdf_generate",
                 help=t("td_pdf_btn_generate_help"),
                 use_container_width=True,
-            )
-        else:
-            if st.button(t("td_pdf_btn_generate"),
-                         key="td_pdf_generate",
-                         help=t("td_pdf_btn_generate_help"),
-                         use_container_width=True):
+                disabled=have_fresh,
+            ):
                 try:
-                    pdf_bytes = generate_test_density_pdf(
-                        kpi_df,
-                        fid_filter_active=bool(_get_global_fids()),
-                    )
+                    with st.spinner(t("pdf_generating")):
+                        pdf_bytes = generate_test_density_pdf(
+                            kpi_df,
+                            fid_filter_active=bool(_get_global_fids()),
+                        )
                     st.session_state.td_pdf_bytes = pdf_bytes
                     st.session_state.td_pdf_sig = sig
                     st.rerun()
@@ -9076,6 +9089,21 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
                         f"[td_pdf] build failed: {exc}"
                     )
                     st.error(t("pdf_error", err=str(exc)))
+        with dl_slot:
+            if have_fresh:
+                fname = (
+                    "test_density_report_"
+                    f"{date.today().strftime('%Y%m%d')}.pdf"
+                )
+                st.download_button(
+                    label="", icon=":material/download:",
+                    data=st.session_state.td_pdf_bytes,
+                    file_name=fname,
+                    mime="application/pdf",
+                    key="td_pdf_download",
+                    help=t("pdf_btn_download_short"),
+                    use_container_width=True,
+                )
 
 
 def render_charts_tab() -> None:
@@ -9086,11 +9114,19 @@ def render_charts_tab() -> None:
         st.info(t("charts_needs_master"))
         return
 
-    # ----- PDF export controls (top of tab) --------------------------------
-    pdf_btn_col, pdf_dl_col, _ = st.columns([2, 3, 5], gap="small")
-    with pdf_btn_col:
-        if st.button(t("pdf_btn_generate"),
-                     key="pdf_generate", use_container_width=True):
+    # ----- PDF export controls (top of tab, right-aligned) ----------------
+    # Unified pattern across every PDF surface: icon-only 📄 button opens
+    # the feature picker + progress dialog; once bytes are in session
+    # state, a second ⬇ icon appears next to it for download. Both icons
+    # live in a small column at the right edge of the toolbar.
+    _, pdf_gen_col, pdf_dl_col = st.columns([11, 1, 1], gap="small")
+    with pdf_gen_col:
+        if st.button(
+            "", icon=":material/picture_as_pdf:",
+            key="pdf_generate",
+            help=t("pdf_btn_generate_short"),
+            use_container_width=True,
+        ):
             _open_pdf_dialog(kpi_df)
     with pdf_dl_col:
         if st.session_state.get("report_pdf"):
@@ -9101,11 +9137,12 @@ def render_charts_tab() -> None:
                 f"_{lang_tag}.pdf"
             )
             st.download_button(
-                label=t("pdf_btn_download"),
+                label="", icon=":material/download:",
                 data=st.session_state.report_pdf,
                 file_name=fname,
                 mime="application/pdf",
                 key="pdf_download",
+                help=t("pdf_btn_download_short"),
                 use_container_width=True,
             )
 
@@ -10164,7 +10201,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.44</span>
+    <span class="ver">Ver1.0.45</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
