@@ -3604,6 +3604,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "Calendar (events + non-working days)",
         "src_calendar_hint":  "2 sheets: events + non-working days (xlsx)",
         "card_template_dl":   "⬇ template ({label})",
+        "src_rail_hint":      "⇄ scroll horizontally to browse all sources",
         "calendar_layer_events":  "Show events",
         "calendar_layer_nonwork": "Show non-working days",
         # Validation messages
@@ -4464,6 +4465,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "カレンダー (イベント+非稼働日)",
         "src_calendar_hint":  "2シート: イベント+非稼働日 (xlsx)",
         "card_template_dl":   "⬇ テンプレをDL ({label})",
+        "src_rail_hint":      "⇄ 横にスクロールして全ソースを閲覧",
         "calendar_layer_events":  "イベント表示",
         "calendar_layer_nonwork": "非稼働表示",
         "err_zero_rows": "0行しか読めませんでした — シート名や列構成をご確認ください",
@@ -4585,6 +4587,44 @@ section.main > div.block-container {
 /* Streamlit also constrains the inner column gutters; loosen them slightly */
 div[data-testid="stHorizontalBlock"] {
   gap: 0.75rem !important;
+}
+
+/* Horizontal-scroll rail for the source-file upload cards on the Dashboard.
+   `:has()` targets only the st.columns row whose children contain upload
+   cards (marked by .d4dx-source-card-marker), so unrelated horizontal
+   blocks elsewhere in the app keep their normal flex layout.
+   Each card gets a fixed width so all 7 fit in a scrollable strip; modern
+   browsers supporting `:has()` (Chrome/Safari/Firefox 2023+) are expected. */
+div[data-testid="stHorizontalBlock"]:has(.d4dx-source-card-marker) {
+  overflow-x: auto !important;
+  flex-wrap: nowrap !important;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 10px;
+  scrollbar-gutter: stable;
+}
+div[data-testid="stHorizontalBlock"]:has(.d4dx-source-card-marker) > div {
+  flex: 0 0 280px !important;
+  min-width: 280px !important;
+  max-width: 280px !important;
+  scroll-snap-align: start;
+}
+/* Slim custom scrollbar so the rail doesn't visually dominate the tab. */
+div[data-testid="stHorizontalBlock"]:has(.d4dx-source-card-marker)::-webkit-scrollbar {
+  height: 8px;
+}
+div[data-testid="stHorizontalBlock"]:has(.d4dx-source-card-marker)::-webkit-scrollbar-thumb {
+  background: rgba(128,128,128,0.35);
+  border-radius: 4px;
+}
+div[data-testid="stHorizontalBlock"]:has(.d4dx-source-card-marker)::-webkit-scrollbar-thumb:hover {
+  background: rgba(128,128,128,0.55);
+}
+/* Hint row above the rail */
+.d4dx-source-rail-hint {
+  font-size: 11px;
+  color: #888;
+  margin: -2px 0 6px;
+  letter-spacing: 0.02em;
 }
 
 /* Card shell — keep just the rounded border that Streamlit draws by default,
@@ -4957,6 +4997,14 @@ def render_upload_card(spec: dict) -> None:
     label = t(spec["label_key"])
     hint = t(spec["hint_key"])
     with st.container(border=True):
+        # Sentinel span — lets the horizontal-scroll CSS rule
+        # (.d4dx-source-card-marker → `:has()` selector) identify which
+        # st.columns row is the source-cards rail, without accidentally
+        # affecting unrelated horizontal blocks elsewhere.
+        st.markdown(
+            "<span class='d4dx-source-card-marker' style='display:none'></span>",
+            unsafe_allow_html=True,
+        )
         badge = (_pill("err", t("badge_required")) if spec["required"]
                  else _pill("idle", t("badge_optional")))
         st.markdown(
@@ -5490,16 +5538,19 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
 def render_dashboard_tab() -> None:
     """Tab 1 — sources upload + the integrated tables."""
     st.subheader(t("sec1_title"))
-    # Seven source slots: laid out 3 + 3 + 1 (empty slots filled for
-    # spacing so the last row's card doesn't stretch full-width). The
-    # horizontal-scroll card rail is a Phase 2 task; this grid is the
-    # stop-gap layout that keeps every card addressable.
-    rows = [SOURCE_SPECS[i:i + 3] for i in range(0, len(SOURCE_SPECS), 3)]
-    for row in rows:
-        cols = st.columns(3, gap="small")
-        for spec, col in zip(row, cols):
-            with col:
-                render_upload_card(spec)
+    # Horizontal-scrolling card rail. One st.columns row with N fixed-width
+    # columns (see the :has(.d4dx-source-card-marker) CSS rule above) —
+    # users drag the rail left/right with a trackpad / shift-wheel to reach
+    # the off-screen cards. A short hint line right above the rail tips
+    # people off to the scroll affordance.
+    st.markdown(
+        f"<div class='d4dx-source-rail-hint'>{t('src_rail_hint')}</div>",
+        unsafe_allow_html=True,
+    )
+    cols = st.columns(len(SOURCE_SPECS), gap="small")
+    for spec, col in zip(SOURCE_SPECS, cols):
+        with col:
+            render_upload_card(spec)
 
     kpi_df = get_current_kpi_df()
     if kpi_df is None:
@@ -10114,13 +10165,22 @@ def render_calendar_tab() -> None:
         st.info(t("calendar_no_events"))
         return
 
-    # Open the calendar on the month of the earliest event so the user sees
-    # content even when sample data is months away from today.
-    earliest = min(e["start"] for e in events)
+    # Default the initial view to today when it falls inside the allowed
+    # range; otherwise clamp to the nearest bound. Since the calendar
+    # template now ships with 75 Japanese holidays starting 2024-01-01,
+    # falling back to `min(events)` would permanently open on 2024-01
+    # regardless of the user's current date — not useful.
+    today_iso = today_d.isoformat()
+    if CAL_DISPLAY_START <= today_d <= CAL_DISPLAY_END:
+        initial_date = today_iso
+    elif today_d < CAL_DISPLAY_START:
+        initial_date = CAL_DISPLAY_START.isoformat()
+    else:
+        initial_date = CAL_DISPLAY_END.isoformat()
 
     options = {
         "initialView": "dayGridMonth",
-        "initialDate": earliest,
+        "initialDate": initial_date,
         # Keep navigation bounded to the supported 4-year window (see
         # CAL_DISPLAY_START / CAL_DISPLAY_END). FullCalendar treats the
         # `end` as exclusive, so advance by one day to include Dec 31.
@@ -10751,7 +10811,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.49</span>
+    <span class="ver">Ver1.0.50</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
