@@ -4840,8 +4840,7 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["actual_progress", "planned_progress"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     # Sort: most-behind first so head(N) keeps the worst offenders.
     df["_gap"] = df["planned_progress"] - df["actual_progress"]
     df = df.sort_values("_gap", ascending=False)
@@ -4908,13 +4907,18 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if not available:
         return None
     grp_cols = [c for c, _, _ in available]
-    df = (kpi_df.groupby("機能ID", as_index=False)
-          .agg(**{c: (c, "mean") for c in grp_cols}))
+    has_name = "機能名称" in kpi_df.columns
+    agg_kw: dict[str, tuple] = {c: (c, "mean") for c in grp_cols}
+    if has_name:
+        agg_kw["機能名称"] = ("機能名称", "first")
+    df = kpi_df.groupby("機能ID", as_index=False).agg(**agg_kw)
     df = df.dropna(subset=grp_cols, how="all")
     if df.empty:
         return None
     df = df.sort_values("機能ID", ascending=True)
-    fids = df["機能ID"].tolist()
+    # y-axis labels: 機能ID：機能名 (from master-joined kpi_df), clipped
+    # to keep long names from pushing the bars off the left margin.
+    fids = _feature_display_series(df).map(_clip_label).tolist()
     n_panels = len(available)
     titles = [lbl for _, lbl, _ in available]
     fig = make_subplots(rows=1, cols=n_panels,
@@ -4990,8 +4994,7 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["test_density"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     # Sort ascending so the lowest (under-tested) sit at the top of the bar
     # chart after the iloc reverse below — matches the convention used by
     # the other "attention list" charts in this file.
@@ -5062,8 +5065,7 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["incident_rate"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     df = df.sort_values("incident_rate", ascending=False)
     total = len(df)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
@@ -5131,8 +5133,7 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     # Worst-first by NG then 未実施 so head(N) is the attention list.
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
@@ -5207,10 +5208,11 @@ def _chart_loc_vs_ng(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if size_col is not None:
         df[size_col] = pd.to_numeric(df[size_col], errors="coerce").fillna(5)
     color_col = "risk_score" if "risk_score" in df.columns else None
+    df["_label"] = _feature_display_series(df)
     fig = px.scatter(
         df, x="LoC", y="NG",
         size=size_col, color=color_col,
-        hover_name="機能ID",
+        hover_name="_label",
         color_continuous_scale="RdYlGn_r",
     )
     fig.update_layout(height=420, margin=_INLINE_MARGIN_DEFAULT)
@@ -5225,7 +5227,8 @@ def _chart_design_impl_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     df = kpi_df.dropna(subset=["設計書ページ数", "LoC"]).copy()
     if df.empty:
         return None
-    fig = px.scatter(df, x="設計書ページ数", y="LoC", hover_name="機能ID")
+    df["_label"] = _feature_display_series(df)
+    fig = px.scatter(df, x="設計書ページ数", y="LoC", hover_name="_label")
     comp = pd.to_numeric(df.get("complexity"), errors="coerce").dropna()
     if len(comp):
         avg = float(comp.mean())
@@ -5272,10 +5275,19 @@ def _chart_risk_heatmap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
             f"{dim_label['test_density']} ({t('chart_label_low')})"
         )
     y_labels = [dim_label[c] for c in risk_dims]
+    # Look up authoritative 機能名 from the master so the heatmap x-axis
+    # shows 機能ID：機能名 rather than bare IDs. Fall back to the ID when
+    # no master entry exists.
+    name_map = _master_fid_name_map()
+    if not name_map and "機能名称" in kpi_df.columns:
+        dedup = kpi_df.drop_duplicates(subset=["機能ID"])
+        name_map = {str(f): ("" if pd.isna(n) else str(n))
+                    for f, n in zip(dedup["機能ID"], dedup["機能名称"])}
+    x_labels = [_label_fid_name(f, name_map.get(str(f), "")) for f in z_df.index]
     fig = px.imshow(
-        z_df.T.values, x=z_df.index, y=y_labels,
+        z_df.T.values, x=x_labels, y=y_labels,
         color_continuous_scale="RdYlGn_r", aspect="auto",
-        labels=dict(x="機能ID", y="", color="risk"),
+        labels=dict(x="機能ID：機能名", y="", color="risk"),
         zmin=0, zmax=1,
     )
     fig.update_traces(hoverongaps=False)
@@ -5528,9 +5540,7 @@ def _chart_gantt(kpi_df: pd.DataFrame, today_d: date) -> Optional[go.Figure]:
     label_actual = t("calendar_layer_actual")
     rows: list[dict] = []
     for _, row in kpi_df.iterrows():
-        fid = str(row.get("機能ID", ""))
-        name = row.get("機能名称") or ""
-        label = _clip_label(f"{fid} · {name}" if name else fid)
+        label = _clip_label(_label_id_name(row))
         ps = _to_pydate(row.get("planned_start"))
         pe = _to_pydate(row.get("planned_end"))
         ase = _to_pydate(row.get("actual_start"))
@@ -5676,8 +5686,7 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
     df = kpi_df.dropna(subset=["actual_progress", "planned_progress"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     df["_gap"] = df["planned_progress"] - df["actual_progress"]
     df = df.sort_values("_gap", ascending=False)
     total = len(df)
@@ -5721,8 +5730,7 @@ def _mpl_chart_test_density(kpi_df: pd.DataFrame):
     df = kpi_df.dropna(subset=["test_density"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     df = df.sort_values("test_density", ascending=True)
     total = len(df)
     if total > _BAR_CHART_MAX_ROWS:
@@ -5756,8 +5764,7 @@ def _mpl_chart_incident_rate(kpi_df: pd.DataFrame):
     df = kpi_df.dropna(subset=["incident_rate"]).copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     df = df.sort_values("incident_rate", ascending=False)
     total = len(df)
     if total > _BAR_CHART_MAX_ROWS:
@@ -5791,8 +5798,7 @@ def _mpl_chart_test_coverage(kpi_df: pd.DataFrame):
     df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
     if df.empty:
         return None
-    df["display"] = (df["機能ID"] + " · "
-                     + df["機能名称"].fillna("")).map(_clip_label)
+    df["display"] = _feature_display_series(df).map(_clip_label)
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
     total = len(df)
@@ -6037,9 +6043,7 @@ def _mpl_chart_gantt(kpi_df: pd.DataFrame, today_d: date):
     label_actual = t("calendar_layer_actual")
     rows: list[dict] = []
     for _, row in kpi_df.iterrows():
-        fid = str(row.get("機能ID", ""))
-        name = row.get("機能名称") or ""
-        label = _clip_label(f"{fid} · {name}" if name else fid)
+        label = _clip_label(_label_id_name(row))
         ps = _to_pydate(row.get("planned_start"))
         pe = _to_pydate(row.get("planned_end"))
         ase = _to_pydate(row.get("actual_start"))
@@ -6887,8 +6891,7 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     label_to_fid: dict[str, str] = {}
     labels: list[str] = []
     for _, r in opts_df.iterrows():
-        nm = str(r["機能名称"]).strip()
-        lab = f"{r['機能ID']} · {nm}" if nm else str(r["機能ID"])
+        lab = _label_id_name(r)
         label_to_fid[lab] = str(r["機能ID"])
         labels.append(lab)
 
@@ -7317,10 +7320,50 @@ _CALENDAR_CSS = """
 """
 
 
+def _label_fid_name(fid, name) -> str:
+    """Format a Function-ID / name pair as '機能ID：機能名' for display.
+
+    The 機能名 source of truth is the Function master (機能ID一覧); callers
+    should resolve it from the master-derived kpi_df or the session-state
+    master df before calling. Falls back to just the ID when no name is
+    available so chart axes never render a dangling '：'.
+    """
+    fid_s = "" if fid is None else str(fid)
+    name_s = "" if name is None else str(name)
+    try:
+        if pd.isna(name):
+            name_s = ""
+    except (TypeError, ValueError):
+        pass
+    return f"{fid_s}：{name_s}" if name_s else fid_s
+
+
 def _label_id_name(row) -> str:
-    fid = str(row.get("機能ID", ""))
-    name = row.get("機能名称") or ""
-    return f"{fid} · {name}" if name else fid
+    return _label_fid_name(row.get("機能ID"), row.get("機能名称"))
+
+
+def _feature_display_series(df: pd.DataFrame) -> pd.Series:
+    """Vectorized 'FID：Name' label series for per-Function-ID charts.
+    Rows with a missing 機能名称 fall back to the ID alone. Callers
+    typically chain `.map(_clip_label)` for horizontal-bar axis labels."""
+    fids = df["機能ID"].astype(str)
+    names = df["機能名称"].fillna("").astype(str) if "機能名称" in df.columns \
+        else pd.Series([""] * len(df), index=df.index)
+    return fids + names.map(lambda n: f"：{n}" if n else "")
+
+
+def _master_fid_name_map() -> dict[str, str]:
+    """FID → 機能名 lookup built from the in-session Function master. Empty
+    dict if no master is loaded. Used by charts/events whose source table
+    doesn't already carry 機能名称 (e.g. Redmine defect rows)."""
+    master = st.session_state.get("dfs", {}).get("master")
+    if master is None or master.empty or "機能ID" not in master.columns:
+        return {}
+    m = master.drop_duplicates(subset=["機能ID"])
+    names = m["機能名称"] if "機能名称" in m.columns \
+        else pd.Series([""] * len(m), index=m.index)
+    return {str(fid): ("" if pd.isna(nm) else str(nm))
+            for fid, nm in zip(m["機能ID"], names)}
 
 
 def render_calendar_tab() -> None:
@@ -7488,7 +7531,13 @@ def render_calendar_tab() -> None:
                 "borderColor": "#3aa872",
             })
 
+    # Master-backed FID → 機能名 lookup. Used by sub-task and defect events
+    # below because their source rows don't carry 機能名称 directly — the
+    # authoritative name lives on the function master (機能ID一覧).
+    fid_name_map = _master_fid_name_map()
+
     for fid, subs in sub_by_fid.items():
+        feature_label = _label_fid_name(fid, fid_name_map.get(str(fid), ""))
         for _, srow in subs.iterrows():
             task = srow.get("task_label", "") or ""
             sps = _to_pydate(srow.get("planned_start"))
@@ -7497,7 +7546,7 @@ def render_calendar_tab() -> None:
             saee = _to_pydate(srow.get("actual_end"))
             if show_planned and sps and spe:
                 events.append({
-                    "title": f"📅 └ {fid} · {task}",
+                    "title": f"📅 └ {feature_label} · {task}",
                     "start": sps.isoformat(),
                     "end": (spe + timedelta(days=1)).isoformat(),
                     "backgroundColor": "rgba(150,150,150,0.25)",
@@ -7507,8 +7556,8 @@ def render_calendar_tab() -> None:
             if show_actual and sase:
                 s_end = (saee or sase) + timedelta(days=1)
                 events.append({
-                    "title": (f"✅ └ {fid} · {task}" if saee
-                              else f"▶ └ {fid} · {task}"),
+                    "title": (f"✅ └ {feature_label} · {task}" if saee
+                              else f"▶ └ {feature_label} · {task}"),
                     "start": sase.isoformat(),
                     "end": s_end.isoformat(),
                     "backgroundColor": "rgba(78,199,138,0.55)",
@@ -7530,8 +7579,13 @@ def render_calendar_tab() -> None:
             unresolved = bool(row.get("unresolved", False))
             color = "#f05050" if unresolved else "#9aa0a6"
             end = ((ed or sd) + timedelta(days=1)).isoformat()
+            fid_s = str(row.get("機能ID", "") or "")
+            feature_label = _label_fid_name(fid_s, fid_name_map.get(fid_s, ""))
+            category = row.get("問題分類", "") or ""
+            title = (f"🐞 {feature_label} · {category}" if category
+                     else f"🐞 {feature_label}")
             events.append({
-                "title": f"🐞 {row.get('機能ID','')} · {row.get('問題分類','')}",
+                "title": title,
                 "start": sd.isoformat(),
                 "end": end,
                 "backgroundColor": color,
@@ -8175,7 +8229,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.33</span>
+    <span class="ver">Ver1.0.34</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
