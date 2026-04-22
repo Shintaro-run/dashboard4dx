@@ -6266,7 +6266,17 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
             f"{dim_label['test_density']} ({t('chart_label_low')})"
         )
     y_labels = [dim_label[c] for c in risk_dims]
-    x_labels = list(z_df.index)
+    # Resolve 機能ID → 機能名 from the master (falling back to the
+    # master-joined kpi_df if the master isn't in session_state) so the
+    # x-axis reads as 機能ID：機能名 — same convention as the on-screen
+    # Plotly heatmap at _chart_risk_heatmap.
+    name_map = _master_fid_name_map()
+    if not name_map and "機能名称" in kpi_df.columns:
+        dedup = kpi_df.drop_duplicates(subset=["機能ID"])
+        name_map = {str(f): ("" if pd.isna(n) else str(n))
+                    for f, n in zip(dedup["機能ID"], dedup["機能名称"])}
+    x_labels = [_label_fid_name(f, name_map.get(str(f), ""))
+                for f in z_df.index]
     data = np.ma.masked_invalid(z_df.T.values.astype(float))
     plt = _mpl_plt()
     import matplotlib as _mpl
@@ -6279,7 +6289,7 @@ def _mpl_chart_risk_heatmap(kpi_df: pd.DataFrame):
     ax.set_yticklabels(y_labels)
     ax.set_xticks(np.arange(len(x_labels)))
     ax.set_xticklabels(x_labels, rotation=-30, ha="left", fontsize=9)
-    ax.set_xlabel("機能ID")
+    ax.set_xlabel("機能ID：機能名")
     fig.colorbar(im, ax=ax, label="risk")
     fig.tight_layout()
     return _mpl_save(fig)
@@ -7621,28 +7631,31 @@ def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
         return
     section_header("chart_overview_compare", "help_chart_overview_compare")
     selected = _get_global_fids()
-    df = kpi_df.copy()
+    df_scope = kpi_df.copy()
     if selected:
-        df = df[df["機能ID"].astype(str).isin(selected)]
-    if df.empty:
+        df_scope = df_scope[df_scope["機能ID"].astype(str).isin(selected)]
+    if df_scope.empty:
         st.info(t("chart_overview_compare_empty"))
         return
-    # Aggregate to one row per 機能ID so duplicate (機能ID, 機能名称) pairs in
-    # the master don't double-count their joined LoC / tests / defect counts.
+    # Aggregate to one row per 機能ID *just for the card metrics*, so
+    # duplicate (機能ID, 機能名称) pairs in the master don't double-count
+    # their joined LoC / tests / defect counts. The chart builder below
+    # receives the pre-groupby df so it can preserve 機能名称 on its own
+    # groupby and render 機能ID：機能名 on the Y axis.
     grp_cols = [c for c, _, _ in available]
-    df = (df.groupby("機能ID", as_index=False)
-          .agg(**{c: (c, "mean") for c in grp_cols}))
+    df_cards = (df_scope.groupby("機能ID", as_index=False)
+                .agg(**{c: (c, "mean") for c in grp_cols}))
     cards = st.columns(len(available), gap="small")
-    n_fids = len(df)
+    n_fids = len(df_cards)
     fids_help = f"{n_fids} {t('chart_overview_compare_fids_suffix')}"
     total_prefix = t("chart_overview_compare_total_prefix")
     for (col, lbl, _color), card in zip(available, cards):
-        s = pd.to_numeric(df[col], errors="coerce").dropna()
+        s = pd.to_numeric(df_cards[col], errors="coerce").dropna()
         v = float(s.sum()) if len(s) else None
         card.metric(f"{total_prefix} {lbl}",
                     f"{int(v):,}" if v is not None else "—",
                     help=fids_help)
-    fig = _chart_overview_compare(df)
+    fig = _chart_overview_compare(df_scope)
     if fig is not None:
         st.plotly_chart(fig, use_container_width=True)
 
@@ -8783,7 +8796,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.39</span>
+    <span class="ver">Ver1.0.40</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
