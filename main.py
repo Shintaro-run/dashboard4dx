@@ -679,6 +679,83 @@ XXXXXXXXXXXXXXX..
 .X.X......X.X....
 .X.X......X.X....
 """,
+    # --- Prehistoric scenery / relic icons used as subtle section accents in
+    # the PDF report. Same ASCII-grid convention as the dinos above; kept
+    # small (≤14 wide) so they embed at ~14–18 px without dominating the
+    # section title.
+    # Volcano with a lava crown.
+    "volcano": """
+......X......
+.....XXX.....
+....XX.XX....
+...X..X..X...
+..XX.....XX..
+.XX.XX.XX.XX.
+XX.XX..XX..XX
+XXXXXXXXXXXXX
+""",
+    # Curled ammonite fossil.
+    "fossil": """
+..XXXXX..
+.X.....X.
+X..XXX..X
+X.X...X.X
+X.X.X.X.X
+X.X...X.X
+X..XXX..X
+.X.....X.
+..XXXXX..
+""",
+    # Palm tree with fronds + trunk (coconut era).
+    "palm": """
+...X.X.X...
+..X.XXX.X..
+.X.XXXXX.X.
+XX.XXXXX.XX
+.XXXXXXXXX.
+....XXX....
+....XXX....
+....XXX....
+....XXX....
+....XXX....
+""",
+    # Dino egg with speckle.
+    "egg": """
+...XXX...
+..XXXXX..
+.XXXXXXX.
+.XX.XXXX.
+XXXXXXXXX
+XXX.XXXXX
+XXXXXXXXX
+.XXXXXXX.
+..XXXXX..
+""",
+    # 3-toed dino footprint.
+    "footprint": """
+.X..X..X.
+XX..X..XX
+XX..X..XX
+.XXXXXXX.
+.XXXXXXX.
+..XXXXX..
+...XXX...
+""",
+    # Fern / prehistoric leaf curl.
+    "fern": """
+.....X....
+....XX....
+...XX.....
+..XX.X....
+.XX..XX...
+XX....XX..
+XX...X.X..
+XXX.XX.X..
+XXXX..XX..
+XXXXXXXX..
+.XXXXXX...
+..XX......
+""",
 }
 
 
@@ -707,6 +784,33 @@ def _grid_to_svg(grid: str) -> str:
 def get_dino_svg(name: str) -> str:
     """Return the SVG string for the named dinosaur (falls back to T-Rex)."""
     return _grid_to_svg(DINO_GRIDS.get(name, DINO_GRIDS["trex"]))
+
+
+def _pixel_icon_png(name: str, scale: int = 6,
+                     color: tuple[int, int, int] = (40, 40, 40)) -> bytes:
+    """Rasterize a DINO_GRIDS icon to PNG bytes for PDF embedding.
+
+    ReportLab accepts in-memory PNG via `Image(io.BytesIO(...))`; rendering
+    our ASCII grids straight to pixels (no SVG→PDF conversion) keeps the
+    PDF dependency surface small (Pillow only).
+    """
+    from PIL import Image as _PILImage  # local import keeps CLI startup lean
+    import numpy as _np
+    grid = DINO_GRIDS.get(name, DINO_GRIDS["trex"])
+    rows = [r for r in grid.strip("\n").split("\n") if r]
+    h = len(rows)
+    w = max(len(r) for r in rows)
+    arr = _np.zeros((h, w, 4), dtype=_np.uint8)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch == "X":
+                arr[y, x] = (*color, 255)
+    img = _PILImage.fromarray(arr, mode="RGBA").resize(
+        (w * scale, h * scale), _PILImage.NEAREST
+    )
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 def dino_data_uri(name: str, color: str = "currentColor") -> str:
@@ -2760,8 +2864,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_h_catchup":         "6. Estimated tests needed to reach the threshold",
         "td_pdf_col_current":       "Current density",
         "td_pdf_col_target":        "Target",
-        "td_pdf_col_additional":    "Additional tests (approx.)",
-        "td_pdf_catchup_note":      "Additional tests = ceil((threshold − current density) × design pages).",
+        "td_pdf_col_additional":    "Additional tests (recommended)",
+        "td_pdf_catchup_note":      "Recommended additional tests = ceil((threshold − current density) × design pages).",
         "td_pdf_h_advice":          "7. Recommended action to exceed the threshold",
         "td_pdf_advice_body":       (
             "<b>Walk through the design spec one page at a time and audit "
@@ -3441,8 +3545,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_h_catchup":         "6. 目標達成のために追加すべきテスト件数（試算）",
         "td_pdf_col_current":       "現密度",
         "td_pdf_col_target":        "目標",
-        "td_pdf_col_additional":    "追加テスト件数（概算）",
-        "td_pdf_catchup_note":      "追加テスト件数 ＝ ⌈(閾値 − 現密度) × 設計書頁数⌉。",
+        "td_pdf_col_additional":    "追加テスト件数（推奨）",
+        "td_pdf_catchup_note":      "推奨追加テスト件数 ＝ ⌈(閾値 − 現密度) × 設計書頁数⌉。",
         "td_pdf_h_advice":          "7. 閾値を上回るためのアクション（推奨）",
         "td_pdf_advice_body":       (
             "<b>設計書を1ページずつ棚卸しし、テスト観点の抜け漏れを点検する</b><br/>"
@@ -6414,40 +6518,83 @@ def generate_test_density_pdf(
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
         "TdTitle", parent=styles["Title"], fontName=JP_FONT,
-        fontSize=17, alignment=1, spaceAfter=6,
+        fontSize=18, alignment=1, spaceAfter=8,
     )
     filter_style = ParagraphStyle(
         "TdFilter", parent=styles["Normal"], fontName=JP_FONT,
         fontSize=11, alignment=1, textColor=colors.red,
-        spaceBefore=2, spaceAfter=8,
+        spaceBefore=2, spaceAfter=10,
     )
     meta_style = ParagraphStyle(
         "TdMeta", parent=styles["Normal"], fontName=JP_FONT,
-        fontSize=9, alignment=1, textColor=colors.grey, spaceAfter=10,
+        fontSize=9, alignment=1, textColor=colors.grey, spaceAfter=16,
     )
     h2_style = ParagraphStyle(
         "TdH2", parent=styles["Heading2"], fontName=JP_FONT,
-        fontSize=12, spaceAfter=4, spaceBefore=10,
+        fontSize=12, spaceAfter=2, spaceBefore=0,
         textColor=colors.HexColor("#2d6b4f"),
     )
     body_style = ParagraphStyle(
         "TdBody", parent=styles["Normal"], fontName=JP_FONT,
-        fontSize=9, leading=13,
+        fontSize=9, leading=15,
     )
     caption_style = ParagraphStyle(
         "TdCaption", parent=styles["Normal"], fontName=JP_FONT,
-        fontSize=8, textColor=colors.grey,
+        fontSize=8, textColor=colors.grey, leading=12,
     )
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf, pagesize=page_size,
         leftMargin=1.5 * cm, rightMargin=1.5 * cm,
-        topMargin=1.2 * cm, bottomMargin=1.4 * cm,
+        topMargin=1.6 * cm, bottomMargin=1.6 * cm,
     )
     story: list = []
 
-    # --- Title + filter banner ----------------------------------------------
+    # Short-lived image builder for in-PDF pixel icons; caches bytes so the
+    # same accent used twice (e.g. "egg" for output + notes) only rasterizes
+    # once per build.
+    _icon_cache: dict[tuple[str, int], bytes] = {}
+
+    def _icon_image(name: str, size_pt: float, scale: int = 4) -> Image:
+        key = (name, scale)
+        if key not in _icon_cache:
+            _icon_cache[key] = _pixel_icon_png(name, scale=scale)
+        # Square-ish render; actual aspect follows the grid.
+        grid = DINO_GRIDS.get(name, DINO_GRIDS["trex"])
+        rows = [r for r in grid.strip("\n").split("\n") if r]
+        gh = len(rows)
+        gw = max(len(r) for r in rows)
+        aspect = gh / gw
+        return Image(io.BytesIO(_icon_cache[key]),
+                     width=size_pt, height=size_pt * aspect)
+
+    def _section_heading(story_list, icon_name: str, text: str) -> None:
+        """Append a section heading row: small pixel icon + coloured title.
+        Renders as a 2-col Table so the icon sits on the baseline next to
+        the text without disturbing paragraph flow."""
+        story_list.append(Spacer(1, 14))
+        tbl = Table(
+            [[_icon_image(icon_name, 16), Paragraph(text, h2_style)]],
+            colWidths=[22, inner_w - 22],
+        )
+        tbl.setStyle(TableStyle([
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+            ("TOPPADDING",    (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]))
+        story_list.append(tbl)
+
+    # --- Title (TREX icon + title + banner + meta) --------------------------
+    title_icon = Image(
+        io.BytesIO(_pixel_icon_png("trex", scale=6)),
+        width=56, height=48,
+    )
+    title_icon.hAlign = "CENTER"
+    story.append(title_icon)
+    story.append(Spacer(1, 4))
     story.append(Paragraph(t("td_pdf_title"), title_style))
     if fid_filter_active:
         story.append(Paragraph(t("td_pdf_filter_active"), filter_style))
@@ -6465,7 +6612,7 @@ def generate_test_density_pdf(
     ))
 
     # --- Inputs table -------------------------------------------------------
-    story.append(Paragraph(t("td_pdf_h_inputs"), h2_style))
+    _section_heading(story, "fossil", t("td_pdf_h_inputs"))
     input_rows = [
         [t("td_pdf_col_item"), t("td_pdf_col_source"),
          t("td_pdf_col_method")],
@@ -6504,9 +6651,11 @@ def generate_test_density_pdf(
     story.append(input_tbl)
 
     # --- Output formula -----------------------------------------------------
-    story.append(Paragraph(t("td_pdf_h_output"), h2_style))
+    _section_heading(story, "egg", t("td_pdf_h_output"))
     story.append(Paragraph(t("td_pdf_output_formula"), body_style))
+    story.append(Spacer(1, 3))
     story.append(Paragraph(t("td_pdf_output_unit"), body_style))
+    story.append(Spacer(1, 3))
     story.append(Paragraph(t("td_pdf_output_meaning"), body_style))
 
     # --- Summary ------------------------------------------------------------
@@ -6518,7 +6667,7 @@ def generate_test_density_pdf(
         df = df.iloc[0:0]
 
     if df.empty:
-        story.append(Paragraph(t("td_pdf_h_summary"), h2_style))
+        _section_heading(story, "volcano", t("td_pdf_h_summary"))
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
         doc.build(story)
         pdf = buf.getvalue()
@@ -6534,7 +6683,7 @@ def generate_test_density_pdf(
     def _pct(n: int) -> str:
         return f"{n / n_total * 100:.1f}%" if n_total else "—"
 
-    story.append(Paragraph(t("td_pdf_h_summary"), h2_style))
+    _section_heading(story, "volcano", t("td_pdf_h_summary"))
     sum_rows = [
         [t("td_pdf_summary_total"),     f"{n_total}"],
         [t("td_pdf_summary_threshold"), f"{threshold:g} tests/page"],
@@ -6564,7 +6713,7 @@ def generate_test_density_pdf(
     story.append(sum_tbl)
 
     # --- Chart --------------------------------------------------------------
-    story.append(Paragraph(t("td_pdf_h_chart"), h2_style))
+    _section_heading(story, "palm", t("td_pdf_h_chart"))
     mpl_result = _mpl_chart_test_density(kpi_df)
     if mpl_result is None:
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
@@ -6588,9 +6737,9 @@ def generate_test_density_pdf(
         .sort_values("test_density", ascending=True)
         .reset_index(drop=True)
     )
-    story.append(Paragraph(
-        f"{t('td_pdf_h_below')} ({n_below})", h2_style,
-    ))
+    _section_heading(
+        story, "footprint", f"{t('td_pdf_h_below')} ({n_below})"
+    )
     if below_df.empty:
         story.append(Paragraph(t("td_pdf_below_none"), body_style))
     else:
@@ -6642,7 +6791,7 @@ def generate_test_density_pdf(
 
     # --- Catch-up estimate (only if there is something to fix) -------------
     if not below_df.empty:
-        story.append(Paragraph(t("td_pdf_h_catchup"), h2_style))
+        _section_heading(story, "fern", t("td_pdf_h_catchup"))
         header2 = [
             t("td_pdf_col_fid"), t("td_pdf_col_name"),
             t("td_pdf_col_current"), t("td_pdf_col_target"),
@@ -6683,15 +6832,46 @@ def generate_test_density_pdf(
             ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
         ]))
         story.append(catchup_tbl)
-        story.append(Spacer(1, 4))
+        story.append(Spacer(1, 6))
         story.append(Paragraph(t("td_pdf_catchup_note"), caption_style))
 
     # --- Advice + notes -----------------------------------------------------
-    story.append(Paragraph(t("td_pdf_h_advice"), h2_style))
+    _section_heading(story, "raptor", t("td_pdf_h_advice"))
     story.append(Paragraph(t("td_pdf_advice_body"), body_style))
 
-    story.append(Paragraph(t("td_pdf_h_notes"), h2_style))
+    _section_heading(story, "egg", t("td_pdf_h_notes"))
     story.append(Paragraph(t("td_pdf_notes_body"), body_style))
+    story.append(Spacer(1, 18))
+
+    # --- Footer accent: a small row of era icons centered --------------
+    footer_icons = [
+        _icon_image("volcano", 12),
+        _icon_image("fossil", 12),
+        _icon_image("palm", 12),
+        _icon_image("egg", 12),
+        _icon_image("footprint", 12),
+        _icon_image("fern", 12),
+    ]
+    # Interleave icons with narrow spacer cells so they don't crowd.
+    footer_cells = []
+    for i, ic in enumerate(footer_icons):
+        if i:
+            footer_cells.append("")
+        footer_cells.append(ic)
+    footer_tbl = Table(
+        [footer_cells],
+        colWidths=[14 if c == "" else 16 for c in footer_cells],
+    )
+    footer_tbl.setStyle(TableStyle([
+        ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 0),
+        ("TOPPADDING",    (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    footer_tbl.hAlign = "CENTER"
+    story.append(footer_tbl)
 
     doc.build(story)
     pdf = buf.getvalue()
@@ -8004,7 +8184,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.31</span>
+    <span class="ver">Ver1.0.32</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
