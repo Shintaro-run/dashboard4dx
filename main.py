@@ -822,6 +822,50 @@ def _pixel_icon_png(name: str, scale: int = 6,
     return buf.getvalue()
 
 
+def _pdf_apply_chrome(story, styles, jp_font):
+    """Shared chrome for every PDF report:
+
+      1. Appends a PageBreak + centred TREX signature page at the tail
+         of `story` — the report's visual bookend. TREX is reserved
+         for the app chrome everywhere else (v1.0.37); this final page
+         mirrors the header so the report literally opens and closes
+         with the app's signature sprite.
+      2. Returns a canvas callback usable on `onFirstPage` /
+         `onLaterPages` of `doc.multiBuild`, which draws a thin grey
+         "dashboard4dx" at the bottom-left corner of every rendered
+         page (using the caller's leftMargin so the anchor tracks
+         each report's layout).
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.platypus import Image, PageBreak, Paragraph, Spacer
+
+    signature_title_style = ParagraphStyle(
+        "PdfSignatureTitle", parent=styles["Title"], fontName=jp_font,
+        fontSize=26, alignment=1, textColor=colors.HexColor("#3aa872"),
+    )
+    signature_icon = Image(
+        io.BytesIO(_pixel_icon_png("trex", scale=10)),
+        width=120, height=100,
+    )
+    signature_icon.hAlign = "CENTER"
+    story.append(PageBreak())
+    # Push the bookend roughly to the vertical centre of the page.
+    story.append(Spacer(1, 9 * cm))
+    story.append(signature_icon)
+    story.append(Spacer(1, 22))
+    story.append(Paragraph("dashboard4dx", signature_title_style))
+
+    def _footer(canvas, doc):
+        canvas.saveState()
+        canvas.setFont(jp_font, 8)
+        canvas.setFillColor(colors.grey)
+        canvas.drawString(doc.leftMargin, 0.8 * cm, "dashboard4dx")
+        canvas.restoreState()
+    return _footer
+
+
 def dino_data_uri(name: str, color: str = "currentColor") -> str:
     """SVG data URI for inline use in <img src="..."> tags."""
     svg = get_dino_svg(name)
@@ -4390,8 +4434,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_notes_body":        (
             "・本指標は<b>「テスト件数の充足率」</b>であり、テストの網羅性・"
             "期待値の妥当性そのものは測りません。件数が多いだけでは品質は担保できません。<br/>"
-            "・設計書頁数は目視確認の手動入力値です。カウント基準を運用で統一"
-            "してください（目次・改版履歴の除外など）。<br/>"
+            "・設計書頁数は目視確認の手動入力値です。"
+            "目視確認のため、ミスがある可能性があります。<br/>"
             "・単純機能では閾値未満でも妥当な場合があります。機能特性と合わせて"
             "総合判断してください。"
         ),
@@ -8315,7 +8359,8 @@ def generate_report_pdf(
     story.append(Paragraph(_md_to_pdf(t("help_calendar_title")), body_style))
 
     _progress(t("pdf_step_assemble"))
-    doc.multiBuild(story)
+    _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+    doc.multiBuild(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -8586,7 +8631,9 @@ def generate_test_density_pdf(
     if df.empty:
         _section_heading(story, "volcano", t("td_pdf_h_summary"))
         story.append(Paragraph(t("pdf_no_chart"), caption_style))
-        doc.multiBuild(story)
+        _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+        doc.multiBuild(story, onFirstPage=_footer_cb,
+                       onLaterPages=_footer_cb)
         pdf = buf.getvalue()
         buf.close()
         return pdf
@@ -8794,7 +8841,8 @@ def generate_test_density_pdf(
     footer_tbl.hAlign = "CENTER"
     story.append(footer_tbl)
 
-    doc.multiBuild(story)
+    _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+    doc.multiBuild(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -8996,7 +9044,9 @@ def generate_role_analytics_pdf(
     if role_df.empty:
         story.append(Spacer(1, 10))
         story.append(Paragraph(t("role_analytics_no_matches"), body_style))
-        doc.multiBuild(story)
+        _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+        doc.multiBuild(story, onFirstPage=_footer_cb,
+                       onLaterPages=_footer_cb)
         pdf = buf.getvalue()
         buf.close()
         return pdf
@@ -9173,7 +9223,8 @@ def generate_role_analytics_pdf(
     footer_tbl.hAlign = "CENTER"
     story.append(footer_tbl)
 
-    doc.multiBuild(story)
+    _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+    doc.multiBuild(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
     pdf = buf.getvalue()
     buf.close()
     return pdf
@@ -11044,7 +11095,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.55</span>
+    <span class="ver">Ver1.0.56</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
