@@ -7449,6 +7449,20 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         "test_exec": t("role_count_test_exec"),
     }
 
+    # Excel-style data bar: ProgressColumn when the column has a positive
+    # maximum so the bar is meaningful; NumberColumn when everything is
+    # zero/NaN (ProgressColumn divides by max_value and would render empty).
+    def _bar_col(label: str, series: "pd.Series", fmt: str,
+                 max_value: Optional[float] = None):
+        s = pd.to_numeric(series, errors="coerce")
+        hi = (float(max_value) if max_value is not None
+              else (float(s.max()) if s.notna().any() else 0.0))
+        if hi and hi > 0:
+            return st.column_config.ProgressColumn(
+                label, format=fmt, min_value=0, max_value=hi,
+            )
+        return st.column_config.NumberColumn(label, format=fmt)
+
     # ----- View 1: Feature × assignee-by-role + KPIs -----
     ft = _build_feature_role_table(role_df, kpi_df)
     if not ft.empty:
@@ -7476,18 +7490,23 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
             **{rk: st.column_config.TextColumn(role_labels[rk])
                for rk in ROLE_KEYWORDS},
         }
+        # Rates are already on the 0..100 scale; pin the bar domain to 100
+        # so percentages read absolutely (85% always fills 85% of the cell)
+        # rather than rescaling to the current top feature.
         if "test_run_rate" in ft_disp.columns:
-            col_config_v1["test_run_rate"] = st.column_config.NumberColumn(
-                t("col_test_run_rate"), format="%.1f%%")
+            col_config_v1["test_run_rate"] = _bar_col(
+                t("col_test_run_rate"), ft_disp["test_run_rate"],
+                "%.1f%%", max_value=100.0)
         if "defect_total" in ft_disp.columns:
-            col_config_v1["defect_total"] = st.column_config.NumberColumn(
-                t("col_defect_total"), format="%d")
+            col_config_v1["defect_total"] = _bar_col(
+                t("col_defect_total"), ft_disp["defect_total"], "%d")
         if "incident_rate" in ft_disp.columns:
-            col_config_v1["incident_rate"] = st.column_config.NumberColumn(
-                t("col_incident_rate"), format="%.1f%%")
+            col_config_v1["incident_rate"] = _bar_col(
+                t("col_incident_rate"), ft_disp["incident_rate"],
+                "%.1f%%", max_value=100.0)
         if "NG" in ft_disp.columns:
-            col_config_v1["NG"] = st.column_config.NumberColumn(
-                t("col_test_ng"), format="%d")
+            col_config_v1["NG"] = _bar_col(
+                t("col_test_ng"), ft_disp["NG"], "%d")
         st.dataframe(
             ft_disp[cols_v1], use_container_width=True, hide_index=True,
             column_config=col_config_v1,
@@ -7511,18 +7530,23 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         ]
         col_config_v2: dict = {
             "担当者": st.column_config.TextColumn(t("col_assignee")),
-            **{rk: st.column_config.NumberColumn(
-                role_count_labels[rk], format="%d")
-               for rk in ROLE_KEYWORDS},
-            "feature_count": st.column_config.NumberColumn(
-                t("col_feature_count"), format="%d"),
-            "defect_total": st.column_config.NumberColumn(
-                t("col_defect_total"), format="%d"),
-            "avg_incident_rate": st.column_config.NumberColumn(
-                t("col_avg_incident_rate"), format="%.1f%%"),
+            **{rk: _bar_col(role_count_labels[rk],
+                            asum_disp[rk], "%d")
+               for rk in ROLE_KEYWORDS if rk in asum_disp.columns},
             "top3_problems": st.column_config.TextColumn(
                 t("col_top3_problems")),
         }
+        if "feature_count" in asum_disp.columns:
+            col_config_v2["feature_count"] = _bar_col(
+                t("col_feature_count"), asum_disp["feature_count"], "%d")
+        if "defect_total" in asum_disp.columns:
+            col_config_v2["defect_total"] = _bar_col(
+                t("col_defect_total"), asum_disp["defect_total"], "%d")
+        if "avg_incident_rate" in asum_disp.columns:
+            col_config_v2["avg_incident_rate"] = _bar_col(
+                t("col_avg_incident_rate"),
+                asum_disp["avg_incident_rate"], "%.1f%%",
+                max_value=100.0)
         st.dataframe(
             asum_disp[cols_v2], use_container_width=True, hide_index=True,
             column_config=col_config_v2,
@@ -8742,7 +8766,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.37</span>
+    <span class="ver">Ver1.0.38</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
