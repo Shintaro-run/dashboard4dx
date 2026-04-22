@@ -26,7 +26,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Font
 
 # =============================================================================
 # Persistent input store
@@ -1362,6 +1363,285 @@ def load_code_counts(file_bytes: bytes) -> pd.DataFrame:
             loc = None
         rows.append({"機能ID": fid, "LoC": loc})
     return pd.DataFrame(rows)
+
+
+# =============================================================================
+# ETL: Roster (team membership + gear assignment)
+# =============================================================================
+ROSTER_SHEET = "担当者一覧"
+ROSTER_COLS_ORDER = [
+    "チーム名", "担当者名", "PC貸与数", "専用携帯貸与数", "VPNアカウント",
+]
+
+
+def _parse_bool_lenient(v) -> bool:
+    """True/False from a spreadsheet cell. Accepts native booleans,
+    numeric 1/0, or the mix of JP/EN strings users commonly type:
+      - yes/true flavours: 1, '1', 'y','yes','true','○','有','あり'
+      - anything else (including blank / None / NaN) is False.
+    """
+    if v is None:
+        return False
+    try:
+        if pd.isna(v):
+            return False
+    except (TypeError, ValueError):
+        pass
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    s = unicodedata.normalize("NFKC", str(v)).strip().lower()
+    return s in {"1", "y", "yes", "true", "○", "有", "あり", "o"}
+
+
+def _parse_int_lenient(v) -> int:
+    """0 for None/blank/garbage; int() otherwise."""
+    if v is None:
+        return 0
+    try:
+        if pd.isna(v):
+            return 0
+    except (TypeError, ValueError):
+        pass
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return 0
+
+
+def load_roster(file_bytes: bytes) -> pd.DataFrame:
+    """Parse the 担当者一覧 xlsx.
+
+    Sheet ``担当者一覧``, header row 1 with columns (in order):
+        チーム名 / 担当者名 / PC貸与数 / 専用携帯貸与数 / VPNアカウント
+
+    VPN flag accepts the usual yes/no variants (see _parse_bool_lenient).
+    Assignee name is normalised so full-width / doubled / padded spaces
+    collapse — the same rule used by the WBS N-column so roster names
+    can be compared against 担当者×ロール analytics without drift.
+    """
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    if ROSTER_SHEET not in wb.sheetnames:
+        raise ValueError(f"Sheet '{ROSTER_SHEET}' not found in roster file.")
+    ws = wb[ROSTER_SHEET]
+    out: list[dict] = []
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return pd.DataFrame(columns=[
+            "team", "assignee", "pc_count", "phone_count", "vpn_account",
+        ])
+    # Header row: loose — only checks that *all* expected labels are
+    # somewhere in row 1 in the right order. Extra trailing columns are
+    # ignored, which lets templates carry notes / formulas without
+    # breaking the loader.
+    header = [str(c or "").strip() for c in rows[0]]
+    for want, got in zip(ROSTER_COLS_ORDER, header):
+        if want != got:
+            raise ValueError(
+                f"担当者一覧のヘッダー行が想定と異なります。"
+                f"期待: {ROSTER_COLS_ORDER} / 実際: {header[:5]}"
+            )
+    for r in rows[1:]:
+        if r is None:
+            continue
+        if all(c is None or str(c).strip() == "" for c in r[:2]):
+            continue  # skip wholly-blank / trailer rows
+        team = str(r[0] or "").strip() if len(r) > 0 else ""
+        assignee = _normalize_assignee(r[1]) if len(r) > 1 else ""
+        if not assignee:
+            continue
+        pc = _parse_int_lenient(r[2] if len(r) > 2 else 0)
+        phone = _parse_int_lenient(r[3] if len(r) > 3 else 0)
+        vpn = _parse_bool_lenient(r[4] if len(r) > 4 else None)
+        out.append({
+            "team": team, "assignee": assignee,
+            "pc_count": pc, "phone_count": phone,
+            "vpn_account": vpn,
+        })
+    return pd.DataFrame(out, columns=[
+        "team", "assignee", "pc_count", "phone_count", "vpn_account",
+    ])
+
+
+def generate_roster_template(sample: bool = True) -> bytes:
+    """Build a blank-or-lightly-seeded 担当者一覧 xlsx the user can edit.
+
+    `sample=True` pre-fills three example rows so first-time users see the
+    expected shape (team / name / numeric gear counts / yes/no VPN flag)
+    without guessing. Pass `sample=False` for a truly empty template."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = ROSTER_SHEET
+    for col_idx, h in enumerate(ROSTER_COLS_ORDER, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = Font(bold=True)
+    if sample:
+        seed = [
+            ("フロントエンド", "田中 太郎", 1, 1, True),
+            ("バックエンド",   "佐藤 花子", 1, 0, True),
+            ("QA",             "鈴木 次郎", 1, 0, False),
+        ]
+        for i, row in enumerate(seed, start=2):
+            for col_idx, v in enumerate(row, start=1):
+                ws.cell(row=i, column=col_idx, value=v)
+    # Reasonable default widths so the file opens readable.
+    for col_idx, width in enumerate([16, 22, 12, 14, 14], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx)
+                              .column_letter].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+# =============================================================================
+# ETL: Calendar (global events + per-assignee non-working days)
+# =============================================================================
+CAL_EVENT_SHEET = "イベント"
+CAL_EVENT_COLS_ORDER = ["日付", "タイトル", "説明"]
+CAL_NONWORK_SHEET = "非稼働日"
+CAL_NONWORK_COLS_ORDER = ["担当者名", "開始日", "終了日", "理由"]
+# On-calendar display range. Editable here; used by render to jump the
+# initial view when no events cross today.
+CAL_DISPLAY_START = date(2024, 1, 1)
+CAL_DISPLAY_END   = date(2027, 12, 31)
+
+
+def load_calendar(file_bytes: bytes) -> pd.DataFrame:
+    """Parse the calendar xlsx (2 sheets) into one long-form dataframe.
+
+    Returned columns:
+      kind          "event" or "nonwork"
+      assignee       担当者名 (nonwork only; '' for events)
+      start_date    date
+      end_date      date (same as start_date for single-day entries)
+      title         event title OR nonwork reason
+      description   free-text (events only; '' for nonwork)
+    """
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    out: list[dict] = []
+
+    # --- Events sheet ------------------------------------------------------
+    if CAL_EVENT_SHEET in wb.sheetnames:
+        ws = wb[CAL_EVENT_SHEET]
+        rows = list(ws.iter_rows(values_only=True))
+        if rows:
+            header = [str(c or "").strip() for c in rows[0]]
+            for want, got in zip(CAL_EVENT_COLS_ORDER, header):
+                if want != got:
+                    raise ValueError(
+                        f"「{CAL_EVENT_SHEET}」シートのヘッダー行が想定と"
+                        f"異なります。期待: {CAL_EVENT_COLS_ORDER} / "
+                        f"実際: {header[:3]}"
+                    )
+            for r in rows[1:]:
+                if r is None:
+                    continue
+                d = _to_date(r[0]) if len(r) > 0 else None
+                title = (str(r[1] or "").strip()
+                         if len(r) > 1 else "")
+                if d is None or not title:
+                    continue
+                desc = (str(r[2] or "").strip()
+                        if len(r) > 2 else "")
+                out.append({
+                    "kind": "event", "assignee": "",
+                    "start_date": d, "end_date": d,
+                    "title": title, "description": desc,
+                })
+
+    # --- Non-working days sheet -------------------------------------------
+    if CAL_NONWORK_SHEET in wb.sheetnames:
+        ws = wb[CAL_NONWORK_SHEET]
+        rows = list(ws.iter_rows(values_only=True))
+        if rows:
+            header = [str(c or "").strip() for c in rows[0]]
+            for want, got in zip(CAL_NONWORK_COLS_ORDER, header):
+                if want != got:
+                    raise ValueError(
+                        f"「{CAL_NONWORK_SHEET}」シートのヘッダー行が想定と"
+                        f"異なります。期待: {CAL_NONWORK_COLS_ORDER} / "
+                        f"実際: {header[:4]}"
+                    )
+            for r in rows[1:]:
+                if r is None:
+                    continue
+                assignee_raw = r[0] if len(r) > 0 else None
+                assignee = _normalize_assignee(assignee_raw)
+                start = _to_date(r[1]) if len(r) > 1 else None
+                end = _to_date(r[2]) if len(r) > 2 else None
+                reason = (str(r[3] or "").strip()
+                          if len(r) > 3 else "")
+                if not assignee or start is None:
+                    continue
+                if end is None:
+                    end = start
+                if end < start:
+                    # Swap obvious input mistakes rather than dropping.
+                    start, end = end, start
+                out.append({
+                    "kind": "nonwork", "assignee": assignee,
+                    "start_date": start, "end_date": end,
+                    "title": reason, "description": "",
+                })
+
+    return pd.DataFrame(out, columns=[
+        "kind", "assignee", "start_date", "end_date",
+        "title", "description",
+    ])
+
+
+def generate_calendar_template(sample: bool = True) -> bytes:
+    """Build the 2-sheet calendar template. Empty rows otherwise; `sample`
+    adds a handful of example entries in each sheet so users see the
+    shape expected (date format, assignee name, open-ended description)."""
+    wb = Workbook()
+    # --- Events sheet ------------------------------------------------------
+    ws_e = wb.active
+    ws_e.title = CAL_EVENT_SHEET
+    for col_idx, h in enumerate(CAL_EVENT_COLS_ORDER, start=1):
+        c = ws_e.cell(row=1, column=col_idx, value=h)
+        c.font = Font(bold=True)
+    if sample:
+        seed_events = [
+            (date(2025, 4, 1),  "年度開始",        "全社キックオフ"),
+            (date(2025, 10, 1), "下期キックオフ",  "半期レビュー+方針"),
+            (date(2025, 12, 25),"全社MTG（年末）", ""),
+        ]
+        for i, row in enumerate(seed_events, start=2):
+            ws_e.cell(row=i, column=1, value=row[0])
+            ws_e.cell(row=i, column=1).number_format = "yyyy-mm-dd"
+            ws_e.cell(row=i, column=2, value=row[1])
+            ws_e.cell(row=i, column=3, value=row[2])
+    for col_idx, width in enumerate([14, 28, 40], start=1):
+        ws_e.column_dimensions[ws_e.cell(row=1, column=col_idx)
+                                 .column_letter].width = width
+
+    # --- Non-working days sheet -------------------------------------------
+    ws_n = wb.create_sheet(CAL_NONWORK_SHEET)
+    for col_idx, h in enumerate(CAL_NONWORK_COLS_ORDER, start=1):
+        c = ws_n.cell(row=1, column=col_idx, value=h)
+        c.font = Font(bold=True)
+    if sample:
+        seed_nonwork = [
+            ("田中 太郎", date(2025, 5, 1),  date(2025, 5, 2),  "有給"),
+            ("佐藤 花子", date(2025, 5, 7),  date(2025, 5, 7),  "半休"),
+            ("鈴木 次郎", date(2025, 8, 11), date(2025, 8, 15), "夏季休暇"),
+        ]
+        for i, row in enumerate(seed_nonwork, start=2):
+            ws_n.cell(row=i, column=1, value=row[0])
+            ws_n.cell(row=i, column=2, value=row[1])
+            ws_n.cell(row=i, column=2).number_format = "yyyy-mm-dd"
+            ws_n.cell(row=i, column=3, value=row[2])
+            ws_n.cell(row=i, column=3).number_format = "yyyy-mm-dd"
+            ws_n.cell(row=i, column=4, value=row[3])
+    for col_idx, width in enumerate([22, 14, 14, 28], start=1):
+        ws_n.column_dimensions[ws_n.cell(row=1, column=col_idx)
+                                 .column_letter].width = width
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
 
 
 # =============================================================================
@@ -3195,6 +3475,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_tests_hint": "A=ID · C=total · D=run · E=OK · F=NG",
         "src_code_label": "LoC per Function ID",
         "src_code_hint": "sheet 機能ID別サマリ · A=ID, B=LoC",
+        "src_roster_label":   "Roster",
+        "src_roster_hint":    "team / assignee / PC / phone / VPN (xlsx)",
+        "src_calendar_label": "Calendar (events + non-working days)",
+        "src_calendar_hint":  "2 sheets: events + non-working days (xlsx)",
+        "card_template_dl":   "⬇ template ({label})",
+        "calendar_layer_events":  "Show events",
+        "calendar_layer_nonwork": "Show non-working days",
         # Validation messages
         "err_zero_rows": "parsed 0 rows — check sheet name / column layout",
         "warn_master_dups": (
@@ -4047,6 +4334,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_tests_hint": "A=ID · C=総数 · D=実施 · E=OK · F=NG",
         "src_code_label": "機能ID別コード行数",
         "src_code_hint": "シート 機能ID別サマリ · A=ID, B=LoC",
+        "src_roster_label":   "担当者一覧",
+        "src_roster_hint":    "チーム / 担当者名 / PC / 携帯 / VPN (xlsx)",
+        "src_calendar_label": "カレンダー (イベント+非稼働日)",
+        "src_calendar_hint":  "2シート: イベント+非稼働日 (xlsx)",
+        "card_template_dl":   "⬇ テンプレをDL ({label})",
+        "calendar_layer_events":  "イベント表示",
+        "calendar_layer_nonwork": "非稼働表示",
         "err_zero_rows": "0行しか読めませんでした — シート名や列構成をご確認ください",
         "warn_master_dups": "{n}件の機能IDに複数の名称がありました（全て保持しています）",
         "warn_tests_overrun": "{n}行で 実施済 > 総テスト になっています",
@@ -4120,6 +4414,30 @@ SOURCE_SPECS: list[dict] = [
         "types": ["xlsx", "xlsm"],
         "loader": load_code_counts,
         "required": False,
+    },
+    {
+        "key": "roster",
+        "label_key": "src_roster_label",
+        "hint_key": "src_roster_hint",
+        "icon": "👥",
+        "types": ["xlsx", "xlsm"],
+        "loader": load_roster,
+        "required": False,
+        # Present? → a "テンプレDL" button appears on the upload card so
+        # users can start from a filled-out shape instead of guessing.
+        "template_fn": generate_roster_template,
+        "template_filename": "roster_template.xlsx",
+    },
+    {
+        "key": "calendar",
+        "label_key": "src_calendar_label",
+        "hint_key": "src_calendar_hint",
+        "icon": "🗓️",
+        "types": ["xlsx", "xlsm"],
+        "loader": load_calendar,
+        "required": False,
+        "template_fn": generate_calendar_template,
+        "template_filename": "calendar_template.xlsx",
     },
 ]
 
@@ -4529,6 +4847,33 @@ def render_upload_card(spec: dict) -> None:
             label_visibility="collapsed",
             accept_multiple_files=False,
         )
+
+        # ----- Template download (when the slot provides one) ---------------
+        # A tiny ⬇ button that generates a pristine template in-memory and
+        # offers it for download. Appears only for slots that set a
+        # `template_fn` in SOURCE_SPECS (roster / calendar right now).
+        tpl_fn = spec.get("template_fn")
+        if tpl_fn is not None:
+            try:
+                tpl_bytes = tpl_fn()
+            except Exception as exc:
+                _get_logger().exception(
+                    f"[template] {spec['key']} build failed: {exc}")
+                tpl_bytes = b""
+            if tpl_bytes:
+                st.download_button(
+                    label=t("card_template_dl", label=label),
+                    data=tpl_bytes,
+                    file_name=spec.get(
+                        "template_filename",
+                        f"{spec['key']}_template.xlsx"),
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument"
+                        ".spreadsheetml.sheet"
+                    ),
+                    key=f"template_{spec['key']}",
+                    use_container_width=True,
+                )
 
         # ----- Resolve the data source: explicit upload > latest from input/ -
         data: Optional[bytes] = None
@@ -5013,14 +5358,16 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
 def render_dashboard_tab() -> None:
     """Tab 1 — sources upload + the integrated tables."""
     st.subheader(t("sec1_title"))
-    top = st.columns(3, gap="small")
-    for spec, col in zip(SOURCE_SPECS[:3], top):
-        with col:
-            render_upload_card(spec)
-    bottom = st.columns(3, gap="small")
-    for spec, col in zip(SOURCE_SPECS[3:], bottom[:2]):
-        with col:
-            render_upload_card(spec)
+    # Seven source slots: laid out 3 + 3 + 1 (empty slots filled for
+    # spacing so the last row's card doesn't stretch full-width). The
+    # horizontal-scroll card rail is a Phase 2 task; this grid is the
+    # stop-gap layout that keeps every card addressable.
+    rows = [SOURCE_SPECS[i:i + 3] for i in range(0, len(SOURCE_SPECS), 3)]
+    for row in rows:
+        cols = st.columns(3, gap="small")
+        for spec, col in zip(row, cols):
+            with col:
+                render_upload_card(spec)
 
     kpi_df = get_current_kpi_df()
     if kpi_df is None:
@@ -9355,7 +9702,7 @@ def render_calendar_tab() -> None:
 
     selected_fids = _get_global_fids()
 
-    layer_cols = st.columns(4)
+    layer_cols = st.columns(6)
     with layer_cols[0]:
         show_planned = st.checkbox(t("calendar_layer_planned"), value=True,
                                    key="cal_layer_planned")
@@ -9368,6 +9715,12 @@ def render_calendar_tab() -> None:
     with layer_cols[3]:
         show_subtasks = st.checkbox(t("calendar_layer_subtasks"), value=False,
                                     key="cal_layer_subtasks")
+    with layer_cols[4]:
+        show_events = st.checkbox(t("calendar_layer_events"), value=True,
+                                  key="cal_layer_events")
+    with layer_cols[5]:
+        show_nonwork = st.checkbox(t("calendar_layer_nonwork"), value=True,
+                                   key="cal_layer_nonwork")
 
     if selected_fids:
         kpi_df = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
@@ -9569,6 +9922,59 @@ def render_calendar_tab() -> None:
                 "borderColor": color,
             })
 
+    # ----- Imported calendar entries (global events + 非稼働日) ------------
+    # `calendar` is the optional new source (Dashboard upload card). Each
+    # row is already discriminated by `kind`. FID filter does NOT narrow
+    # these — events are global, non-working days are per-assignee.
+    cal_df = st.session_state.dfs.get("calendar")
+    if cal_df is not None and not cal_df.empty:
+        # Deep purple for company-wide events; muted olive grey for
+        # non-working days so they don't fight the WBS/defect layers.
+        EV_BG = "#7c4db0"
+        EV_BORDER = "#5e3a8a"
+        NW_BG = "#8f9a6c"
+        NW_BORDER = "#6b7552"
+        if show_events:
+            ev_rows = cal_df[cal_df["kind"] == "event"]
+            for _, row in ev_rows.iterrows():
+                sd = row.get("start_date")
+                if sd is None or pd.isna(sd):
+                    continue
+                ed = row.get("end_date") or sd
+                # FullCalendar `end` is exclusive; bump by one day so the
+                # event covers its last day.
+                end_iso = (ed + timedelta(days=1)).isoformat()
+                title = str(row.get("title") or "").strip()
+                events.append({
+                    "title": f"🎉 {title}" if title else "🎉",
+                    "start": sd.isoformat(),
+                    "end": end_iso,
+                    "backgroundColor": EV_BG,
+                    "borderColor": EV_BORDER,
+                    "textColor": "#ffffff",
+                })
+        if show_nonwork:
+            nw_rows = cal_df[cal_df["kind"] == "nonwork"]
+            for _, row in nw_rows.iterrows():
+                sd = row.get("start_date")
+                if sd is None or pd.isna(sd):
+                    continue
+                ed = row.get("end_date") or sd
+                end_iso = (ed + timedelta(days=1)).isoformat()
+                assignee = str(row.get("assignee") or "").strip() or "—"
+                reason = str(row.get("title") or "").strip()
+                # Herb-leaf glyph per the agreed "olive-like" styling.
+                title = (f"🌿 {assignee}  ({reason})" if reason
+                         else f"🌿 {assignee}")
+                events.append({
+                    "title": title,
+                    "start": sd.isoformat(),
+                    "end": end_iso,
+                    "backgroundColor": NW_BG,
+                    "borderColor": NW_BORDER,
+                    "textColor": "#ffffff",
+                })
+
     st.markdown(f"### {t('calendar_section')}")
     st.caption(t("calendar_event_count", n=len(events)))
 
@@ -9583,6 +9989,13 @@ def render_calendar_tab() -> None:
     options = {
         "initialView": "dayGridMonth",
         "initialDate": earliest,
+        # Keep navigation bounded to the supported 4-year window (see
+        # CAL_DISPLAY_START / CAL_DISPLAY_END). FullCalendar treats the
+        # `end` as exclusive, so advance by one day to include Dec 31.
+        "validRange": {
+            "start": CAL_DISPLAY_START.isoformat(),
+            "end":   (CAL_DISPLAY_END + timedelta(days=1)).isoformat(),
+        },
         "headerToolbar": {
             "left": "prev,next today",
             "center": "title",
@@ -10206,7 +10619,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.46</span>
+    <span class="ver">Ver1.0.47</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

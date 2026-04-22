@@ -444,6 +444,91 @@ def make_code_counts() -> Path:
     return out
 
 
+def make_roster() -> Path:
+    """Write a 担当者一覧 xlsx matching load_roster's expected shape.
+    Names overlap with the WBS assignee pool so the Phase-3 roster ⇄
+    role-analytics join would hit (even though only Phase 1 is live)."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "担当者一覧"
+    headers = ["チーム名", "担当者名", "PC貸与数", "専用携帯貸与数",
+               "VPNアカウント"]
+    for col_idx, h in enumerate(headers, start=1):
+        ws.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
+    # Echoing the WBS role pool (WBS_ROLE_ASSIGNEES) so names line up
+    # with the 担当者×ロール analytics. Mix of team assignments +
+    # gear + VPN flag for demo realism.
+    seed = [
+        ("フロントエンド", "田中", 1, 1, True),
+        ("フロントエンド", "佐藤", 1, 0, True),
+        ("バックエンド",   "高橋", 1, 1, True),
+        ("バックエンド",   "伊藤", 1, 0, False),
+        ("QA",             "鈴木", 1, 0, True),
+        ("QA",             "小林", 1, 0, False),
+        ("インフラ",       "渡辺", 2, 1, True),
+        ("インフラ",       "中村", 1, 0, True),
+    ]
+    for i, row in enumerate(seed, start=2):
+        for col_idx, v in enumerate(row, start=1):
+            ws.cell(row=i, column=col_idx, value=v)
+    for col_idx, width in enumerate([16, 22, 12, 14, 14], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx)
+                              .column_letter].width = width
+    out = OUT_DIR / "roster.xlsx"
+    wb.save(out)
+    return out
+
+
+def make_calendar() -> Path:
+    """2-sheet calendar xlsx. `イベント` + `非稼働日`. Dates straddle the
+    project phase window so some events land on the Gantt too."""
+    wb = Workbook()
+    # --- Events sheet --------------------------------------------------
+    ws_e = wb.active
+    ws_e.title = "イベント"
+    for col_idx, h in enumerate(["日付", "タイトル", "説明"], start=1):
+        ws_e.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
+    events = [
+        (date(2026, 1, 15), "キックオフMTG",      "全社キックオフ"),
+        (date(2026, 3, 15), "Designレビュー",     "中間レビュー+意思決定"),
+        (date(2026, 4, 20), "リリース判定会議",   "Goサインの有無確認"),
+        (date(2026, 5, 20), "ポストモーテム",     "品質振り返り"),
+    ]
+    for i, (d, title, desc) in enumerate(events, start=2):
+        ws_e.cell(row=i, column=1, value=d).number_format = "yyyy-mm-dd"
+        ws_e.cell(row=i, column=2, value=title)
+        ws_e.cell(row=i, column=3, value=desc)
+    for col_idx, width in enumerate([14, 28, 40], start=1):
+        ws_e.column_dimensions[ws_e.cell(row=1, column=col_idx)
+                                 .column_letter].width = width
+
+    # --- Non-working sheet --------------------------------------------
+    ws_n = wb.create_sheet("非稼働日")
+    for col_idx, h in enumerate(["担当者名", "開始日", "終了日", "理由"],
+                                 start=1):
+        ws_n.cell(row=1, column=col_idx, value=h).font = Font(bold=True)
+    nonwork = [
+        ("田中", date(2026, 2, 9),  date(2026, 2, 10), "有給"),
+        ("佐藤", date(2026, 3, 2),  date(2026, 3, 2),  "半休"),
+        ("鈴木", date(2026, 4, 27), date(2026, 5, 1),  "連休+有給"),
+        ("高橋", date(2026, 5, 11), date(2026, 5, 15), "夏季休暇"),
+        ("小林", date(2026, 3, 23), date(2026, 3, 23), "通院"),
+        ("渡辺", date(2026, 4, 6),  date(2026, 4, 6),  "私用"),
+    ]
+    for i, (name, s, e, reason) in enumerate(nonwork, start=2):
+        ws_n.cell(row=i, column=1, value=name)
+        ws_n.cell(row=i, column=2, value=s).number_format = "yyyy-mm-dd"
+        ws_n.cell(row=i, column=3, value=e).number_format = "yyyy-mm-dd"
+        ws_n.cell(row=i, column=4, value=reason)
+    for col_idx, width in enumerate([22, 14, 14, 28], start=1):
+        ws_n.column_dimensions[ws_n.cell(row=1, column=col_idx)
+                                 .column_letter].width = width
+
+    out = OUT_DIR / "calendar.xlsx"
+    wb.save(out)
+    return out
+
+
 def main() -> None:
     print("Generating sample files into", OUT_DIR)
     for path in [
@@ -452,6 +537,8 @@ def main() -> None:
         make_defects(),
         make_test_counts(),
         make_code_counts(),
+        make_roster(),
+        make_calendar(),
     ]:
         size = path.stat().st_size
         print(f"  {path.name:28s} {size:>8,} bytes")
