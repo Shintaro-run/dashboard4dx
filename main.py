@@ -3604,9 +3604,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "Calendar (events + non-working days)",
         "src_calendar_hint":  "2 sheets: events + non-working days (xlsx)",
         "card_template_dl":   "⬇ template ({label})",
-        "card_dl_template_help": "Download a blank / lightly-seeded template for this source.",
-        "card_dl_sample_help":   "Download the bundled sample file for this source.",
-        "card_dl_latest_help":   "Download the most recently loaded file for this source ({name}).",
+        "card_dl_template_help": "Download a template",
+        "card_dl_sample_help":   "Download sample data",
+        "card_dl_latest_help":   "Download the most recently loaded file ({name})",
         "src_rail_hint":      "⇄ scroll horizontally to browse all sources",
         "calendar_layer_events":  "Show events",
         "calendar_layer_nonwork": "Show non-working days",
@@ -4468,8 +4468,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_calendar_label": "カレンダー (イベント+非稼働日)",
         "src_calendar_hint":  "2シート: イベント+非稼働日 (xlsx)",
         "card_template_dl":   "⬇ テンプレをDL ({label})",
-        "card_dl_template_help": "このソースの空（または軽くシードされた）テンプレをダウンロード",
-        "card_dl_sample_help":   "このソースの同梱サンプルファイルをダウンロード",
+        "card_dl_template_help": "テンプレートをダウンロード",
+        "card_dl_sample_help":   "サンプルデータをダウンロード",
         "card_dl_latest_help":   "直近に取り込んだファイルをダウンロード（{name}）",
         "src_rail_hint":      "⇄ 横にスクロールして全ソースを閲覧",
         "calendar_layer_events":  "イベント表示",
@@ -10910,7 +10910,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.51</span>
+    <span class="ver">Ver1.0.52</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
