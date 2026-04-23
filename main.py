@@ -11382,6 +11382,19 @@ def render_design_pages_tab() -> None:
     state: dict[str, int] = st.session_state.design_pages_state
 
     unique_fids = sorted(master["機能ID"].unique())
+    # Pull 機能名称 from the master (first non-null per ID). Joined back onto
+    # the editor so users can see the feature name alongside its page count
+    # without bouncing to the 機能ID一覧.
+    name_map: dict[str, str] = {}
+    if "機能名称" in master.columns:
+        name_series = (
+            master.dropna(subset=["機能名称"])
+                  .groupby("機能ID")["機能名称"]
+                  .first()
+        )
+        name_map = {
+            str(k): str(v) for k, v in name_series.items() if str(v).strip()
+        }
     # float64 + NaN is much more reliable inside data_editor than Int64 + NA;
     # the Int64 nullable variant requires two clicks to commit the first value
     # because the frontend treats the cell as text until it has a numeric type.
@@ -11391,6 +11404,7 @@ def render_design_pages_tab() -> None:
     ]
     initial_df = pd.DataFrame({
         "機能ID": unique_fids,
+        "機能名称": [name_map.get(fid, "") for fid in unique_fids],
         "設計書ページ数": pd.array(initial_values, dtype="float64"),
     })
     editor_height = min(40 + 36 * len(unique_fids), 700)
@@ -11410,6 +11424,9 @@ def render_design_pages_tab() -> None:
             column_config={
                 "機能ID": st.column_config.TextColumn(
                     disabled=True, width="small",
+                ),
+                "機能名称": st.column_config.TextColumn(
+                    disabled=True, width="medium",
                 ),
                 "設計書ページ数": st.column_config.NumberColumn(
                     min_value=0,
@@ -11958,7 +11975,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.66</span>
+    <span class="ver">Ver1.0.67</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
