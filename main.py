@@ -246,7 +246,15 @@ def save_user_settings() -> None:
 
 
 def load_design_pages() -> dict[str, int]:
-    """Load saved design page counts. Returns {} on missing/invalid file."""
+    """Load saved design page counts. Returns {} on missing/invalid file.
+
+    Keys are routed through the same `_normalize_fid` helper that every
+    other source uses so a pre-change JSON with lowercase / mixed-case
+    entries merges cleanly against the (now uppercased) master FIDs.
+    When two keys collapse to the same canonical FID the later value
+    wins — mirrors how a user with duplicates would expect merge-last
+    semantics from an edit flow.
+    """
     if not DESIGN_PAGES_FILE.exists():
         return {}
     try:
@@ -260,7 +268,8 @@ def load_design_pages() -> dict[str, int]:
             try:
                 if v is None or v == "":
                     continue
-                out[str(k)] = int(v)
+                canon = _normalize_fid(k) or str(k)
+                out[canon] = int(v)
             except (TypeError, ValueError):
                 continue
     return out
@@ -424,10 +433,12 @@ _FID_BARE_RE = re.compile(r"^[A-Za-z]{1,10}\d{1,10}$")
 # Labeled form: "機能ID：XXXX" / "機能ID:XXXX". Capture liberally and validate
 # against _FID_BARE_RE afterwards.
 _FID_LABELED_RE = re.compile(r"機能ID\s*[：:]\s*(\S+)")
-# "FID:name" / "FID：name" — a bare FID followed by a colon and trailing
-# title/text (all full-width chars are already NFKC-normalised to half-width
-# at the caller). Captures just the FID portion.
-_FID_PREFIX_RE = re.compile(r"^([A-Za-z]{1,10}\d{1,10})\s*:")
+# "FID<sep>name" — a bare FID followed by a separator then trailing title.
+# Accepted separators (after NFKC normalises full-width): colon (:), hyphen,
+# or any whitespace (half-width ASCII space, tab, or full-width U+3000 —
+# Python's \s is Unicode-aware so U+3000 matches without special-casing).
+# Captures just the FID portion.
+_FID_PREFIX_RE = re.compile(r"^([A-Za-z]{1,10}\d{1,10})[\s:\-]")
 
 
 # =============================================================================
@@ -445,11 +456,15 @@ def _normalize_fid(value) -> Optional[str]:
     """Extract a Function ID from a cell value.
 
     Accepts (after NFKC-normalising full-width → half-width):
-      • '機能ID：XXXX' / '機能ID:XXXX'         (labeled)
-      • 'XXXX：何かの機能名' / 'XXXX:name'     (ID followed by colon + title)
+      • '機能ID：XXXX' / '機能ID:XXXX'               (labeled)
+      • 'XXXX<sep>何かの機能名' where <sep> is a colon, hyphen, or
+        any whitespace (half-width, tab, or full-width space)
       • bare 'XXXX'
     where XXXX is 1–10 ASCII letters followed by 1–10 ASCII digits
     (e.g. SYM1010 / AD44020 / F001 / AUTH001 / ADM01010).
+
+    Returns the extracted ID **uppercased** so cross-source joins don't
+    split AUTH001 / auth001 / Auth001 into three separate features.
     Returns None for empty or non-ID-shaped strings.
     """
     if value is None:
@@ -467,17 +482,18 @@ def _normalize_fid(value) -> Optional[str]:
         # Trim trailing punctuation that may follow the ID in free-text cells.
         cand = cand.rstrip("、。,.;:")
         if _FID_BARE_RE.match(cand):
-            return cand
+            return cand.upper()
         # Fall through: cand may be "XXXX:title" (labeled + titled).
         m2 = _FID_PREFIX_RE.match(cand)
-        return m2.group(1) if m2 else None
+        return m2.group(1).upper() if m2 else None
 
-    # "XXXX：title" / "XXXX:title" (no '機能ID' label)
+    # "XXXX<sep>title" (no '機能ID' label) — separator is colon / hyphen /
+    # whitespace per _FID_PREFIX_RE.
     m_prefix = _FID_PREFIX_RE.match(s)
     if m_prefix:
-        return m_prefix.group(1)
+        return m_prefix.group(1).upper()
 
-    return s if _FID_BARE_RE.match(s) else None
+    return s.upper() if _FID_BARE_RE.match(s) else None
 
 
 def _to_date(value) -> Optional[date]:
@@ -11223,7 +11239,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.59</span>
+    <span class="ver">Ver1.0.60</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
