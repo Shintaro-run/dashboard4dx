@@ -3443,14 +3443,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "role_test_spec":    "Test-spec (テスト仕様書作成)",
         "role_test_exec":    "Test-execution (テスト実施)",
         "role_unassigned":   "(unassigned)",
-        "role_count_dev":       "Dev (# sub-tasks)",
-        "role_count_test_spec": "Test-spec (# sub-tasks)",
-        "role_count_test_exec": "Test-exec (# sub-tasks)",
+        "role_count_dev":       "Dev (WBS sub-tasks)",
+        "role_count_test_spec": "Test-spec (WBS sub-tasks)",
+        "role_count_test_exec": "Test-exec (WBS sub-tasks)",
         "col_feature":          "Function ID : Name",
         "col_assignee":         "Assignee",
-        "col_feature_count":    "Features touched",
+        "col_feature_count":    "Features touched (WBS)",
         "col_avg_incident_rate": "Avg fault rate (Redmine)",
-        "col_top3_problems":    "Top-3 問題分類",
+        "col_top3_problems":    "Top-3 問題分類 (Redmine)",
         "problem_class_uncategorized": "(uncategorized)",
         # Column tooltips (hover help) for the role-analytics tables.
         "help_col_feature": (
@@ -4386,14 +4386,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "role_test_spec":    "テスト仕様書作成",
         "role_test_exec":    "テスト実施",
         "role_unassigned":   "（未割当）",
-        "role_count_dev":       "開発(件)",
-        "role_count_test_spec": "仕様書作成(件)",
-        "role_count_test_exec": "テスト実施(件)",
+        "role_count_dev":       "開発 (WBSサブタスク件)",
+        "role_count_test_spec": "仕様書作成 (WBSサブタスク件)",
+        "role_count_test_exec": "テスト実施 (WBSサブタスク件)",
         "col_feature":          "機能ID：機能名",
         "col_assignee":         "担当者",
-        "col_feature_count":    "関与機能数",
+        "col_feature_count":    "関与機能数 (WBS)",
         "col_avg_incident_rate": "平均障害発生率（Redmine）",
-        "col_top3_problems":    "問題分類 Top3",
+        "col_top3_problems":    "問題分類 Top3 (Redmine)",
         "problem_class_uncategorized": "（未分類）",
         # 列のマウスオーバー説明（担当者×ロール分析の各テーブル用）
         "help_col_feature": (
@@ -11256,7 +11256,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.61</span>
+    <span class="ver">Ver1.0.62</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
