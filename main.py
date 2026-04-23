@@ -3321,22 +3321,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_view1_title":   "View 1 — Feature × assignee-by-role + quality KPIs",
         "role_analytics_view1_caption": (
-            "One row per Function ID. Columns list the distinct assignees "
-            "for each role; KPIs are the feature's quality signals. Sorted "
-            "by Redmine fault rate (worst first)."
+            "One row per Function ID. Each role column lists the distinct "
+            "assignees drawn from the WBS sub-task N-column (with '/' as "
+            "separator); the right-hand columns are the feature's quality "
+            "signals. Sorted by Redmine fault rate (worst first)."
         ),
         "role_analytics_view2_title":   "View 2 — Assignee summary",
         "role_analytics_view2_caption": (
-            "One row per assignee. Counts are # of sub-tasks per role, "
-            "linked-feature counts, total Redmine defects on features they "
-            "touched, average fault rate on those features, and their top-3 "
-            "Redmine 問題分類."
+            "One row per assignee. Role columns are the count of WBS "
+            "sub-tasks the person handled for that role, followed by the "
+            "number of WBS-touched features, total Redmine defects on "
+            "those features, average Redmine fault rate across them, and "
+            "their top-3 Redmine 問題分類. Sorted by total Redmine "
+            "defects, descending."
         ),
         "role_analytics_view3_title":   "View 3 — Assignee × 問題分類 heatmap",
         "role_analytics_view3_caption": (
-            "Counts Redmine defects on each assignee's features, broken down "
-            "by 問題分類. Use the role filter to see, e.g., what kinds of "
-            "defects the developers' features attract vs. the test writers'."
+            "Counts Redmine defects on each assignee's WBS-linked features, "
+            "broken down by Redmine 問題分類. Use the role filter to see, "
+            "e.g., what kinds of defects the developers' features attract "
+            "vs. the test writers'."
         ),
         "role_analytics_view3_role_label": "Filter by role",
         "role_analytics_view3_role_all":   "All roles",
@@ -3350,22 +3354,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Assignee bubble map (breadth × quality × defect exposure)"
         ),
         "role_analytics_bubble_caption": (
-            "One bubble per assignee. X = features touched, "
-            "Y = avg fault rate on those features, size = total defects, "
-            "colour = dominant role. Dashed lines mark the overall "
-            "mean Y and the median X — top-right is the 'attention' "
-            "quadrant, bottom-right is 'reliable coverage'."
+            "One bubble per assignee. X = features they're on in the WBS, "
+            "Y = avg Redmine fault rate on those features, "
+            "size = total Redmine defects, colour = their dominant role "
+            "(derived from WBS sub-task names). Dashed lines mark the "
+            "overall mean Y and the median X — top-right is the "
+            "'attention' quadrant, bottom-right is 'reliable coverage'."
         ),
         "role_analytics_bubble_color_legend": "Dominant role",
         "role_analytics_strip_title": (
             "Problem-class mix per assignee (stacked % of their defects)"
         ),
         "role_analytics_strip_caption": (
-            "Each horizontal bar is one assignee's defect pool (100%), "
-            "broken down by 問題分類. Numbers inside each segment are "
-            "the raw defect counts for that (person, category) pair; "
-            "hover for '<count>件 (<pct>%)'. `n=` to the right is the "
-            "per-assignee total the percentages divide."
+            "Each horizontal bar is one assignee's Redmine defect pool "
+            "(100%) on their WBS-linked features, broken down by Redmine "
+            "問題分類. Numbers inside each segment are the raw Redmine "
+            "defect counts for that (person, category) pair; hover for "
+            "'<count>件 (<pct>%)'. `n=` to the right is the assignee's "
+            "total Redmine defect count the percentages divide."
         ),
         "role_analytics_strip_other": "Other",
         # In-tab navigation for the Charts tab.
@@ -3391,19 +3397,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ra_pdf_h_inputs":           "1. Inputs (where the numbers come from)",
         "ra_pdf_input_wbs":          "WBS sub-tasks (L=●, N=assignee)",
         "ra_pdf_input_wbs_note":     (
-            "Sub-task names are scanned for the role keywords; N column "
-            "is the 担当者."
+            "Sub-task names in the WBS are scanned for the role keywords; "
+            "column N of the WBS carries the 担当者."
         ),
         "ra_pdf_input_defects":      "Redmine defects (trackered '不具合管理')",
-        "ra_pdf_input_defects_note":  "Per-feature defect counts + 問題分類.",
+        "ra_pdf_input_defects_note":  (
+            "Per-feature defect counts and 問題分類 come from the Redmine "
+            "defect list."
+        ),
         "ra_pdf_input_tests":        "Test counts CSV",
-        "ra_pdf_input_tests_note":   "総テスト / 実施済 / NG columns.",
+        "ra_pdf_input_tests_note":   (
+            "総テスト / 実施済 / NG columns come from the test counts CSV."
+        ),
         "ra_pdf_h_rules":            "2. Role classification rules",
         "ra_pdf_rules_body": (
-            "A sub-task's name is matched (NFKC-normalised substring) "
-            "against three fixed keywords. A sub-task that contains "
-            "multiple keywords attributes to all matching roles; "
-            "sub-tasks with an empty N cell surface as <b>(unassigned)</b>."
+            "Each WBS sub-task name is matched (NFKC-normalised substring) "
+            "against three fixed keywords. A WBS sub-task whose name "
+            "contains multiple keywords attributes to all matching roles; "
+            "WBS sub-tasks whose N-column (assignee) cell is empty surface "
+            "as <b>(unassigned)</b>."
         ),
         "ra_pdf_rule_dev":       "<b>開発</b> / <b>実装</b> → Development",
         "ra_pdf_rule_test_spec": "<b>テスト仕様書作成</b> → Test-spec",
@@ -4258,22 +4270,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "role_analytics_view1_title":   "View 1 — 機能別 担当者ロールマップ & 品質KPI",
         "role_analytics_view1_caption": (
-            "1行につき1つの機能。各ロール列には担当者名を「 / 」で区切って"
-            "表示しています（重複は省いています）。右側の列は品質の指標で、"
-            "障害発生率が高い順（悪い順）に並んでいます。"
+            "1行につき1つの機能。各ロール列には WBS の該当サブタスクの"
+            "N列担当者を「 / 」で区切って表示しています（重複は省いています）。"
+            "右側の列は品質の指標で、Redmine の障害発生率が高い順（悪い順）に"
+            "並んでいます。"
         ),
         "role_analytics_view2_title":   "View 2 — 担当者サマリ",
         "role_analytics_view2_caption": (
-            "1行につき1人の担当者。ロール列はそのロールで担当したサブタスクの"
-            "件数、そのほか関わった機能の数、関連する障害の合計件数、平均障害"
-            "発生率、問題分類のトップ3を表示します。障害件数が多い順に並んで"
-            "います。"
+            "1行につき1人の担当者。ロール列は WBS サブタスクで担当した件数、"
+            "そのほか WBS 上で関わった機能の数、関連する Redmine 障害の"
+            "合計件数、Redmine 障害発生率の平均、Redmine 問題分類のトップ3 "
+            "を表示します。Redmine 障害件数が多い順に並んでいます。"
         ),
         "role_analytics_view3_title":   "View 3 — 担当者 × 問題分類 ヒートマップ",
         "role_analytics_view3_caption": (
-            "担当者が関与した機能に紐づくRedmine障害を問題分類別にカウント。"
-            "ロールで絞ると「開発担当者の機能はロジック系バグが多い」"
-            "などの偏りが見えます。"
+            "担当者が WBS で関与した機能に紐づく Redmine 障害を、"
+            "Redmine の問題分類別にカウント。ロールで絞ると"
+            "「開発担当者の機能はロジック系バグが多い」などの偏りが見えます。"
         ),
         "role_analytics_view3_role_label": "ロールで絞る",
         "role_analytics_view3_role_all":   "全ロール",
@@ -4286,23 +4299,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "担当者バブルマップ（広さ × 品質 × 障害量）"
         ),
         "role_analytics_bubble_caption": (
-            "1つのバブル＝1人の担当者。横軸はその人が関わった機能の数、"
-            "縦軸はそれらの機能の平均障害発生率、バブルの大きさは障害件数"
-            "の合計、色はその人のメインのロールを表します。破線は全体の"
-            "平均ライン。**右上＝広く関わって障害が多い（要注意）**、"
-            "**右下＝広く関わっているが品質が良い（頼れる）**、というように"
-            "4つのエリアで読み取れます。"
+            "1つのバブル＝1人の担当者。横軸は WBS サブタスクで関わった機能の数、"
+            "縦軸はそれらの機能の Redmine 障害発生率の平均、バブルの大きさは "
+            "Redmine 障害件数の合計、色はその人のメインのロール（WBS から判定）"
+            "を表します。破線は全体の平均ライン。**右上＝広く関わって障害が多い"
+            "（要注意）**、**右下＝広く関わっているが品質が良い（頼れる）**、"
+            "というように4つのエリアで読み取れます。"
         ),
         "role_analytics_bubble_color_legend": "ドミナントロール",
         "role_analytics_strip_title": (
             "担当者別 問題分類ミックス（その人の障害内訳を100%で積み上げ）"
         ),
         "role_analytics_strip_caption": (
-            "1行につき1人の担当者。その人が関わった機能で発生した障害を"
-            "100%として、問題分類ごとに色分けして積み上げています。"
-            "各色の中の数字はその分類の**件数**、ホバーすると"
-            "「N件（X.X%）」が表示されます。行の右端の「n=」は"
-            "その人の障害合計件数です。"
+            "1行につき1人の担当者。その人が WBS で関わった機能で発生した "
+            "Redmine 障害を 100% として、Redmine の問題分類ごとに色分けして"
+            "積み上げています。各色の中の数字はその分類の **Redmine 障害件数**、"
+            "ホバーすると「N件（X.X%）」が表示されます。行の右端の「n=」は"
+            "その人の Redmine 障害合計件数です。"
         ),
         "role_analytics_strip_other": "その他",
         # Charts タブのページ内ナビゲーション
@@ -4328,19 +4341,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "ra_pdf_h_inputs":           "1. データの出どころ",
         "ra_pdf_input_wbs":          "WBS サブタスク行（L=●, N=担当者）",
         "ra_pdf_input_wbs_note":     (
-            "サブタスク名に含まれるキーワードからロールを判定し、"
-            "N列を担当者として読み取ります。"
+            "WBS のサブタスク名に含まれるキーワードからロールを判定し、"
+            "同じく WBS の N列（担当者）を読み取ります。"
         ),
         "ra_pdf_input_defects":      "Redmine 障害一覧（トラッカー=不具合管理）",
-        "ra_pdf_input_defects_note":  "機能ごとの障害件数と問題分類を取得します。",
+        "ra_pdf_input_defects_note":  (
+            "Redmine の不具合一覧から、機能ごとの障害件数と問題分類を取得します。"
+        ),
         "ra_pdf_input_tests":        "仕様書別テスト集計CSV",
-        "ra_pdf_input_tests_note":   "総テスト数・実施済数・NG数を取得します。",
+        "ra_pdf_input_tests_note":   (
+            "仕様書別テスト集計CSV から、総テスト数・実施済数・NG数を取得します。"
+        ),
         "ra_pdf_h_rules":            "2. ロール判定ルール",
         "ra_pdf_rules_body": (
-            "サブタスク名に以下のキーワードが含まれているかを確認して"
+            "WBS の各サブタスク名に以下のキーワードが含まれているかを確認して"
             "ロールを判定します。1つのサブタスクに複数のキーワードが含まれていれば、"
-            "該当するすべてのロールに振り分けます。N列が空欄の場合は"
-            "<b>（未割当）</b>として集計します。"
+            "該当するすべてのロールに振り分けます。WBS の N列（担当者）が空欄の"
+            "場合は<b>（未割当）</b>として集計します。"
             "（全角／半角・前後の空白は自動で揃えます）"
         ),
         "ra_pdf_rule_dev":       "<b>開発</b> / <b>実装</b> → 開発",
@@ -11239,7 +11256,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.60</span>
+    <span class="ver">Ver1.0.61</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
