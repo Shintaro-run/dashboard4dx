@@ -6421,7 +6421,7 @@ def render_alert_tab() -> None:
 
 
 def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
-    """Render the 5-card DORA panel inside the Delivery tab.
+    """Render the DORA panel inside the Delivery tab.
 
     Each card shows the metric value (formatted), a tiny "completed N
     features over M days" caption, and a Good / Normal / Bad badge
@@ -6448,7 +6448,6 @@ def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
     # tooltip on st.metric so each card carries its definition + source
     # + formula inline, matching the tooltip convention elsewhere.
     metric_specs = [
-        ("frequency",   "dora_freq_title",        "help_dora_frequency"),
         ("lead_time",   "dora_lead_title",        "help_dora_lead_time"),
         ("cfr",         "dora_cfr_title",         "help_dora_cfr"),
         ("recovery",    "dora_recovery_title",    "help_dora_recovery"),
@@ -11959,7 +11958,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.65</span>
+    <span class="ver">Ver1.0.66</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
