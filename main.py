@@ -2765,29 +2765,34 @@ def project_kpi_summary(kpi_df: pd.DataFrame) -> dict:
 # =============================================================================
 # DORA-style team-delivery metrics (computed from existing sources)
 # =============================================================================
-# Thresholds follow the DORA 2024 research five-key model. The on-dashboard
-# panel shows these with an Elite / High / Medium / Low badge per metric.
+# Thresholds bucket each metric into a 3-tier badge keyed against the DORA
+# 2024 research bands, collapsed for faster comprehension:
+#   good   ≈ DORA Elite / High tier (above industry average)
+#   normal ≈ DORA Medium tier       (around industry average)
+#   bad    ≈ DORA Low tier          (below industry average)
 # Tunable here if a client wants stricter/looser bands.
 DORA_WINDOW_DAYS = 30
 
-_DORA_FREQ_THRESHOLDS = [(5.0, "elite"), (1.0, "high"), (0.25, "medium")]
-_DORA_LEAD_THRESHOLDS = [(1.0, "elite"), (7.0, "high"), (30.0, "medium")]
-_DORA_CFR_THRESHOLDS  = [(15.0, "elite"), (30.0, "high"), (45.0, "medium")]
-_DORA_RECOVERY_THRESHOLDS = [(1.0/24, "elite"), (1.0, "high"), (7.0, "medium")]
-_DORA_RELIABILITY_THRESHOLDS = [(5.0, "elite"), (15.0, "high"), (30.0, "medium")]
+# For HIGHER-is-better metrics (deployment frequency): thresholds descend.
+_DORA_FREQ_THRESHOLDS = [(1.0, "good"), (0.25, "normal")]
+# For LOWER-is-better metrics: thresholds ascend.
+_DORA_LEAD_THRESHOLDS        = [(7.0, "good"), (30.0, "normal")]
+_DORA_CFR_THRESHOLDS         = [(30.0, "good"), (45.0, "normal")]
+_DORA_RECOVERY_THRESHOLDS    = [(1.0, "good"), (7.0, "normal")]
+_DORA_RELIABILITY_THRESHOLDS = [(15.0, "good"), (30.0, "normal")]
 
 
 def _dora_rate_above(value: Optional[float],
                      thresholds: list[tuple[float, str]]) -> str:
     """Rating helper when HIGHER values rate better (Deployment Frequency).
     Walks the thresholds top-down and returns the first matching tier;
-    anything below the lowest breakpoint collapses to "low"."""
+    anything below the lowest breakpoint collapses to "bad"."""
     if value is None:
         return "unknown"
     for cutoff, rating in thresholds:
         if value >= cutoff:
             return rating
-    return "low"
+    return "bad"
 
 
 def _dora_rate_below(value: Optional[float],
@@ -2799,7 +2804,7 @@ def _dora_rate_below(value: Optional[float],
     for cutoff, rating in thresholds:
         if value <= cutoff:
             return rating
-    return "low"
+    return "bad"
 
 
 def compute_dora_metrics(
@@ -2923,13 +2928,18 @@ DEFAULT_LANG = "en"
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "intro_caption": "Integrated dashboard for the management team",
-        "main_tab_dashboard": "Dashboard",
+        "main_tab_dashboard": "Inputs",
         "main_tab_charts": "Charts",
         "main_tab_calendar": "Calendar",
         "main_tab_alert": "🚨 Alerts",
+        "main_tab_delivery": "🏁 Delivery",
         "main_tab_design": "Design pages",
         "main_tab_settings": "Settings",
-        # DORA 5Keys delivery-performance panel (Dashboard tab, top)
+        "delivery_needs_data": (
+            "Upload a Function master and WBS to see team delivery "
+            "performance."
+        ),
+        # DORA 5Keys delivery-performance panel (Delivery tab)
         "dora_section_title": "🏁 Team delivery performance (DORA 5Keys)",
         "dora_section_caption": (
             "Trailing {days} days — {n} features completed in window."
@@ -2942,26 +2952,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dora_unit_per_week":     "features / wk",
         "dora_unit_days":         "days",
         "dora_unit_percent":      "%",
-        "dora_rating_elite":      "Elite",
-        "dora_rating_high":       "High",
-        "dora_rating_medium":     "Medium",
-        "dora_rating_low":        "Low",
+        "dora_rating_good":       "Good",
+        "dora_rating_normal":     "Normal",
+        "dora_rating_bad":        "Bad",
         "dora_rating_unknown":    "—",
-        # Per-metric hover help for the DORA panel
+        # Per-metric hover help for the DORA panel. "Good / Normal / Bad"
+        # bands are collapsed from the DORA 2024 research bands (Elite +
+        # High → Good; Medium → Normal; Low → Bad).
         "help_dora_frequency": (
             "**🦕 Deployment frequency**\n\n"
             "🧮 Features completed in the last {days} days ÷ weeks.\n\n"
             "📂 Source: WBS **column T** (actual end date).\n\n"
-            "💡 DORA bands (2024): Elite ≥ 5/wk, High ≥ 1/wk, "
-            "Medium ≥ 0.25/wk, Low below."
+            "💡 vs industry average (DORA 2024): "
+            "Good ≥ 1/wk, Normal ≥ 0.25/wk, Bad below."
         ),
         "help_dora_lead_time": (
             "**🦕 Lead time for changes**\n\n"
             "🧮 Median days per completed feature = (actual_end − planned_start).\n\n"
             "📂 Source: WBS **column Q** (planned start) and **column T** "
             "(actual end).\n\n"
-            "💡 DORA bands (2024): Elite ≤ 1 day, High ≤ 7 days, "
-            "Medium ≤ 30 days, Low beyond."
+            "💡 vs industry average (DORA 2024): "
+            "Good ≤ 7 days, Normal ≤ 30 days, Bad beyond."
         ),
         "help_dora_cfr": (
             "**🦕 Change failure rate (CFR)**\n\n"
@@ -2969,24 +2980,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "one Redmine defect registered.\n\n"
             "📂 Source: WBS column T (in-window completions) × Redmine "
             "defect counts per Function ID.\n\n"
-            "💡 DORA bands (2024): Elite ≤ 15%, High ≤ 30%, "
-            "Medium ≤ 45%, Low beyond."
+            "💡 vs industry average (DORA 2024): "
+            "Good ≤ 30%, Normal ≤ 45%, Bad beyond."
         ),
         "help_dora_recovery": (
             "**🦕 Failed deployment recovery time**\n\n"
             "🧮 Median (実終了日 − 実開始日) of Redmine defects closed "
             "in the window.\n\n"
             "📂 Source: Redmine defect list — 実開始日 / 実終了日.\n\n"
-            "💡 DORA bands (2024): Elite ≤ 1 h, High ≤ 1 day, "
-            "Medium ≤ 7 days, Low beyond."
+            "💡 vs industry average (DORA 2024): "
+            "Good ≤ 1 day, Normal ≤ 7 days, Bad beyond."
         ),
         "help_dora_reliability": (
             "**🦕 Reliability (mean fault rate)**\n\n"
             "🧮 Mean of Redmine fault rate (defect_total ÷ 実施済) across "
             "all features.\n\n"
             "📂 Source: Redmine defect list × test counts column D.\n\n"
-            "💡 DORA bands: Elite ≤ 5%, High ≤ 15%, Medium ≤ 30%, "
-            "Low beyond."
+            "💡 Good ≤ 15%, Normal ≤ 30%, Bad beyond."
         ),
         # Alert tab (🚨)
         "alert_tab_title":   "Alerts — Function IDs that need attention",
@@ -4000,13 +4010,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "ja": {
         "intro_caption": "管理チーム用の統合ダッシュボードシステム",
-        "main_tab_dashboard": "ダッシュボード",
+        "main_tab_dashboard": "インプット",
         "main_tab_charts": "グラフ",
         "main_tab_calendar": "カレンダー",
         "main_tab_alert": "🚨 アラート",
+        "main_tab_delivery": "🏁 配信パフォーマンス",
         "main_tab_design": "設計書ページ数",
         "main_tab_settings": "設定",
-        # DORA 5Keys デリバリーパフォーマンスパネル（Dashboardタブ上部）
+        "delivery_needs_data": (
+            "機能マスタと WBS を取り込むとチーム配信パフォーマンスが表示されます。"
+        ),
+        # DORA 5Keys デリバリーパフォーマンスパネル（配信パフォーマンスタブ）
         "dora_section_title": "🏁 チーム配信パフォーマンス（DORA 5Keys）",
         "dora_section_caption": (
             "過去 {days} 日間 — 期間内に完了した機能 {n} 件"
@@ -4019,25 +4033,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dora_unit_per_week":     "機能 / 週",
         "dora_unit_days":         "日",
         "dora_unit_percent":      "%",
-        "dora_rating_elite":      "Elite",
-        "dora_rating_high":       "High",
-        "dora_rating_medium":     "Medium",
-        "dora_rating_low":        "Low",
+        "dora_rating_good":       "Good",
+        "dora_rating_normal":     "Normal",
+        "dora_rating_bad":        "Bad",
         "dora_rating_unknown":    "—",
-        # DORA 各指標のホバーツールチップ
+        # DORA 各指標のホバーツールチップ（Good / Normal / Bad の 3 段階は
+        # DORA 2024 の Elite + High → Good / Medium → Normal / Low → Bad
+        # を業界平均比較として集約した値）
         "help_dora_frequency": (
             "**🦕 配信頻度**\n\n"
             "🧮 過去{days}日間に完了した機能件数 ÷ 週数。\n\n"
             "📂 出典: WBS **T列**（終了実績日）。\n\n"
-            "💡 DORA 基準 (2024) : Elite ≥ 5件/週 / High ≥ 1件/週 / "
-            "Medium ≥ 0.25件/週 / Low それ未満。"
+            "💡 業界平均比較 (DORA 2024): "
+            "Good ≥ 1件/週 / Normal ≥ 0.25件/週 / Bad それ未満。"
         ),
         "help_dora_lead_time": (
             "**🦕 リードタイム**\n\n"
             "🧮 機能ごとの (終了実績日 − 開始予定日) の中央値（日）。\n\n"
             "📂 出典: WBS **Q列**（開始予定日）と **T列**（終了実績日）。\n\n"
-            "💡 DORA 基準 (2024) : Elite ≤ 1日 / High ≤ 7日 / "
-            "Medium ≤ 30日 / Low それ以上。"
+            "💡 業界平均比較 (DORA 2024): "
+            "Good ≤ 7日 / Normal ≤ 30日 / Bad それ以上。"
         ),
         "help_dora_cfr": (
             "**🦕 変更失敗率（CFR）**\n\n"
@@ -4045,23 +4060,22 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "ものの割合。\n\n"
             "📂 出典: WBS T列（期間内完了）× Redmine 不具合一覧"
             "（機能ID別件数）。\n\n"
-            "💡 DORA 基準 (2024) : Elite ≤ 15% / High ≤ 30% / "
-            "Medium ≤ 45% / Low それ以上。"
+            "💡 業界平均比較 (DORA 2024): "
+            "Good ≤ 30% / Normal ≤ 45% / Bad それ以上。"
         ),
         "help_dora_recovery": (
             "**🦕 障害復旧時間**\n\n"
             "🧮 期間内に解決した Redmine 障害の "
             "(実終了日 − 実開始日) の中央値。\n\n"
             "📂 出典: Redmine 不具合一覧 実開始日／実終了日。\n\n"
-            "💡 DORA 基準 (2024) : Elite ≤ 1時間 / High ≤ 1日 / "
-            "Medium ≤ 7日 / Low それ以上。"
+            "💡 業界平均比較 (DORA 2024): "
+            "Good ≤ 1日 / Normal ≤ 7日 / Bad それ以上。"
         ),
         "help_dora_reliability": (
             "**🦕 信頼性（平均障害発生率）**\n\n"
             "🧮 全機能の障害発生率（Redmine 障害件数 ÷ 実施済）の平均。\n\n"
             "📂 出典: Redmine 不具合一覧 × 仕様書別テスト集計 D列。\n\n"
-            "💡 DORA 基準 : Elite ≤ 5% / High ≤ 15% / Medium ≤ 30% / "
-            "Low それ以上。"
+            "💡 Good ≤ 15% / Normal ≤ 30% / Bad それ以上。"
         ),
         # アラートタブ（🚨）
         "alert_tab_title":   "アラート — 要注意な機能ID",
@@ -6407,13 +6421,13 @@ def render_alert_tab() -> None:
 
 
 def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
-    """Render the 5-card DORA panel at the top of the Dashboard tab.
+    """Render the 5-card DORA panel inside the Delivery tab.
 
     Each card shows the metric value (formatted), a tiny "completed N
-    features over M days" caption, and an Elite / High / Medium / Low
-    badge coloured by rating. Nothing else on the Dashboard depends on
-    this panel — the caller can safely skip it when kpi_df is empty or
-    missing schedule columns."""
+    features over M days" caption, and a Good / Normal / Bad badge
+    coloured by rating (vs the DORA 2024 industry bands, collapsed into
+    3 tiers). Safe no-op when kpi_df is empty or missing schedule
+    columns."""
     if kpi_df is None or kpi_df.empty:
         return
     defects_df = st.session_state.dfs.get("defects")
@@ -6424,10 +6438,9 @@ def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
                  days=dora["window_days"], n=dora["completed"]))
 
     rating_bg = {
-        "elite":   "#4ec78a",
-        "high":    "#7ab3ff",
-        "medium":  "#f5b400",
-        "low":     "#f05050",
+        "good":    "#4ec78a",
+        "normal":  "#f5b400",
+        "bad":     "#f05050",
         "unknown": "#888888",
     }
 
@@ -6479,15 +6492,22 @@ def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
             )
 
 
+def render_delivery_tab() -> None:
+    """Dedicated 🏁 Delivery tab — just the DORA 5Keys panel.
+
+    Split out from the Inputs tab so team delivery performance gets a
+    top-level landing page instead of competing with the source-upload
+    rail. Shows a small info banner when the upstream data isn't ready
+    yet so the tab still renders in its empty state."""
+    kpi_df = get_current_kpi_df()
+    if kpi_df is None or kpi_df.empty:
+        st.info(t("delivery_needs_data"))
+        return
+    _render_dora_panel(kpi_df)
+
+
 def render_dashboard_tab() -> None:
     """Tab 1 — sources upload + the integrated tables."""
-    # Team delivery performance (DORA 5Keys) — computed over the trailing
-    # DORA_WINDOW_DAYS days. Safe no-op when the upstream data isn't ready;
-    # the subsequent source-rail always renders regardless.
-    dora_kpi_df = get_current_kpi_df()
-    if dora_kpi_df is not None and not dora_kpi_df.empty:
-        _render_dora_panel(dora_kpi_df)
-
     st.subheader(t("sec1_title"))
     # Horizontal-scrolling card rail. One st.columns row with N fixed-width
     # columns (see the :has(.d4dx-source-card-marker) CSS rule above) —
@@ -11939,7 +11959,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.64</span>
+    <span class="ver">Ver1.0.65</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -11956,12 +11976,13 @@ def main() -> None:
     st.caption(t("intro_caption"))
 
     # --- Top-level tabs ------------------------------------------------------
-    (tab_dashboard, tab_charts, tab_calendar, tab_alert, tab_design,
-     tab_settings) = st.tabs([
+    (tab_dashboard, tab_charts, tab_calendar, tab_alert, tab_delivery,
+     tab_design, tab_settings) = st.tabs([
         t("main_tab_dashboard"),
         t("main_tab_charts"),
         t("main_tab_calendar"),
         t("main_tab_alert"),
+        t("main_tab_delivery"),
         t("main_tab_design"),
         t("main_tab_settings"),
     ])
@@ -11973,6 +11994,8 @@ def main() -> None:
         render_calendar_tab()
     with tab_alert:
         render_alert_tab()
+    with tab_delivery:
+        render_delivery_tab()
     with tab_design:
         render_design_pages_tab()
     with tab_settings:
