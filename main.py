@@ -2763,6 +2763,158 @@ def project_kpi_summary(kpi_df: pd.DataFrame) -> dict:
 
 
 # =============================================================================
+# DORA-style team-delivery metrics (computed from existing sources)
+# =============================================================================
+# Thresholds follow the DORA 2024 research five-key model. The on-dashboard
+# panel shows these with an Elite / High / Medium / Low badge per metric.
+# Tunable here if a client wants stricter/looser bands.
+DORA_WINDOW_DAYS = 30
+
+_DORA_FREQ_THRESHOLDS = [(5.0, "elite"), (1.0, "high"), (0.25, "medium")]
+_DORA_LEAD_THRESHOLDS = [(1.0, "elite"), (7.0, "high"), (30.0, "medium")]
+_DORA_CFR_THRESHOLDS  = [(15.0, "elite"), (30.0, "high"), (45.0, "medium")]
+_DORA_RECOVERY_THRESHOLDS = [(1.0/24, "elite"), (1.0, "high"), (7.0, "medium")]
+_DORA_RELIABILITY_THRESHOLDS = [(5.0, "elite"), (15.0, "high"), (30.0, "medium")]
+
+
+def _dora_rate_above(value: Optional[float],
+                     thresholds: list[tuple[float, str]]) -> str:
+    """Rating helper when HIGHER values rate better (Deployment Frequency).
+    Walks the thresholds top-down and returns the first matching tier;
+    anything below the lowest breakpoint collapses to "low"."""
+    if value is None:
+        return "unknown"
+    for cutoff, rating in thresholds:
+        if value >= cutoff:
+            return rating
+    return "low"
+
+
+def _dora_rate_below(value: Optional[float],
+                     thresholds: list[tuple[float, str]]) -> str:
+    """Rating helper when LOWER values rate better (Lead time, CFR, Recovery,
+    Reliability). Mirrored version of `_dora_rate_above`."""
+    if value is None:
+        return "unknown"
+    for cutoff, rating in thresholds:
+        if value <= cutoff:
+            return rating
+    return "low"
+
+
+def compute_dora_metrics(
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame] = None,
+    window_days: int = DORA_WINDOW_DAYS,
+    today: Optional[date] = None,
+) -> dict:
+    """Derive the DORA 5Keys over the trailing `window_days`.
+
+    Maps our existing sources as:
+      - **Deployment frequency**: # of features whose `actual_end` lands in
+        the window ÷ weeks.
+      - **Lead time for changes**: median (actual_end − planned_start)
+        for the same in-window cohort.
+      - **Change failure rate**: % of the in-window cohort that has any
+        Redmine defect recorded against it.
+      - **Failed deployment recovery time**: median resolution duration
+        (`実終了日 − 実開始日`) of Redmine defects CLOSED in the window.
+      - **Reliability**: dataset-wide mean Redmine incident_rate.
+
+    Returned dict has one entry per metric with value + unit + rating
+    (elite / high / medium / low / unknown).
+    """
+    if today is None:
+        today = date.today()
+    window_start = today - timedelta(days=window_days)
+
+    # Completed features landing in the window.
+    ae_raw = kpi_df.get("actual_end")
+    if ae_raw is None:
+        in_window = kpi_df.iloc[0:0].copy()
+    else:
+        ae = pd.to_datetime(ae_raw, errors="coerce")
+        mask = (ae.dt.date >= window_start) & (ae.dt.date <= today)
+        in_window = kpi_df[mask].copy()
+        in_window["_ae_dt"] = ae[mask]
+
+    n_completed = int(len(in_window))
+    weeks = max(window_days / 7.0, 1e-9)
+    freq = n_completed / weeks
+
+    # Lead time (median days).
+    lead: Optional[float] = None
+    if not in_window.empty and "planned_start" in in_window.columns:
+        ps = pd.to_datetime(in_window["planned_start"], errors="coerce")
+        pair = pd.DataFrame({"s": ps, "e": in_window["_ae_dt"]}).dropna()
+        if not pair.empty:
+            durations = (pair["e"] - pair["s"]).dt.days
+            # Negative leads (actual before planned) shouldn't contribute.
+            durations = durations[durations >= 0]
+            if len(durations):
+                lead = float(durations.median())
+
+    # Change failure rate.
+    cfr: Optional[float] = None
+    if n_completed > 0 and "defect_total" in in_window.columns:
+        dt = pd.to_numeric(in_window["defect_total"],
+                           errors="coerce").fillna(0)
+        cfr = float((dt > 0).sum() / n_completed * 100.0)
+
+    # Recovery time (median days for in-window resolved defects).
+    recovery: Optional[float] = None
+    if defects_df is not None and not defects_df.empty:
+        dfd = defects_df.copy()
+        dfd["_start"] = pd.to_datetime(dfd.get("実開始日"), errors="coerce")
+        dfd["_end"]   = pd.to_datetime(dfd.get("実終了日"), errors="coerce")
+        resolved = dfd.dropna(subset=["_start", "_end"])
+        resolved = resolved[
+            (resolved["_end"].dt.date >= window_start)
+            & (resolved["_end"].dt.date <= today)
+        ]
+        if not resolved.empty:
+            dur_days = (resolved["_end"] - resolved["_start"]).dt.total_seconds() / 86400.0
+            dur_days = dur_days[dur_days >= 0]
+            if len(dur_days):
+                recovery = float(dur_days.median())
+
+    # Reliability: mean of incident_rate across the project (as percent).
+    reliability: Optional[float] = None
+    if "incident_rate" in kpi_df.columns:
+        rel_vals = pd.to_numeric(
+            kpi_df["incident_rate"], errors="coerce"
+        ).dropna()
+        if len(rel_vals):
+            reliability = float(rel_vals.mean() * 100.0)
+
+    return {
+        "window_days": window_days,
+        "completed": n_completed,
+        "frequency": {
+            "value": freq, "unit_key": "dora_unit_per_week",
+            "rating": _dora_rate_above(freq, _DORA_FREQ_THRESHOLDS),
+        },
+        "lead_time": {
+            "value": lead, "unit_key": "dora_unit_days",
+            "rating": _dora_rate_below(lead, _DORA_LEAD_THRESHOLDS),
+        },
+        "cfr": {
+            "value": cfr, "unit_key": "dora_unit_percent",
+            "rating": _dora_rate_below(cfr, _DORA_CFR_THRESHOLDS),
+        },
+        "recovery": {
+            "value": recovery, "unit_key": "dora_unit_days",
+            "rating": _dora_rate_below(recovery, _DORA_RECOVERY_THRESHOLDS),
+        },
+        "reliability": {
+            "value": reliability, "unit_key": "dora_unit_percent",
+            "rating": _dora_rate_below(reliability,
+                                        _DORA_RELIABILITY_THRESHOLDS),
+        },
+    }
+
+
+# =============================================================================
 # i18n
 # =============================================================================
 LANG_OPTIONS: list[tuple[str, str]] = [("en", "EN"), ("ja", "日本語")]
@@ -2774,8 +2926,64 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "main_tab_dashboard": "Dashboard",
         "main_tab_charts": "Charts",
         "main_tab_calendar": "Calendar",
+        "main_tab_alert": "🚨 Alerts",
         "main_tab_design": "Design pages",
         "main_tab_settings": "Settings",
+        # DORA 5Keys delivery-performance panel (Dashboard tab, top)
+        "dora_section_title": "🏁 Team delivery performance (DORA 5Keys)",
+        "dora_section_caption": (
+            "Trailing {days} days — {n} features completed in window."
+        ),
+        "dora_freq_title":        "Deployment frequency",
+        "dora_lead_title":        "Lead time for changes",
+        "dora_cfr_title":         "Change failure rate",
+        "dora_recovery_title":    "Failed deployment recovery time",
+        "dora_reliability_title": "Reliability (mean fault rate)",
+        "dora_unit_per_week":     "features / wk",
+        "dora_unit_days":         "days",
+        "dora_unit_percent":      "%",
+        "dora_rating_elite":      "Elite",
+        "dora_rating_high":       "High",
+        "dora_rating_medium":     "Medium",
+        "dora_rating_low":        "Low",
+        "dora_rating_unknown":    "—",
+        # Alert tab (🚨)
+        "alert_tab_title":   "Alerts — Function IDs that need attention",
+        "alert_tab_caption": (
+            "Flags features whose current metrics cross the configured "
+            "thresholds (Redmine fault rate, test density) or break simple "
+            "heuristics (>14-day delay, mostly-unexecuted test plan). "
+            "Honours the global Function ID filter."
+        ),
+        "alert_needs_master": (
+            "Upload a Function master to unlock alerts."
+        ),
+        "alert_all_clear": "All clear — no alerts raised for the current scope.",
+        "alert_sev_high":          "HIGH",
+        "alert_sev_medium":        "MED",
+        "alert_sev_low":           "LOW",
+        "alert_sev_high_label":    "High severity",
+        "alert_sev_medium_label":  "Medium severity",
+        "alert_sev_low_label":     "Low severity",
+        "alert_current_label":     "current",
+        "alert_threshold_label":   "threshold",
+        "alert_msg_high_incident": (
+            "{label}: Redmine fault rate <b>{value}%</b> exceeds the "
+            "configured threshold ({threshold}%)."
+        ),
+        "alert_msg_low_density":   (
+            "{label}: test density <b>{value}</b> is below the configured "
+            "threshold ({threshold})."
+        ),
+        "alert_msg_delay":         (
+            "{label}: schedule slippage <b>{value} days</b> "
+            "(exceeds the 2-week watermark)."
+        ),
+        "alert_msg_mostly_unrun":  (
+            "{label}: <b>{pct}%</b> of the planned tests still not run — "
+            "execution is stalling."
+        ),
+        "help_test_notrun_short": "Un-executed test ratio",
         "charts_needs_master": "Upload **Function master** in the Dashboard tab to unlock charts.",
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
@@ -3750,8 +3958,62 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "main_tab_dashboard": "ダッシュボード",
         "main_tab_charts": "グラフ",
         "main_tab_calendar": "カレンダー",
+        "main_tab_alert": "🚨 アラート",
         "main_tab_design": "設計書ページ数",
         "main_tab_settings": "設定",
+        # DORA 5Keys デリバリーパフォーマンスパネル（Dashboardタブ上部）
+        "dora_section_title": "🏁 チーム配信パフォーマンス（DORA 5Keys）",
+        "dora_section_caption": (
+            "過去 {days} 日間 — 期間内に完了した機能 {n} 件"
+        ),
+        "dora_freq_title":        "配信頻度",
+        "dora_lead_title":        "リードタイム",
+        "dora_cfr_title":         "変更失敗率",
+        "dora_recovery_title":    "障害復旧時間",
+        "dora_reliability_title": "信頼性（平均障害発生率）",
+        "dora_unit_per_week":     "機能 / 週",
+        "dora_unit_days":         "日",
+        "dora_unit_percent":      "%",
+        "dora_rating_elite":      "Elite",
+        "dora_rating_high":       "High",
+        "dora_rating_medium":     "Medium",
+        "dora_rating_low":        "Low",
+        "dora_rating_unknown":    "—",
+        # アラートタブ（🚨）
+        "alert_tab_title":   "アラート — 要注意な機能ID",
+        "alert_tab_caption": (
+            "現在の数値が設定閾値（障害発生率 / テスト密度）やルール"
+            "（遅延14日超・未実施60%超）を満たす機能IDを表示します。"
+            "機能IDフィルタ適用中はその範囲に絞り込まれます。"
+        ),
+        "alert_needs_master": (
+            "機能マスタを取り込むとアラートが利用できます。"
+        ),
+        "alert_all_clear": "対象範囲ではアラートなし。問題は検出されていません。",
+        "alert_sev_high":          "重",
+        "alert_sev_medium":        "中",
+        "alert_sev_low":           "低",
+        "alert_sev_high_label":    "重大アラート",
+        "alert_sev_medium_label":  "中アラート",
+        "alert_sev_low_label":     "低アラート",
+        "alert_current_label":     "現在値",
+        "alert_threshold_label":   "閾値",
+        "alert_msg_high_incident": (
+            "{label}：障害発生率（Redmine）が <b>{value}%</b> で、"
+            "設定閾値 {threshold}% を超過しています。"
+        ),
+        "alert_msg_low_density":   (
+            "{label}：テスト密度が <b>{value}</b> で、"
+            "設定閾値 {threshold} を下回っています。"
+        ),
+        "alert_msg_delay":         (
+            "{label}：遅延 <b>{value}日</b>（2週間超過）。"
+        ),
+        "alert_msg_mostly_unrun":  (
+            "{label}：計画テストの <b>{pct}%</b> が未実施のままです。"
+            "テスト実施が停滞している可能性があります。"
+        ),
+        "help_test_notrun_short": "未実施率",
         "charts_needs_master": "Dashboardタブで **機能マスタ** を取り込むとグラフが利用できます。",
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
@@ -5803,8 +6065,293 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
             st.plotly_chart(trend_fig, use_container_width=True)
 
 
+# =============================================================================
+# Alert tab — per-Function-ID anomalies and threshold breaches
+# =============================================================================
+# Severity ranks — controls the sort order and the badge colour.
+_ALERT_SEV_ORDER = {"high": 0, "medium": 1, "low": 2}
+_ALERT_SEV_COLOR = {
+    "high":   "#f05050",
+    "medium": "#f5b400",
+    "low":    "#7ab3ff",
+}
+
+
+def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
+    """Return a list of alert dicts raised from the current kpi_df.
+
+    v1 keeps the rules static against the already-tunable thresholds
+    (incident_rate_threshold / test_density_threshold) plus a couple of
+    heuristics (delay > 14 days, mostly-unexecuted test plans). Each
+    alert carries {severity, fid, label, metric, value, threshold,
+    unit, message}. Future work: also emit snapshot-delta alerts by
+    diffing against the previous kpi_df build.
+    """
+    alerts: list[dict] = []
+    if kpi_df is None or kpi_df.empty:
+        return alerts
+
+    incident_thr = _incident_rate_threshold()
+    density_thr  = _test_density_threshold()
+
+    for _, r in kpi_df.iterrows():
+        fid = str(r.get("機能ID") or "")
+        if not fid:
+            continue
+        label = _label_id_name(r)
+
+        # High Redmine fault rate.
+        ir = r.get("incident_rate")
+        if pd.notna(ir) and float(ir) > incident_thr:
+            alerts.append({
+                "severity": "high",
+                "fid": fid, "label": label,
+                "metric": t("col_incident_rate"),
+                "value": f"{float(ir) * 100:.1f}%",
+                "threshold": f"> {incident_thr * 100:.0f}%",
+                "message_key": "alert_msg_high_incident",
+                "message_kwargs": {
+                    "label": label,
+                    "value": f"{float(ir) * 100:.1f}",
+                    "threshold": f"{incident_thr * 100:.0f}",
+                },
+            })
+
+        # Low test density — sufficiency below threshold.
+        td = r.get("test_density")
+        if pd.notna(td) and float(td) < density_thr:
+            alerts.append({
+                "severity": "medium",
+                "fid": fid, "label": label,
+                "metric": t("col_test_density"),
+                "value": f"{float(td):.2f}",
+                "threshold": f"< {density_thr:g}",
+                "message_key": "alert_msg_low_density",
+                "message_kwargs": {
+                    "label": label,
+                    "value": f"{float(td):.2f}",
+                    "threshold": f"{density_thr:g}",
+                },
+            })
+
+        # Delay > 14 days. Threshold is deliberately not user-tunable yet;
+        # two weeks is the point where most teams treat slippage as a
+        # recovery problem rather than normal project drift.
+        delay = r.get("delay_days")
+        if pd.notna(delay) and float(delay) > 14:
+            alerts.append({
+                "severity": "medium",
+                "fid": fid, "label": label,
+                "metric": t("col_delay_days"),
+                "value": f"{int(float(delay))} 日",
+                "threshold": "> 14 日",
+                "message_key": "alert_msg_delay",
+                "message_kwargs": {
+                    "label": label,
+                    "value": f"{int(float(delay))}",
+                },
+            })
+
+        # Mostly-unexecuted test plan (>60% unrun with a non-trivial
+        # plan size). Catches features where the spec is written but
+        # execution hasn't progressed in a long time.
+        total = r.get("総テスト")
+        notrun = r.get("未実施")
+        if (pd.notna(total) and float(total) >= 10
+                and pd.notna(notrun)
+                and float(notrun) / float(total) > 0.6):
+            pct = float(notrun) / float(total) * 100.0
+            alerts.append({
+                "severity": "low",
+                "fid": fid, "label": label,
+                "metric": t("help_test_notrun_short"),
+                "value": f"{pct:.0f}% ({int(float(notrun))}/{int(float(total))})",
+                "threshold": "> 60%",
+                "message_key": "alert_msg_mostly_unrun",
+                "message_kwargs": {
+                    "label": label,
+                    "pct": f"{pct:.0f}",
+                },
+            })
+
+    # Stable sort — high first, then medium, low — with FID as tiebreak.
+    alerts.sort(key=lambda a: (_ALERT_SEV_ORDER[a["severity"]], a["fid"]))
+    return alerts
+
+
+def render_alert_tab() -> None:
+    """Dedicated 🚨 アラート tab. Shows:
+
+    - Summary counts by severity
+    - A card per alert with the feature label, metric, current value
+      vs threshold, and severity badge
+
+    Honours the global Function ID filter so narrowing on the side
+    panel also narrows the alert set. When the dataset is clean the
+    tab renders a calm "all clear" placeholder instead of an empty
+    list — mild UX touch so the user knows the page is live.
+    """
+    kpi_df = get_current_kpi_df()
+    if kpi_df is None or kpi_df.empty:
+        st.info(t("alert_needs_master"))
+        return
+
+    selected_fids = _get_global_fids()
+    if selected_fids:
+        kpi_df = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
+
+    st.subheader(t("alert_tab_title"))
+    st.caption(t("alert_tab_caption"))
+
+    alerts = detect_kpi_alerts(kpi_df)
+
+    # Severity summary bar (always visible so zero-alert state is affirming).
+    sev_counts = {"high": 0, "medium": 0, "low": 0}
+    for a in alerts:
+        sev_counts[a["severity"]] += 1
+    c_h, c_m, c_l = st.columns(3, gap="small")
+    for col, sev, label_key in zip(
+        (c_h, c_m, c_l),
+        ("high", "medium", "low"),
+        ("alert_sev_high_label",
+         "alert_sev_medium_label",
+         "alert_sev_low_label"),
+    ):
+        with col:
+            n = sev_counts[sev]
+            colour = _ALERT_SEV_COLOR[sev] if n else "#7aa088"
+            st.markdown(
+                f"""
+<div style="padding:10px 12px; border-radius:8px;
+            border-left:4px solid {colour};
+            background:rgba(128,128,128,0.06);">
+  <div style="font-size:11px; color:#888;">{t(label_key)}</div>
+  <div style="font-size:22px; font-weight:700; color:inherit;">{n}</div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("")
+    if not alerts:
+        st.success(t("alert_all_clear"), icon="✅")
+        return
+
+    # Alert cards — one row per alert. `message_key` holds a translation
+    # template that embeds the feature label / value / threshold.
+    for a in alerts:
+        sev = a["severity"]
+        colour = _ALERT_SEV_COLOR[sev]
+        badge_label = t(f"alert_sev_{sev}")
+        msg = t(a["message_key"], **a["message_kwargs"])
+        st.markdown(
+            f"""
+<div style="padding:10px 14px; margin-bottom:8px;
+            border-radius:8px; border-left:5px solid {colour};
+            background:rgba(128,128,128,0.05);">
+  <div style="display:flex; align-items:center; gap:10px;">
+    <span style="display:inline-block; padding:2px 10px;
+                 background:{colour}; color:#fff; border-radius:999px;
+                 font-size:10px; font-weight:700; letter-spacing:0.04em;">
+      {badge_label}
+    </span>
+    <span style="font-size:11px; color:#888;">{a["metric"]}</span>
+  </div>
+  <div style="margin-top:6px; font-size:13px; line-height:1.5;">
+    {msg}
+  </div>
+  <div style="margin-top:4px; font-size:11px; color:#888;">
+    {t('alert_current_label')}: <b>{a["value"]}</b>
+    &nbsp;·&nbsp; {t('alert_threshold_label')}: {a["threshold"]}
+  </div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
+    """Render the 5-card DORA panel at the top of the Dashboard tab.
+
+    Each card shows the metric value (formatted), a tiny "completed N
+    features over M days" caption, and an Elite / High / Medium / Low
+    badge coloured by rating. Nothing else on the Dashboard depends on
+    this panel — the caller can safely skip it when kpi_df is empty or
+    missing schedule columns."""
+    if kpi_df is None or kpi_df.empty:
+        return
+    defects_df = st.session_state.dfs.get("defects")
+    dora = compute_dora_metrics(kpi_df, defects_df)
+
+    st.subheader(t("dora_section_title"))
+    st.caption(t("dora_section_caption",
+                 days=dora["window_days"], n=dora["completed"]))
+
+    rating_bg = {
+        "elite":   "#4ec78a",
+        "high":    "#7ab3ff",
+        "medium":  "#f5b400",
+        "low":     "#f05050",
+        "unknown": "#888888",
+    }
+
+    metric_specs = [
+        ("frequency",   "dora_freq_title"),
+        ("lead_time",   "dora_lead_title"),
+        ("cfr",         "dora_cfr_title"),
+        ("recovery",    "dora_recovery_title"),
+        ("reliability", "dora_reliability_title"),
+    ]
+    cols = st.columns(len(metric_specs), gap="small")
+    for (key, title_key), col in zip(metric_specs, cols):
+        entry = dora[key]
+        v = entry["value"]
+        rating = entry["rating"]
+        unit = t(entry["unit_key"])
+        # Value formatting: recovery time gets either hours (<1d) or days;
+        # everything else is a compact 1-decimal number.
+        if v is None:
+            value_str = "—"
+        elif key == "recovery" and v < 1.0:
+            value_str = f"{v * 24:.1f} h"
+        else:
+            value_str = f"{v:.1f}"
+        badge_color = rating_bg[rating]
+        badge_label = t(f"dora_rating_{rating}")
+        with col:
+            st.markdown(
+                f"""
+<div style="padding:12px 14px; border:1px solid rgba(128,128,128,0.25);
+            border-radius:10px; background:rgba(58,168,114,0.04);">
+  <div style="font-size:11px; color:#888; letter-spacing:0.02em;
+              margin-bottom:4px;">{t(title_key)}</div>
+  <div style="font-size:24px; font-weight:700; color:inherit;
+              line-height:1.1;">{value_str}
+    <span style="font-size:11px; font-weight:400; color:#888;
+                 margin-left:4px;">{unit}</span>
+  </div>
+  <div style="margin-top:8px;">
+    <span style="display:inline-block; padding:2px 8px;
+                 background:{badge_color}; color:#fff; border-radius:999px;
+                 font-size:10px; font-weight:700; letter-spacing:0.04em;">
+      {badge_label}
+    </span>
+  </div>
+</div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
 def render_dashboard_tab() -> None:
     """Tab 1 — sources upload + the integrated tables."""
+    # Team delivery performance (DORA 5Keys) — computed over the trailing
+    # DORA_WINDOW_DAYS days. Safe no-op when the upstream data isn't ready;
+    # the subsequent source-rail always renders regardless.
+    dora_kpi_df = get_current_kpi_df()
+    if dora_kpi_df is not None and not dora_kpi_df.empty:
+        _render_dora_panel(dora_kpi_df)
+
     st.subheader(t("sec1_title"))
     # Horizontal-scrolling card rail. One st.columns row with N fixed-width
     # columns (see the :has(.d4dx-source-card-marker) CSS rule above) —
@@ -11256,7 +11803,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.62</span>
+    <span class="ver">Ver1.0.63</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -11273,11 +11820,12 @@ def main() -> None:
     st.caption(t("intro_caption"))
 
     # --- Top-level tabs ------------------------------------------------------
-    (tab_dashboard, tab_charts, tab_calendar, tab_design,
+    (tab_dashboard, tab_charts, tab_calendar, tab_alert, tab_design,
      tab_settings) = st.tabs([
         t("main_tab_dashboard"),
         t("main_tab_charts"),
         t("main_tab_calendar"),
+        t("main_tab_alert"),
         t("main_tab_design"),
         t("main_tab_settings"),
     ])
@@ -11287,6 +11835,8 @@ def main() -> None:
         render_charts_tab()
     with tab_calendar:
         render_calendar_tab()
+    with tab_alert:
+        render_alert_tab()
     with tab_design:
         render_design_pages_tab()
     with tab_settings:
