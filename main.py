@@ -2947,6 +2947,47 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dora_rating_medium":     "Medium",
         "dora_rating_low":        "Low",
         "dora_rating_unknown":    "—",
+        # Per-metric hover help for the DORA panel
+        "help_dora_frequency": (
+            "**🦕 Deployment frequency**\n\n"
+            "🧮 Features completed in the last {days} days ÷ weeks.\n\n"
+            "📂 Source: WBS **column T** (actual end date).\n\n"
+            "💡 DORA bands (2024): Elite ≥ 5/wk, High ≥ 1/wk, "
+            "Medium ≥ 0.25/wk, Low below."
+        ),
+        "help_dora_lead_time": (
+            "**🦕 Lead time for changes**\n\n"
+            "🧮 Median days per completed feature = (actual_end − planned_start).\n\n"
+            "📂 Source: WBS **column Q** (planned start) and **column T** "
+            "(actual end).\n\n"
+            "💡 DORA bands (2024): Elite ≤ 1 day, High ≤ 7 days, "
+            "Medium ≤ 30 days, Low beyond."
+        ),
+        "help_dora_cfr": (
+            "**🦕 Change failure rate (CFR)**\n\n"
+            "🧮 % of features completed in the window that have at least "
+            "one Redmine defect registered.\n\n"
+            "📂 Source: WBS column T (in-window completions) × Redmine "
+            "defect counts per Function ID.\n\n"
+            "💡 DORA bands (2024): Elite ≤ 15%, High ≤ 30%, "
+            "Medium ≤ 45%, Low beyond."
+        ),
+        "help_dora_recovery": (
+            "**🦕 Failed deployment recovery time**\n\n"
+            "🧮 Median (実終了日 − 実開始日) of Redmine defects closed "
+            "in the window.\n\n"
+            "📂 Source: Redmine defect list — 実開始日 / 実終了日.\n\n"
+            "💡 DORA bands (2024): Elite ≤ 1 h, High ≤ 1 day, "
+            "Medium ≤ 7 days, Low beyond."
+        ),
+        "help_dora_reliability": (
+            "**🦕 Reliability (mean fault rate)**\n\n"
+            "🧮 Mean of Redmine fault rate (defect_total ÷ 実施済) across "
+            "all features.\n\n"
+            "📂 Source: Redmine defect list × test counts column D.\n\n"
+            "💡 DORA bands: Elite ≤ 5%, High ≤ 15%, Medium ≤ 30%, "
+            "Low beyond."
+        ),
         # Alert tab (🚨)
         "alert_tab_title":   "Alerts — Function IDs that need attention",
         "alert_tab_caption": (
@@ -2984,6 +3025,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "execution is stalling."
         ),
         "help_test_notrun_short": "Un-executed test ratio",
+        "alert_sort_label":      "Sort order",
+        "alert_sort_severity":   "By severity (HIGH → LOW)",
+        "alert_sort_date_desc":  "By date (newest first)",
+        "alert_sort_date_asc":   "By date (oldest first)",
         "charts_needs_master": "Upload **Function master** in the Dashboard tab to unlock charts.",
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
@@ -3979,6 +4024,45 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "dora_rating_medium":     "Medium",
         "dora_rating_low":        "Low",
         "dora_rating_unknown":    "—",
+        # DORA 各指標のホバーツールチップ
+        "help_dora_frequency": (
+            "**🦕 配信頻度**\n\n"
+            "🧮 過去{days}日間に完了した機能件数 ÷ 週数。\n\n"
+            "📂 出典: WBS **T列**（終了実績日）。\n\n"
+            "💡 DORA 基準 (2024) : Elite ≥ 5件/週 / High ≥ 1件/週 / "
+            "Medium ≥ 0.25件/週 / Low それ未満。"
+        ),
+        "help_dora_lead_time": (
+            "**🦕 リードタイム**\n\n"
+            "🧮 機能ごとの (終了実績日 − 開始予定日) の中央値（日）。\n\n"
+            "📂 出典: WBS **Q列**（開始予定日）と **T列**（終了実績日）。\n\n"
+            "💡 DORA 基準 (2024) : Elite ≤ 1日 / High ≤ 7日 / "
+            "Medium ≤ 30日 / Low それ以上。"
+        ),
+        "help_dora_cfr": (
+            "**🦕 変更失敗率（CFR）**\n\n"
+            "🧮 期間内に完了した機能のうち、Redmine 障害が1件以上登録された"
+            "ものの割合。\n\n"
+            "📂 出典: WBS T列（期間内完了）× Redmine 不具合一覧"
+            "（機能ID別件数）。\n\n"
+            "💡 DORA 基準 (2024) : Elite ≤ 15% / High ≤ 30% / "
+            "Medium ≤ 45% / Low それ以上。"
+        ),
+        "help_dora_recovery": (
+            "**🦕 障害復旧時間**\n\n"
+            "🧮 期間内に解決した Redmine 障害の "
+            "(実終了日 − 実開始日) の中央値。\n\n"
+            "📂 出典: Redmine 不具合一覧 実開始日／実終了日。\n\n"
+            "💡 DORA 基準 (2024) : Elite ≤ 1時間 / High ≤ 1日 / "
+            "Medium ≤ 7日 / Low それ以上。"
+        ),
+        "help_dora_reliability": (
+            "**🦕 信頼性（平均障害発生率）**\n\n"
+            "🧮 全機能の障害発生率（Redmine 障害件数 ÷ 実施済）の平均。\n\n"
+            "📂 出典: Redmine 不具合一覧 × 仕様書別テスト集計 D列。\n\n"
+            "💡 DORA 基準 : Elite ≤ 5% / High ≤ 15% / Medium ≤ 30% / "
+            "Low それ以上。"
+        ),
         # アラートタブ（🚨）
         "alert_tab_title":   "アラート — 要注意な機能ID",
         "alert_tab_caption": (
@@ -4014,6 +4098,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "テスト実施が停滞している可能性があります。"
         ),
         "help_test_notrun_short": "未実施率",
+        "alert_sort_label":      "並び替え",
+        "alert_sort_severity":   "重要度順（重 → 低）",
+        "alert_sort_date_desc":  "日付順（新しい順）",
+        "alert_sort_date_asc":   "日付順（古い順）",
         "charts_needs_master": "Dashboardタブで **機能マスタ** を取り込むとグラフが利用できます。",
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
@@ -6094,17 +6182,28 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
     incident_thr = _incident_rate_threshold()
     density_thr  = _test_density_threshold()
 
+    today_d = date.today()
     for _, r in kpi_df.iterrows():
         fid = str(r.get("機能ID") or "")
         if not fid:
             continue
         label = _label_id_name(r)
+        # Relevant date for this feature — preferred order:
+        #   planned_end (the ship date) → actual_end (completion) → today.
+        # Surfaced per-alert so the user can sort the list by when each
+        # feature is / was scheduled to land.
+        ref_date = (
+            _to_pydate(r.get("planned_end"))
+            or _to_pydate(r.get("actual_end"))
+            or today_d
+        )
 
         # High Redmine fault rate.
         ir = r.get("incident_rate")
         if pd.notna(ir) and float(ir) > incident_thr:
             alerts.append({
                 "severity": "high",
+                "date": ref_date,
                 "fid": fid, "label": label,
                 "metric": t("col_incident_rate"),
                 "value": f"{float(ir) * 100:.1f}%",
@@ -6122,6 +6221,7 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
         if pd.notna(td) and float(td) < density_thr:
             alerts.append({
                 "severity": "medium",
+                "date": ref_date,
                 "fid": fid, "label": label,
                 "metric": t("col_test_density"),
                 "value": f"{float(td):.2f}",
@@ -6141,6 +6241,7 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
         if pd.notna(delay) and float(delay) > 14:
             alerts.append({
                 "severity": "medium",
+                "date": ref_date,
                 "fid": fid, "label": label,
                 "metric": t("col_delay_days"),
                 "value": f"{int(float(delay))} 日",
@@ -6163,6 +6264,7 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
             pct = float(notrun) / float(total) * 100.0
             alerts.append({
                 "severity": "low",
+                "date": ref_date,
                 "fid": fid, "label": label,
                 "metric": t("help_test_notrun_short"),
                 "value": f"{pct:.0f}% ({int(float(notrun))}/{int(float(total))})",
@@ -6174,7 +6276,8 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
                 },
             })
 
-    # Stable sort — high first, then medium, low — with FID as tiebreak.
+    # Default order = severity first (high → low), FID as tiebreak. The
+    # render layer can re-sort based on user selection.
     alerts.sort(key=lambda a: (_ALERT_SEV_ORDER[a["severity"]], a["fid"]))
     return alerts
 
@@ -6237,6 +6340,34 @@ def render_alert_tab() -> None:
         st.success(t("alert_all_clear"), icon="✅")
         return
 
+    # Sort selector — lets the user flip between severity-first and
+    # date-based ordering. Date = the feature's planned_end (falling
+    # back to actual_end / today) so "date 新→古" surfaces the
+    # latest-shipping features first.
+    sort_options = [
+        ("severity", t("alert_sort_severity")),
+        ("date_desc", t("alert_sort_date_desc")),
+        ("date_asc",  t("alert_sort_date_asc")),
+    ]
+    sort_choice = st.selectbox(
+        t("alert_sort_label"),
+        options=[k for k, _ in sort_options],
+        format_func=dict(sort_options).__getitem__,
+        key="alert_sort_choice",
+    )
+    if sort_choice == "date_desc":
+        alerts = sorted(
+            alerts,
+            key=lambda a: (a.get("date") or date.min, a["fid"]),
+            reverse=True,
+        )
+    elif sort_choice == "date_asc":
+        alerts = sorted(
+            alerts,
+            key=lambda a: (a.get("date") or date.max, a["fid"]),
+        )
+    # else: keep default severity order from detect_kpi_alerts.
+
     # Alert cards — one row per alert. `message_key` holds a translation
     # template that embeds the feature label / value / threshold.
     for a in alerts:
@@ -6244,18 +6375,23 @@ def render_alert_tab() -> None:
         colour = _ALERT_SEV_COLOR[sev]
         badge_label = t(f"alert_sev_{sev}")
         msg = t(a["message_key"], **a["message_kwargs"])
+        date_str = a["date"].isoformat() if a.get("date") else "—"
         st.markdown(
             f"""
 <div style="padding:10px 14px; margin-bottom:8px;
             border-radius:8px; border-left:5px solid {colour};
             background:rgba(128,128,128,0.05);">
-  <div style="display:flex; align-items:center; gap:10px;">
+  <div style="display:flex; align-items:center; gap:10px;
+              flex-wrap:wrap;">
     <span style="display:inline-block; padding:2px 10px;
                  background:{colour}; color:#fff; border-radius:999px;
                  font-size:10px; font-weight:700; letter-spacing:0.04em;">
       {badge_label}
     </span>
     <span style="font-size:11px; color:#888;">{a["metric"]}</span>
+    <span style="font-size:11px; color:#888; margin-left:auto;">
+      📅 {date_str}
+    </span>
   </div>
   <div style="margin-top:6px; font-size:13px; line-height:1.5;">
     {msg}
@@ -6295,15 +6431,18 @@ def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
         "unknown": "#888888",
     }
 
+    # (metric_key, title_key, help_key) — help_key drives the ? hover
+    # tooltip on st.metric so each card carries its definition + source
+    # + formula inline, matching the tooltip convention elsewhere.
     metric_specs = [
-        ("frequency",   "dora_freq_title"),
-        ("lead_time",   "dora_lead_title"),
-        ("cfr",         "dora_cfr_title"),
-        ("recovery",    "dora_recovery_title"),
-        ("reliability", "dora_reliability_title"),
+        ("frequency",   "dora_freq_title",        "help_dora_frequency"),
+        ("lead_time",   "dora_lead_title",        "help_dora_lead_time"),
+        ("cfr",         "dora_cfr_title",         "help_dora_cfr"),
+        ("recovery",    "dora_recovery_title",    "help_dora_recovery"),
+        ("reliability", "dora_reliability_title", "help_dora_reliability"),
     ]
     cols = st.columns(len(metric_specs), gap="small")
-    for (key, title_key), col in zip(metric_specs, cols):
+    for (key, title_key, help_key), col in zip(metric_specs, cols):
         entry = dora[key]
         v = entry["value"]
         rating = entry["rating"]
@@ -6315,28 +6454,25 @@ def _render_dora_panel(kpi_df: pd.DataFrame) -> None:
         elif key == "recovery" and v < 1.0:
             value_str = f"{v * 24:.1f} h"
         else:
-            value_str = f"{v:.1f}"
+            value_str = f"{v:.1f} {unit}"
         badge_color = rating_bg[rating]
         badge_label = t(f"dora_rating_{rating}")
         with col:
+            # st.metric gives us the "?" help icon that matches the
+            # rest of the dashboard's tooltip convention.
+            st.metric(
+                label=t(title_key),
+                value=value_str,
+                help=t(help_key, days=dora["window_days"]),
+            )
             st.markdown(
                 f"""
-<div style="padding:12px 14px; border:1px solid rgba(128,128,128,0.25);
-            border-radius:10px; background:rgba(58,168,114,0.04);">
-  <div style="font-size:11px; color:#888; letter-spacing:0.02em;
-              margin-bottom:4px;">{t(title_key)}</div>
-  <div style="font-size:24px; font-weight:700; color:inherit;
-              line-height:1.1;">{value_str}
-    <span style="font-size:11px; font-weight:400; color:#888;
-                 margin-left:4px;">{unit}</span>
-  </div>
-  <div style="margin-top:8px;">
-    <span style="display:inline-block; padding:2px 8px;
-                 background:{badge_color}; color:#fff; border-radius:999px;
-                 font-size:10px; font-weight:700; letter-spacing:0.04em;">
-      {badge_label}
-    </span>
-  </div>
+<div style="margin-top:-12px;">
+  <span style="display:inline-block; padding:2px 10px;
+               background:{badge_color}; color:#fff; border-radius:999px;
+               font-size:11px; font-weight:700; letter-spacing:0.04em;">
+    {badge_label}
+  </span>
 </div>
                 """,
                 unsafe_allow_html=True,
@@ -11803,7 +11939,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.63</span>
+    <span class="ver">Ver1.0.64</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
