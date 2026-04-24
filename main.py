@@ -3276,6 +3276,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_deadline_future": "{n} days remaining",
         "drilldown_deadline_today":  "Due today!",
         "drilldown_deadline_overdue": "+{n} days overdue",
+        "drilldown_deadline_overdue_badge": "overdue",
         "drilldown_deadline_completed": "Completed ({date})",
         "drilldown_deadline_unknown":   "—",
         "drilldown_help_deadline": (
@@ -3370,8 +3371,29 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "metric_at_risk": "At-risk functions",
         "metric_delayed": "Delayed functions",
         "metric_avg_health": "Avg health",
-        "metric_help_at_risk": "Function IDs whose risk_score ≥ 0.5.",
-        "metric_help_delayed": "Function IDs with delay_days > 0.",
+        "metric_help_at_risk": (
+            "**🦕 At-risk functions**\n\n"
+            "🧮 Count of Function IDs with **risk_score ≥ 0.5**.\n"
+            "risk_score (per feature, 0..1) = "
+            "`0.4 × unresolved-defect + 0.2 × un-executed + 0.2 × "
+            "delay + 0.2 × defect-density`, each normalised to 0..1 "
+            "via dataset min-max.\n\n"
+            "📂 Source: Redmine defects × test-spec counts × WBS × "
+            "LoC per Function ID.\n\n"
+            "💡 Project-wide summary of 'needs immediate attention'. "
+            "Different from the alert-tab risk score (that one uses a "
+            "4-metric breach scoring specifically for triage)."
+        ),
+        "metric_help_delayed": (
+            "**🦕 Delayed functions**\n\n"
+            "🧮 Count of Function IDs with **delay_days > 0**.\n"
+            "delay_days = `max(0, actual_end − planned_end)`; for in-"
+            "flight features, `today − planned_end` when positive.\n\n"
+            "📂 Source: WBS **column R** (planned_end) and **column T** "
+            "(actual_end).\n\n"
+            "💡 How many features are running behind schedule. Zero is "
+            "the healthy baseline."
+        ),
         # ----- column / chart / calendar tooltips (hover) -----
         "help_func_id": (
             "**🦕 Function ID**\n\n"
@@ -4446,6 +4468,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_deadline_future": "残 {n} 日",
         "drilldown_deadline_today":  "本日が予定日",
         "drilldown_deadline_overdue": "+{n}日超過",
+        "drilldown_deadline_overdue_badge": "超過",
         "drilldown_deadline_completed": "完了 ({date})",
         "drilldown_deadline_unknown":   "—",
         "drilldown_help_deadline": (
@@ -4537,8 +4560,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "metric_at_risk": "高リスク機能数",
         "metric_delayed": "遅延機能数",
         "metric_avg_health": "平均健全性",
-        "metric_help_at_risk": "risk_score ≥ 0.5 の機能ID件数。",
-        "metric_help_delayed": "delay_days > 0 の機能ID件数。",
+        "metric_help_at_risk": (
+            "**🦕 高リスク機能数**\n\n"
+            "🧮 **リスクスコア ≥ 0.5** の機能ID件数。\n"
+            "リスクスコア (機能単位、0..1) = "
+            "`0.4×未解決障害 + 0.2×未実施 + 0.2×遅延 + "
+            "0.2×不具合密度`（各要素はデータセット内 min-max で 0..1 に正規化）。\n\n"
+            "📂 出典: Redmine不具合一覧 × 仕様書別テスト集計 × WBS × "
+            "機能ID別コード行数。\n\n"
+            "💡 今すぐ対処が必要な機能の件数。プロジェクト全体の品質サマリ。"
+            "アラートタブのリスクスコアとは別物（あちらは 4 指標の"
+            "閾値超過スコアに特化）。"
+        ),
+        "metric_help_delayed": (
+            "**🦕 遅延機能数**\n\n"
+            "🧮 **遅延日数 > 0** の機能ID件数。\n"
+            "遅延日数 = `max(0, 終了実績日 − 終了予定日)`。進行中の機能の場合は "
+            "`今日 − 終了予定日`（正のときのみカウント）。\n\n"
+            "📂 出典: WBS **R列**（終了予定日）と **T列**（終了実績日）。\n\n"
+            "💡 スケジュール超過している機能の件数。0 が健全な状態。"
+        ),
         # ----- ヘルプ（ホバーツールチップ） -----
         "help_func_id": (
             "**🦕 機能ID**\n\n"
@@ -6461,14 +6502,16 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
         prog_cols[1].metric(t("drilldown_actual_progress"),
                             _f(row.get("actual_progress"), "{:.0f}%"),
                             help=t("help_actual_progress"))
-        # ⏰ To-deadline — keep `st.metric` for in-spec / completed /
-        # unknown cases so sizing & alignment match the sibling metrics
-        # exactly. Only the overdue case swaps to a hand-rolled markdown
-        # block (same sizes as `st.metric`, font-weight 400 so the red
-        # text isn't shouty in bold).
+        # ⏰ To-deadline — always via `st.metric` so the "?" click
+        # popover, label font, and value sizing match every sibling
+        # metric in the panel. Overdue-case severity is carried on the
+        # delta row ("+N日超過" in red via delta_color='inverse') rather
+        # than by recolouring the main value, which keeps the DOM /
+        # alignment identical to other metrics.
         _actual_end = _to_pydate(row.get("actual_end"))
         _planned_end = _to_pydate(row.get("planned_end"))
-        _overdue_days = None
+        deadline_delta = None
+        deadline_delta_color = "off"
         if _actual_end is not None:
             deadline_text = t("drilldown_deadline_completed",
                               date=_actual_end.strftime("%m/%d"))
@@ -6479,36 +6522,20 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
             elif delta == 0:
                 deadline_text = t("drilldown_deadline_today")
             else:
-                _overdue_days = -delta
-                deadline_text = t("drilldown_deadline_overdue",
-                                  n=_overdue_days)
+                # Overdue: primary readout shows the signed day count;
+                # the red "超過" delta line makes the severity obvious.
+                deadline_text = f"+{-delta} 日"
+                deadline_delta = t("drilldown_deadline_overdue_badge")
+                deadline_delta_color = "inverse"
         else:
             deadline_text = t("drilldown_deadline_unknown")
-        if _overdue_days is not None:
-            # Match st.metric's DOM / sizes: outer padding mirrors the
-            # streamlit-emotion metric container; label → 0.875rem grey,
-            # value → 1.875rem regular-weight (NOT bold) in red.
-            with prog_cols[2]:
-                st.markdown(
-                    f"""
-<div style="display:flex;flex-direction:column;padding:0;">
-  <div style="font-size:0.875rem;color:rgba(49,51,63,0.6);
-              font-weight:400;line-height:1.25;"
-       title="{t('drilldown_help_deadline')}">
-    ⏰ {t('drilldown_to_deadline')}
-  </div>
-  <div style="font-size:1.875rem;color:#f05050;font-weight:400;
-              line-height:1.6;padding-top:0.25rem;">
-    {deadline_text}
-  </div>
-</div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-        else:
-            prog_cols[2].metric("⏰ " + t("drilldown_to_deadline"),
-                                deadline_text,
-                                help=t("drilldown_help_deadline"))
+        prog_cols[2].metric(
+            "⏰ " + t("drilldown_to_deadline"),
+            deadline_text,
+            delta=deadline_delta,
+            delta_color=deadline_delta_color,
+            help=t("drilldown_help_deadline"),
+        )
 
         # Per-feature WBS sub-tasks — powers the assignee list, the
         # role-progress bars, and the sub-task breakdown table below.
@@ -12136,11 +12163,48 @@ def render_calendar_tab() -> None:
             "right": "dayGridMonth,timeGridWeek,listMonth",
         },
         "height": 720,
+        # Cap events per day cell; the rest collapse into a "+N more"
+        # link so the day number + today-highlight never get buried by
+        # stacked bars when the dataset is dense. dayMaxEvents (count)
+        # renders fine — dayMaxEventRows (vertical fit) was the one
+        # that caused the blank-iframe bug noted below.
+        "dayMaxEvents": 3,
+        "moreLinkClick": "popover",
     }
-    # `custom_css` and `dayMaxEventRows` are intentionally omitted: with both
-    # enabled the FullCalendar inside the streamlit-calendar iframe renders to
-    # an empty area on Streamlit 1.39 + this package (1.3.1). Plain options
-    # render correctly.
+    # Custom CSS injected INTO the FullCalendar iframe: strengthens the
+    # day-number badge and today-highlight so they stay readable even
+    # with a dense event stack above them. Keeping this list short —
+    # earlier combinations of dayMaxEventRows + custom_css caused the
+    # inner calendar to render blank on streamlit-calendar 1.3.1.
+    calendar_css = """
+/* Day number: fixed-position badge so it sits above event chips. */
+.fc .fc-daygrid-day-top {
+  z-index: 5; position: relative;
+}
+.fc .fc-daygrid-day-number {
+  font-weight: 600; color: #eaeaea; padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.45);
+}
+/* Today's cell: amber tint + amber ring on the day badge so it
+   stands out even when stacked events overlay the cell. */
+.fc .fc-day-today {
+  background-color: rgba(245, 180, 0, 0.18) !important;
+}
+.fc .fc-day-today .fc-daygrid-day-number {
+  background: #f5b400; color: #1a1a1a;
+  box-shadow: 0 0 0 2px rgba(245, 180, 0, 0.5);
+}
+/* Event rows: slight transparency so anything beneath (today's
+   cell tint, grid lines) is still perceivable. */
+.fc .fc-daygrid-event {
+  opacity: 0.9;
+}
+/* "+N more" link: readable when events overflow. */
+.fc .fc-more-link {
+  color: #f5b400; font-weight: 600;
+}
+"""
     # streamlit-calendar passes events via FullCalendar's `initialEvents`,
     # which is only honored on first mount — toggling filters would otherwise
     # leave the calendar stuck on the old event list. Hash the event payload
@@ -12150,7 +12214,8 @@ def render_calendar_tab() -> None:
             (e["title"], e["start"], e["end"]) for e in events
         )).encode()
     ).hexdigest()[:12]
-    calendar(events=events, options=options, key=cal_key)
+    calendar(events=events, options=options, custom_css=calendar_css,
+             key=cal_key)
 
 
 def render_design_pages_tab() -> None:
@@ -12770,7 +12835,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.80</span>
+    <span class="ver">Ver1.0.83</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
