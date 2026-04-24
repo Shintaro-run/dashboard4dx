@@ -3018,27 +3018,44 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alert_sev_low_label":     "Low severity",
         "alert_current_label":     "current",
         "alert_threshold_label":   "threshold",
-        "alert_msg_high_incident": (
-            "{label}: Redmine fault rate <b>{value}%</b> exceeds the "
-            "configured threshold ({threshold}%)."
-        ),
-        "alert_msg_low_density":   (
-            "{label}: test density <b>{value}</b> is below the configured "
-            "threshold ({threshold})."
-        ),
-        "alert_msg_delay":         (
-            "{label}: schedule slippage <b>{value} days</b> "
-            "(exceeds the 2-week watermark)."
-        ),
-        "alert_msg_mostly_unrun":  (
-            "{label}: <b>{pct}%</b> of the planned tests still not run — "
-            "execution is stalling."
+        "alert_risk_score_label":  "Risk score",
+        "alert_score_legend_title": "ℹ️ How the risk score is computed",
+        "alert_score_legend_body": (
+            "**Risk score (0 – 1, higher = more attention needed)** — "
+            "each feature is scored by combining the four breach "
+            "metrics below:\n\n"
+            "- **Fault rate** — weight **3.0**\n"
+            "- **Delay days** — weight **1.5**\n"
+            "- **Test density** — weight **1.0**\n"
+            "- **Un-executed test ratio** — weight **1.0**\n\n"
+            "A metric contributes `n × w` only when it crosses its "
+            "threshold (otherwise 0). `n` is the breach level "
+            "normalised to 0..1:\n\n"
+            "- **Fault rate**: `min(1, ir ÷ (2 × threshold))`\n"
+            "- **Delay**: `min(1, (days − 14) ÷ 46)` "
+            "(caps at 60 days)\n"
+            "- **Test density**: `max(0, 1 − td ÷ threshold)`\n"
+            "- **Un-executed**: `max(0, (pct − 60) ÷ 40)` "
+            "(needs ≥ 10 planned tests)\n\n"
+            "Score = **Σ(n × w) ÷ Σ(w)**. Severity bucket: "
+            "**> 0.70 → 🔴 HIGH**, "
+            "**> 0.35 → 🟡 MED**, **otherwise 🔵 LOW**. "
+            "Features with every metric in-spec do not alert.\n\n"
+            "Per tile: `X` marks the metric contributing the most "
+            "(the main culprit); `△` marks other metrics that also "
+            "breached but contributed less."
         ),
         "help_test_notrun_short": "Un-executed test ratio",
         "alert_sort_label":      "Sort order",
         "alert_sort_severity":   "By severity (HIGH → LOW)",
         "alert_sort_date_desc":  "By date (newest first)",
         "alert_sort_date_asc":   "By date (oldest first)",
+        # Per-alert date badge labels — tells the reader whether the
+        # date on the tile is the planned ship date, the actual
+        # completion date, or just unknown (neither column populated).
+        "alert_date_label_actual":  "Actual end",
+        "alert_date_label_planned": "Planned end",
+        "alert_date_label_unknown": "Date unknown",
         "charts_needs_master": "Upload **Function master** in the Dashboard tab to unlock charts.",
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
@@ -4149,26 +4166,39 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alert_sev_low_label":     "低アラート",
         "alert_current_label":     "現在値",
         "alert_threshold_label":   "閾値",
-        "alert_msg_high_incident": (
-            "{label}：障害発生率（Redmine）が <b>{value}%</b> で、"
-            "設定閾値 {threshold}% を超過しています。"
-        ),
-        "alert_msg_low_density":   (
-            "{label}：テスト密度が <b>{value}</b> で、"
-            "設定閾値 {threshold} を下回っています。"
-        ),
-        "alert_msg_delay":         (
-            "{label}：遅延 <b>{value}日</b>（2週間超過）。"
-        ),
-        "alert_msg_mostly_unrun":  (
-            "{label}：計画テストの <b>{pct}%</b> が未実施のままです。"
-            "テスト実施が停滞している可能性があります。"
+        "alert_risk_score_label":  "リスクスコア",
+        "alert_score_legend_title": "ℹ️ リスクスコアの求め方",
+        "alert_score_legend_body": (
+            "**リスクスコア（0〜1、高いほど要対応）** — "
+            "機能ごとに下記 4 つの「閾値超過指標」を重み付け平均します：\n\n"
+            "- **障害発生率** — 重み **3.0**\n"
+            "- **遅延日数** — 重み **1.5**\n"
+            "- **テスト密度** — 重み **1.0**\n"
+            "- **テスト未実施率** — 重み **1.0**\n\n"
+            "各指標は**閾値を超えたときのみ**寄与度 `n × w` を計上します"
+            "（超過していなければ 0）。`n` は超過の度合いを 0..1 に"
+            "正規化した値：\n\n"
+            "- **障害発生率**: `min(1, ir ÷ (2×閾値))`\n"
+            "- **遅延**: `min(1, (日数 − 14) ÷ 46)`（60 日で上限）\n"
+            "- **テスト密度**: `max(0, 1 − td ÷ 閾値)`\n"
+            "- **未実施率**: `max(0, (% − 60) ÷ 40)`"
+            "（計画 10 件以上のときのみ）\n\n"
+            "スコア = **Σ(n × w) ÷ Σ(w)**。重要度の分類: "
+            "**> 0.70 → 🔴 HIGH**、**> 0.35 → 🟡 MED**、"
+            "**以下 → 🔵 LOW**。全指標が閾値内の機能は"
+            "アラートになりません。\n\n"
+            "各タイルの指標行の **X** は寄与度が最大の指標（＝主犯）、"
+            "**△** は主犯ではないが閾値を超えている指標です。"
         ),
         "help_test_notrun_short": "未実施率",
         "alert_sort_label":      "並び替え",
         "alert_sort_severity":   "重要度順（重 → 低）",
         "alert_sort_date_desc":  "日付順（新しい順）",
         "alert_sort_date_asc":   "日付順（古い順）",
+        # タイル右端の日付バッジ用ラベル（出典: WBS）
+        "alert_date_label_actual":  "終了実績日",
+        "alert_date_label_planned": "終了予定日",
+        "alert_date_label_unknown": "日付不明",
         "charts_needs_master": "Dashboardタブで **機能マスタ** を取り込むとグラフが利用できます。",
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
@@ -6274,26 +6304,63 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
 
 
 # =============================================================================
-# Alert tab — per-Function-ID anomalies and threshold breaches
+# Alert tab — per-Function-ID risk-score alerts
 # =============================================================================
-# Severity ranks — controls the sort order and the badge colour.
+# One alert per feature. The four metrics below each contribute a normalized
+# value `n ∈ [0, 1]` (0 = within spec, 1 = saturated bad); the weighted mean
+# collapses into a single risk score `0..1` used to bucket severity.
+#
+# Risk score = Σ(n × w) ÷ Σ(w)
+#
+# Metric   | weight | normalization
+# ---------|--------|------------------------------------------------------
+# incident | 3.0    | min(1, ir ÷ (2 × threshold))  breach when ir > thr
+# delay    | 1.5    | min(1, (days − 14) ÷ 46)       breach when days > 14
+# density  | 1.0    | max(0, 1 − td ÷ threshold)     breach when td < thr
+# notrun%  | 1.0    | max(0, (pct − 60) ÷ 40)        breach when pct > 60
+#
+# Severity: score > 0.70 → HIGH, > 0.35 → MED, > 0 → LOW. Features with
+# all four metrics in-spec (score = 0) do NOT generate an alert.
 _ALERT_SEV_ORDER = {"high": 0, "medium": 1, "low": 2}
 _ALERT_SEV_COLOR = {
     "high":   "#f05050",
     "medium": "#f5b400",
     "low":    "#7ab3ff",
 }
+_RISK_WEIGHTS = {
+    "incident_rate": 3.0,
+    "delay_days":    1.5,
+    "test_density":  1.0,
+    "notrun_ratio":  1.0,
+}
+_RISK_SEV_HIGH = 0.70
+_RISK_SEV_MED  = 0.35
+_DELAY_CAP_DAYS   = 60     # days where n=1.0 saturates
+_DELAY_FLOOR_DAYS = 14     # breach threshold
+_NOTRUN_FLOOR_PCT = 0.60   # breach threshold (ratio)
+_NOTRUN_MIN_PLAN  = 10     # minimum 総設定テスト数 for notrun to matter
+
+
+def _risk_severity(score: float) -> str:
+    if score > _RISK_SEV_HIGH:
+        return "high"
+    if score > _RISK_SEV_MED:
+        return "medium"
+    return "low"
 
 
 def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
-    """Return a list of alert dicts raised from the current kpi_df.
+    """One risk-scored alert per Function ID.
 
-    v1 keeps the rules static against the already-tunable thresholds
-    (incident_rate_threshold / test_density_threshold) plus a couple of
-    heuristics (delay > 14 days, mostly-unexecuted test plans). Each
-    alert carries {severity, fid, label, metric, value, threshold,
-    unit, message}. Future work: also emit snapshot-delta alerts by
-    diffing against the previous kpi_df build.
+    Every feature is evaluated across the four breach metrics above.
+    A metric contributes `n × w` only when it crosses its threshold;
+    otherwise it's clamped to 0. The per-feature risk score is the
+    weighted mean (denominator = constant Σw so the scale stays 0..1).
+
+    Each alert carries: severity / risk_score / date / fid / label /
+    metrics[]. `metrics` is ordered by contribution descending so the
+    UI can mark the biggest one as `is_main=True` ("X" badge) and the
+    rest as `is_main=False` ("△" badge).
     """
     alerts: list[dict] = []
     if kpi_df is None or kpi_df.empty:
@@ -6301,100 +6368,102 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
 
     incident_thr = _incident_rate_threshold()
     density_thr  = _test_density_threshold()
+    w_total = sum(_RISK_WEIGHTS.values())
 
-    today_d = date.today()
     for _, r in kpi_df.iterrows():
         fid = str(r.get("機能ID") or "")
         if not fid:
             continue
         label = _label_id_name(r)
         # Relevant date for this feature — preferred order:
-        #   planned_end (the ship date) → actual_end (completion) → today.
-        # Surfaced per-alert so the user can sort the list by when each
-        # feature is / was scheduled to land.
-        ref_date = (
-            _to_pydate(r.get("planned_end"))
-            or _to_pydate(r.get("actual_end"))
-            or today_d
-        )
+        #   actual_end  (terminated / already shipped — most accurate)
+        #   planned_end (scheduled ship date — if not yet shipped)
+        #   unknown     (neither column populated — surface honestly
+        #                instead of pretending "today" is meaningful)
+        _actual = _to_pydate(r.get("actual_end"))
+        _planned = _to_pydate(r.get("planned_end"))
+        if _actual is not None:
+            ref_date, date_kind = _actual, "actual"
+        elif _planned is not None:
+            ref_date, date_kind = _planned, "planned"
+        else:
+            ref_date, date_kind = None, "unknown"
 
-        # High Redmine fault rate.
+        metrics: list[dict] = []
+
+        # --- 障害発生率 ---
         ir = r.get("incident_rate")
         if pd.notna(ir) and float(ir) > incident_thr:
-            alerts.append({
-                "severity": "high",
-                "date": ref_date,
-                "fid": fid, "label": label,
-                "metric": t("col_incident_rate"),
-                "value": f"{float(ir) * 100:.1f}%",
-                "threshold": f"> {incident_thr * 100:.0f}%",
-                "message_key": "alert_msg_high_incident",
-                "message_kwargs": {
-                    "label": label,
-                    "value": f"{float(ir) * 100:.1f}",
-                    "threshold": f"{incident_thr * 100:.0f}",
-                },
+            ir_f = float(ir)
+            n = min(1.0, ir_f / max(1e-9, 2.0 * incident_thr))
+            metrics.append({
+                "key": "incident_rate",
+                "label": t("col_incident_rate"),
+                "display": f"{ir_f * 100:.1f} %",
+                "n": n, "weight": _RISK_WEIGHTS["incident_rate"],
+                "contribution": n * _RISK_WEIGHTS["incident_rate"],
             })
 
-        # Low test density — sufficiency below threshold.
+        # --- 遅延日数 ---
+        delay = r.get("delay_days")
+        if pd.notna(delay) and float(delay) > _DELAY_FLOOR_DAYS:
+            d_f = float(delay)
+            n = min(1.0, (d_f - _DELAY_FLOOR_DAYS) /
+                    max(1.0, _DELAY_CAP_DAYS - _DELAY_FLOOR_DAYS))
+            metrics.append({
+                "key": "delay_days",
+                "label": t("col_delay_days"),
+                "display": f"{int(d_f)} 日",
+                "n": n, "weight": _RISK_WEIGHTS["delay_days"],
+                "contribution": n * _RISK_WEIGHTS["delay_days"],
+            })
+
+        # --- テスト密度 ---
         td = r.get("test_density")
         if pd.notna(td) and float(td) < density_thr:
-            alerts.append({
-                "severity": "medium",
-                "date": ref_date,
-                "fid": fid, "label": label,
-                "metric": t("col_test_density"),
-                "value": f"{float(td):.2f}",
-                "threshold": f"< {density_thr:g}",
-                "message_key": "alert_msg_low_density",
-                "message_kwargs": {
-                    "label": label,
-                    "value": f"{float(td):.2f}",
-                    "threshold": f"{density_thr:g}",
-                },
+            td_f = float(td)
+            n = max(0.0, 1.0 - td_f / max(1e-9, density_thr))
+            metrics.append({
+                "key": "test_density",
+                "label": t("col_test_density"),
+                "display": f"{td_f:.2f}",
+                "n": n, "weight": _RISK_WEIGHTS["test_density"],
+                "contribution": n * _RISK_WEIGHTS["test_density"],
             })
 
-        # Delay > 14 days. Threshold is deliberately not user-tunable yet;
-        # two weeks is the point where most teams treat slippage as a
-        # recovery problem rather than normal project drift.
-        delay = r.get("delay_days")
-        if pd.notna(delay) and float(delay) > 14:
-            alerts.append({
-                "severity": "medium",
-                "date": ref_date,
-                "fid": fid, "label": label,
-                "metric": t("col_delay_days"),
-                "value": f"{int(float(delay))} 日",
-                "threshold": "> 14 日",
-                "message_key": "alert_msg_delay",
-                "message_kwargs": {
-                    "label": label,
-                    "value": f"{int(float(delay))}",
-                },
-            })
-
-        # Mostly-unexecuted test plan (>60% unrun with a non-trivial
-        # plan size). Catches features where the spec is written but
-        # execution hasn't progressed in a long time.
+        # --- テスト未実施率 ---
         total = r.get("総設定テスト数")
         notrun = r.get("未実施")
-        if (pd.notna(total) and float(total) >= 10
-                and pd.notna(notrun)
-                and float(notrun) / float(total) > 0.6):
-            pct = float(notrun) / float(total) * 100.0
-            alerts.append({
-                "severity": "low",
-                "date": ref_date,
-                "fid": fid, "label": label,
-                "metric": t("help_test_notrun_short"),
-                "value": f"{pct:.0f}% ({int(float(notrun))}/{int(float(total))})",
-                "threshold": "> 60%",
-                "message_key": "alert_msg_mostly_unrun",
-                "message_kwargs": {
-                    "label": label,
-                    "pct": f"{pct:.0f}",
-                },
-            })
+        if (pd.notna(total) and float(total) >= _NOTRUN_MIN_PLAN
+                and pd.notna(notrun)):
+            ratio = float(notrun) / float(total)
+            if ratio > _NOTRUN_FLOOR_PCT:
+                n = max(0.0, (ratio - _NOTRUN_FLOOR_PCT) /
+                        max(1e-9, 1.0 - _NOTRUN_FLOOR_PCT))
+                metrics.append({
+                    "key": "notrun_ratio",
+                    "label": t("help_test_notrun_short"),
+                    "display": f"{ratio * 100:.0f} %",
+                    "n": n, "weight": _RISK_WEIGHTS["notrun_ratio"],
+                    "contribution": n * _RISK_WEIGHTS["notrun_ratio"],
+                })
+
+        if not metrics:
+            continue
+
+        # Sort by contribution desc; the first one wins the "X" badge.
+        metrics.sort(key=lambda m: m["contribution"], reverse=True)
+        for i, m in enumerate(metrics):
+            m["is_main"] = (i == 0)
+
+        risk_score = sum(m["contribution"] for m in metrics) / w_total
+        alerts.append({
+            "severity": _risk_severity(risk_score),
+            "risk_score": risk_score,
+            "date": ref_date, "date_kind": date_kind,
+            "fid": fid, "label": label,
+            "metrics": metrics,
+        })
 
     # Default order = severity first (high → low), FID as tiebreak. The
     # render layer can re-sort based on user selection.
@@ -6488,17 +6557,47 @@ def render_alert_tab() -> None:
         )
     # else: keep default severity order from detect_kpi_alerts.
 
-    # Alert cards — one row per alert. `message_key` holds a translation
-    # template that embeds the feature label / value / threshold.
+    # Scoring legend (collapsible) — explains the risk score and weights
+    # once at the top so each tile below can stay compact. Default
+    # collapsed; repeat-readers will likely leave it that way.
+    with st.expander(t("alert_score_legend_title"), expanded=False):
+        st.markdown(t("alert_score_legend_body"))
+
+    # One tile per feature. Each tile shows the risk-score headline plus
+    # the list of breaching metrics with a culprit marker (X = main
+    # contributor, △ = also breaching but smaller contribution).
     for a in alerts:
         sev = a["severity"]
         colour = _ALERT_SEV_COLOR[sev]
         badge_label = t(f"alert_sev_{sev}")
-        msg = t(a["message_key"], **a["message_kwargs"])
-        date_str = a["date"].isoformat() if a.get("date") else "—"
+        score = a.get("risk_score", 0.0)
+        date_kind = a.get("date_kind", "unknown")
+        date_label = t(f"alert_date_label_{date_kind}")
+        if date_kind == "unknown" or a.get("date") is None:
+            date_badge = date_label
+        else:
+            date_badge = f"{date_label}: {a['date'].isoformat()}"
+        # Each metric row: "障害発生率   50.0 %   X" — value right-aligned
+        # inside a fixed-width column so readings line up vertically.
+        metric_rows = []
+        for m in a["metrics"]:
+            mark = "X" if m["is_main"] else "△"
+            mark_color = "#d43a3a" if m["is_main"] else "#d98a00"
+            metric_rows.append(
+                f"""
+  <div style="display:flex; align-items:center; gap:10px;
+              font-size:13px; padding:2px 0;">
+    <span style="min-width:110px; color:#333;">{m['label']}</span>
+    <span style="min-width:70px; text-align:right; font-variant-numeric:tabular-nums;">{m['display']}</span>
+    <span style="min-width:24px; text-align:center;
+                 font-weight:700; color:{mark_color};
+                 font-size:14px;">{mark}</span>
+  </div>
+"""
+            )
         st.markdown(
             f"""
-<div style="padding:10px 14px; margin-bottom:8px;
+<div style="padding:12px 14px; margin-bottom:10px;
             border-radius:8px; border-left:5px solid {colour};
             background:rgba(128,128,128,0.05);">
   <div style="display:flex; align-items:center; gap:10px;
@@ -6508,17 +6607,16 @@ def render_alert_tab() -> None:
                  font-size:10px; font-weight:700; letter-spacing:0.04em;">
       {badge_label}
     </span>
-    <span style="font-size:11px; color:#888;">{a["metric"]}</span>
+    <span style="font-size:12px; color:#333;">
+      <b>{t('alert_risk_score_label')} {score:.2f}</b>
+    </span>
+    <span style="font-size:13px; color:#222;">{a["label"]}</span>
     <span style="font-size:11px; color:#888; margin-left:auto;">
-      📅 {date_str}
+      📅 {date_badge}
     </span>
   </div>
-  <div style="margin-top:6px; font-size:13px; line-height:1.5;">
-    {msg}
-  </div>
-  <div style="margin-top:4px; font-size:11px; color:#888;">
-    {t('alert_current_label')}: <b>{a["value"]}</b>
-    &nbsp;·&nbsp; {t('alert_threshold_label')}: {a["threshold"]}
+  <div style="margin-top:8px;">
+    {''.join(metric_rows)}
   </div>
 </div>
             """,
@@ -12302,7 +12400,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.72</span>
+    <span class="ver">Ver1.0.74</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
