@@ -3865,7 +3865,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**WBS column T** (end date — are they slipping?). "
             "Follow up on the actual test-execution schedule."
         ),
-        "role_analytics_watch_empty": "None — every assignee is on the main scatter.",
+        "role_analytics_watch_empty": "None",
         "role_analytics_watch_col_assignee": "Assignee",
         "role_analytics_watch_col_features": "Features touched",
         "role_analytics_watch_col_defects":  "Defects",
@@ -5060,7 +5060,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**WBS T列**（終了予定日 — 遅延していないか）。"
             "テスト実施スケジュールを確認してください。"
         ),
-        "role_analytics_watch_empty": "該当者なし — 全員メイン散布図に掲載されています。",
+        "role_analytics_watch_empty": "該当者なし",
         "role_analytics_watch_col_assignee": "担当者",
         "role_analytics_watch_col_features": "関与機能数",
         "role_analytics_watch_col_defects":  "障害件数",
@@ -10848,6 +10848,7 @@ def _append_watchlist_pdf_section(
     column suppressed for the no-exec bucket (always zero and would
     contradict the caption's "quality cannot be measured" framing)."""
     from reportlab.lib import colors
+    from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
     story.append(Spacer(1, 8))
@@ -10855,7 +10856,29 @@ def _append_watchlist_pdf_section(
     story.append(Paragraph(_md_bold_html(t(caption_key)), caption_style))
     story.append(Spacer(1, 3))
     if df is None or df.empty:
-        story.append(Paragraph(t("role_analytics_watch_empty"), caption_style))
+        # Soft-blue info box — mirrors the on-screen st.info look for
+        # the "該当者なし" state so PDF readers don't mistake an empty
+        # watch-list for a rendering bug. Single-cell Table gives us
+        # the background fill + border radius-ish frame that a bare
+        # Paragraph can't.
+        empty_style = ParagraphStyle(
+            "WatchlistEmpty", parent=caption_style,
+            textColor=colors.HexColor("#2a5a86"),
+            fontSize=9, leading=13,
+        )
+        empty_tbl = Table(
+            [[Paragraph(t("role_analytics_watch_empty"), empty_style)]],
+            colWidths=[inner_w],
+        )
+        empty_tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#e7f1fb")),
+            ("BOX",        (0, 0), (-1, -1), 0.5, colors.HexColor("#9dc2ed")),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+            ("TOPPADDING",    (0, 0), (-1, -1), 7),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ]))
+        story.append(empty_tbl)
         return
     role_labels_local = {
         "dev":       t("role_dev"),
@@ -13254,7 +13277,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.84</span>
+    <span class="ver">Ver1.0.85</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
