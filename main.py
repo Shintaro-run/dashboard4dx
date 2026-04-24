@@ -4246,6 +4246,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_rail_hint":      "⇄ scroll horizontally to browse all sources",
         "calendar_layer_events":  "Show events",
         "calendar_layer_nonwork": "Show non-working days",
+        "calendar_layer_backlog": "Show Backlog",
         # Validation messages
         "err_zero_rows": "parsed 0 rows — check sheet name / column layout",
         "warn_master_dups": (
@@ -5424,6 +5425,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_rail_hint":      "⇄ 横にスクロールして全ソースを閲覧",
         "calendar_layer_events":  "イベント表示",
         "calendar_layer_nonwork": "非稼働表示",
+        "calendar_layer_backlog": "Backlog 表示",
         "err_zero_rows": "0行しか読めませんでした — シート名や列構成をご確認ください",
         "warn_master_dups": "{n}件の機能IDに複数の名称がありました（全て保持しています）",
         "warn_tests_overrun": "{n}行で 実施済 > 総設定テスト数 になっています",
@@ -12296,7 +12298,7 @@ def render_calendar_tab() -> None:
 
     selected_fids = _get_global_fids()
 
-    layer_cols = st.columns(6)
+    layer_cols = st.columns(7)
     with layer_cols[0]:
         show_planned = st.checkbox(t("calendar_layer_planned"), value=True,
                                    key="cal_layer_planned")
@@ -12315,6 +12317,13 @@ def render_calendar_tab() -> None:
     with layer_cols[5]:
         show_nonwork = st.checkbox(t("calendar_layer_nonwork"), value=True,
                                    key="cal_layer_nonwork")
+    with layer_cols[6]:
+        # Backlog issue overlay: draws the 開始日→期限日 span (or a
+        # single-day event on 期限日 when 開始日 is blank), coloured by
+        # 状態. No join key with 機能ID so it renders independently —
+        # useful for side-by-side schedule / issue review.
+        show_backlog = st.checkbox(t("calendar_layer_backlog"), value=True,
+                                    key="cal_layer_backlog")
 
     if selected_fids:
         kpi_df = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
@@ -12487,6 +12496,42 @@ def render_calendar_tab() -> None:
                     "backgroundColor": "rgba(78,199,138,0.55)",
                     "borderColor": "#3aa872",
                 })
+
+    # ----- Backlog issue overlay ------------------------------------------
+    # Not joined on 機能ID — Backlog tickets have no 機能ID, so the global
+    # FID filter does NOT narrow them. Colour follows the ticket's 状態
+    # (see _BACKLOG_STATUS_COLOR); the title prefixes 種別 + 件名 so the
+    # event row is informative at a glance.
+    backlog_df = st.session_state.dfs.get("backlog")
+    if show_backlog and backlog_df is not None and not backlog_df.empty:
+        for _, row in backlog_df.iterrows():
+            due = row.get("期限日")
+            start = row.get("開始日")
+            if due is None and start is None:
+                continue
+            # Event span: 開始日 → 期限日+1 when both exist (FullCalendar
+            # treats `end` as exclusive); single-day event otherwise.
+            if start and due:
+                ev_start = start.isoformat()
+                ev_end = (due + timedelta(days=1)).isoformat()
+            elif due:
+                ev_start = due.isoformat()
+                ev_end = (due + timedelta(days=1)).isoformat()
+            else:
+                ev_start = start.isoformat()
+                ev_end = (start + timedelta(days=1)).isoformat()
+            status = str(row.get("状態") or "")
+            colour = _backlog_status_colour(status)
+            subject = str(row.get("件名") or "").strip() or "—"
+            ttype = str(row.get("種別") or "").strip()
+            label = f"📋 [{ttype}] {subject}" if ttype else f"📋 {subject}"
+            events.append({
+                "title": label,
+                "start": ev_start,
+                "end": ev_end,
+                "backgroundColor": colour,
+                "borderColor": colour,
+            })
 
     defects_df = st.session_state.dfs.get("defects")
     if show_defects and defects_df is not None and not defects_df.empty:
@@ -13277,7 +13322,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.86</span>
+    <span class="ver">Ver1.0.87</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

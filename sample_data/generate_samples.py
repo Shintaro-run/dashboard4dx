@@ -636,10 +636,15 @@ def make_backlog() -> Path:
     something to do; a handful of tickets left 状態=完了 and 担当者=""
     to exercise the empty-state / filter-edge cases."""
     out = OUT_DIR / "backlog.csv"
-    today = date(2026, 4, 20)
+    # Anchor dates on today so the demo calendar is always live —
+    # otherwise re-running the generator after a fixed date (2026-04-20)
+    # leaves the Backlog events drifting in the past. Distribution is
+    # skewed so most tickets land within ±30 days of today, which is
+    # where the Calendar tab's initial month view centers.
+    today = date.today()
     rows: list[dict[str, str]] = []
     # Start keyIDs at 1001 so they look like realistic Backlog numeric IDs.
-    for i in range(35):
+    for i in range(50):
         key_id = 1000 + i + 1
         issue_id = f"DEMO-{i+1:03d}"
         ttype = random.choice(BACKLOG_TYPES)
@@ -651,14 +656,15 @@ def make_backlog() -> Path:
         phase = random.choice(BACKLOG_PHASES)
         # 顧客共有: 要 / 不 / blank (~60/30/10 mix)
         share = random.choices(["要", "不", ""], weights=[6, 3, 1])[0]
-        # Dates. 開始日 is always set for in-flight items; 期限日 may be
-        # missing for open-ended tickets; 更新日 exists for every ticket
-        # but can lag up to 30 days behind today.
-        start = today - timedelta(days=random.randint(2, 120))
-        has_due = random.random() > 0.2
-        due = (start + timedelta(days=random.randint(3, 60))
+        # Dates skewed toward "近い将来": most 開始日 values land within
+        # 1–45 days before today; 期限日 within 2–30 days after 開始日.
+        # That keeps the current calendar month dense with events so the
+        # Backlog overlay is immediately legible on the demo.
+        start = today - timedelta(days=random.randint(1, 45))
+        has_due = random.random() > 0.1     # 90% have a 期限日
+        due = (start + timedelta(days=random.randint(2, 30))
                if has_due else None)
-        updated = today - timedelta(days=random.randint(0, 30))
+        updated = today - timedelta(days=random.randint(0, 14))
         rows.append({
             "キーID": str(key_id),
             "ID": issue_id,
