@@ -3622,7 +3622,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "size = total Redmine defects, colour = their dominant role "
             "(derived from WBS sub-task names). Dashed lines mark the "
             "overall mean Y and the median X — top-right is the "
-            "'attention' quadrant, bottom-right is 'reliable coverage'."
+            "'attention' quadrant, bottom-right is 'reliable coverage'. "
+            "Assignees whose features have no recorded fault-rate data "
+            "are placed at 0% (hover shows `—` for their rate); "
+            "zero-defect bubbles render at a minimum size so they stay "
+            "visible."
         ),
         "role_analytics_bubble_color_legend": "Dominant role",
         # Core explanation — safe for both on-screen and PDF use.
@@ -4681,6 +4685,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "を表します。破線は全体の平均ライン。**右上＝広く関わって障害が多い"
             "（要注意）**、**右下＝広く関わっているが品質が良い（頼れる）**、"
             "というように4つのエリアで読み取れます。"
+            "**障害発生率のデータが無い担当者は 0% 位置に配置**し、"
+            "ホバー時の発生率は `—` と表示されます。障害 0 件のバブルも"
+            "最小サイズで必ず描画されるため、担当者サマリの全員が表示されます。"
         ),
         "role_analytics_bubble_color_legend": "ドミナントロール",
         # 画面・PDF 共通の基本説明
@@ -7625,6 +7632,15 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     df = bubble_df.copy()
     df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
                                     errors="coerce") * 100.0
+    # Plotly silently drops points with NaN Y — which hides every
+    # assignee whose features lack incident_rate data (i.e. no test
+    # execution recorded yet). Plot them at 0% so they still appear
+    # on the chart, and keep the real value in `rate_display` so the
+    # hover can annotate "—" instead of a misleading "0.0%".
+    df["rate_pct_plot"] = df["rate_pct"].fillna(0.0)
+    df["rate_display"] = df["rate_pct"].apply(
+        lambda v: f"{v:.1f}%" if pd.notna(v) else "—"
+    )
     role_labels_local = {
         "dev":       t("role_dev"),
         "test_spec": t("role_test_spec"),
@@ -7646,25 +7662,29 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     fig = px.scatter(
         df,
         x="feature_count",
-        y="rate_pct",
+        y="rate_pct_plot",
         size="defect_total",
         color="role_label",
         text="assignee",
         size_max=60,
         color_discrete_map=color_map_local,
-        custom_data=["assignee", "feature_count", "rate_pct",
+        custom_data=["assignee", "feature_count", "rate_display",
                      "defect_total", "hover_roles"],
     )
+    # marker.sizemin keeps zero-defect bubbles visible (Plotly scales
+    # `size=defect_total` to literal zero-area markers otherwise, which
+    # made people with no registered defects silently disappear).
     fig.update_traces(
         textposition="top center",
         textfont=dict(size=13, color="#1f2937",
                       family="Hiragino Sans, Yu Gothic, sans-serif"),
         cliponaxis=False,
-        marker=dict(line=dict(color="#444", width=0.7), opacity=0.85),
+        marker=dict(line=dict(color="#444", width=0.7), opacity=0.85,
+                    sizemin=8),
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
             f"{t('col_feature_count')}: %{{customdata[1]}}<br>"
-            f"{t('col_avg_incident_rate')}: %{{customdata[2]:.1f}}%<br>"
+            f"{t('col_avg_incident_rate')}: %{{customdata[2]}}<br>"
             f"{t('col_defect_total')}: %{{customdata[3]}}<br>"
             "%{customdata[4]}"
             "<extra></extra>"
@@ -8587,6 +8607,11 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     df = bubble_df.copy()
     df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
                                     errors="coerce") * 100.0
+    # Mirror the Plotly fix: matplotlib's scatter also silently drops
+    # points with NaN Y. Fill NaN rate_pct → 0 so every assignee from
+    # the summary also appears in the map; the label halo + legend
+    # can't help when the point itself never gets drawn.
+    df["rate_pct_plot"] = df["rate_pct"].fillna(0.0)
     df["_defect_total"] = pd.to_numeric(df["defect_total"],
                                          errors="coerce").fillna(0)
     plt = _mpl_plt()
@@ -8601,7 +8626,7 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     colors = [_ROLE_COLOR_MAP.get(r, "#888888")
               for r in df["dominant_role"]]
     ax.scatter(
-        df["feature_count"], df["rate_pct"],
+        df["feature_count"], df["rate_pct_plot"],
         s=marker_sizes, c=colors,
         alpha=0.75, edgecolors="#333", linewidth=0.8,
     )
@@ -8612,8 +8637,7 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     for _, r in df.iterrows():
         txt = ax.annotate(
             r["assignee"],
-            xy=(r["feature_count"], r["rate_pct"] if pd.notna(r["rate_pct"])
-                else 0),
+            xy=(r["feature_count"], r["rate_pct_plot"]),
             xytext=(0, 11), textcoords="offset points",
             ha="center", fontsize=11, color="#1f2937", fontweight="bold",
         )
@@ -12022,7 +12046,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.69</span>
+    <span class="ver">Ver1.0.70</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
