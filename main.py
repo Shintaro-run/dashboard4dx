@@ -4263,12 +4263,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "main_tab_charts": "📊 グラフ",
         "main_tab_calendar": "📅 カレンダー",
         "main_tab_alert": "🚨 アラート",
-        "main_tab_delivery": "🏁 配信パフォーマンス",
+        "main_tab_delivery": "🏁 パフォーマンス",
         "main_tab_backlog": "📋 Backlog",
         "main_tab_design": "📐 設計書ページ数",
         "main_tab_settings": "⚙️ 設定",
         "delivery_needs_data": (
-            "機能マスタと WBS を取り込むとチーム配信パフォーマンスが表示されます。"
+            "機能マスタと WBS を取り込むとチームパフォーマンスが表示されます。"
         ),
         # Backlog タブ (📋) — Backlog.com の課題一覧
         "backlog_tab_title":   "📋 Backlog — 課題 & リスク",
@@ -4300,7 +4300,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "backlog_lane_empty":           "(なし)",
         "backlog_status_total":         "{n} 件",
         "backlog_filter_reset":         "フィルタをリセット",
-        "dora_section_title": "🏁 チーム配信パフォーマンス（DORA 5Keys）",
+        "dora_section_title": "🏁 チームパフォーマンス（DORA 5Keys）",
         "dora_section_caption": (
             "過去 {days} 日間 — 期間内に完了した機能 {n} 件"
         ),
@@ -13322,7 +13322,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.87</span>
+    <span class="ver">Ver1.0.88</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
