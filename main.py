@@ -1376,6 +1376,98 @@ def load_defects(file_bytes: bytes) -> pd.DataFrame:
 
 
 # =============================================================================
+# ETL: Backlog.com issue CSV
+# =============================================================================
+# Columns we explicitly surface in the UI. Any *extra* columns present in the
+# source CSV are preserved as-is and echoed back unchanged on export so
+# round-tripping to Backlog doesn't drop fields we didn't model.
+BACKLOG_CORE_COLS = (
+    "キーID", "ID", "種別", "状態", "カテゴリ", "件名", "詳細",
+    "担当者", "開始日", "期限日", "更新日", "発生フェーズ", "顧客共有",
+)
+# Date columns — stored as python `date` objects internally; serialised back
+# to `M/D/YYYY` (empty string for None) on export.
+BACKLOG_DATE_COLS = ("開始日", "期限日", "更新日")
+
+
+def _normalize_backlog_assignee(raw) -> str:
+    """Collapse Backlog's three 担当者 registration patterns onto a single
+    canonical form. Real exports mix `田中太郎` / `田中 太郎` / `田中　太郎`
+    (no-space / half-width / full-width) for the same person; fold them all
+    to `田中太郎` (no space) so filter buckets and overdue tallies don't
+    spuriously split one person into three."""
+    if raw is None:
+        return ""
+    try:
+        if pd.isna(raw):
+            return ""
+    except (TypeError, ValueError):
+        pass
+    s = unicodedata.normalize("NFKC", str(raw))
+    s = s.replace("　", "")  # full-width space
+    s = re.sub(r"\s+", "", s)    # any remaining whitespace
+    return s.strip()
+
+
+def load_backlog(file_bytes: bytes) -> pd.DataFrame:
+    """Parse a Backlog.com issue-list CSV export.
+
+    Encoding: the real export is CP932 (SJIS); we attempt that first and fall
+    back to UTF-8 so ad-hoc re-saves still load. Line endings may be LF or
+    CRLF. All 13 core columns are expected; any extras are preserved on a
+    per-row `_extras` column so `export_backlog` below can round-trip them
+    back to Backlog without information loss.
+
+    The 3 date columns are parsed as M/D/YYYY (matching Backlog's export
+    format); blank cells come back as None. An additional
+    `担当者_normalized` column is added — canonical form across the 3
+    spacing variants Backlog users register — powering the filter / kanban
+    grouping without mutating the original `担当者` string.
+    """
+    text = _decode_csv_bytes(file_bytes)
+    # Keep every column as string so IDs and free-text fields round-trip
+    # unchanged; date parsing happens after load.
+    df = pd.read_csv(io.StringIO(text), dtype=str).fillna("")
+    if df.empty:
+        return pd.DataFrame(columns=list(BACKLOG_CORE_COLS))
+
+    missing = [c for c in BACKLOG_CORE_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            "Backlog CSV is missing required columns: "
+            + ", ".join(missing)
+        )
+
+    # Parse the 3 date columns into real date objects (blank → None).
+    for c in BACKLOG_DATE_COLS:
+        df[c] = df[c].map(lambda v: _parse_us_date(v) if v else None)
+
+    # Strip whitespace on enum-ish fields so "  未対応" == "未対応" in
+    # filters. 件名 / 詳細 keep their internal whitespace; trimming only
+    # at the ends keeps free-text intact.
+    for c in ("種別", "状態", "カテゴリ", "発生フェーズ", "顧客共有"):
+        df[c] = df[c].astype(str).map(lambda s: s.strip())
+
+    df["担当者_normalized"] = df["担当者"].map(_normalize_backlog_assignee)
+
+    # Stash any extra columns that the export carried but the UI doesn't
+    # model, so on export we can write them back unchanged.
+    extra_cols = [c for c in df.columns
+                  if c not in BACKLOG_CORE_COLS
+                  and c != "担当者_normalized"]
+    if extra_cols:
+        df["_extras"] = df[extra_cols].to_dict(orient="records")
+    else:
+        df["_extras"] = [{} for _ in range(len(df))]
+
+    # Keep core cols in their canonical order at the front; append the
+    # derived + extras columns last.
+    out_cols = (list(BACKLOG_CORE_COLS)
+                + ["担当者_normalized", "_extras"])
+    return df[out_cols].reset_index(drop=True)
+
+
+# =============================================================================
 # ETL: Test counts
 # =============================================================================
 def load_test_counts(file_bytes: bytes) -> pd.DataFrame:
@@ -2928,18 +3020,48 @@ DEFAULT_LANG = "en"
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "en": {
         "intro_caption": "Integrated dashboard for the management team",
-        "main_tab_dashboard": "Inputs",
-        "main_tab_charts": "Charts",
-        "main_tab_calendar": "Calendar",
+        "main_tab_dashboard": "📥 Inputs",
+        "main_tab_charts": "📊 Charts",
+        "main_tab_calendar": "📅 Calendar",
         "main_tab_alert": "🚨 Alerts",
         "main_tab_delivery": "🏁 Delivery",
-        "main_tab_design": "Design pages",
-        "main_tab_settings": "Settings",
+        "main_tab_backlog": "📋 Backlog",
+        "main_tab_design": "📐 Design pages",
+        "main_tab_settings": "⚙️ Settings",
         "delivery_needs_data": (
             "Upload a Function master and WBS to see team delivery "
             "performance."
         ),
-        # DORA 5Keys delivery-performance panel (Delivery tab)
+        # Backlog tab (📋) — issue list from Backlog.com
+        "backlog_tab_title":   "📋 Backlog — issues & risks",
+        "backlog_tab_caption": (
+            "Issues exported from Backlog.com as a CSV (SJIS). Facets "
+            "at the top narrow the board; each lane is one 種別 and "
+            "within it cards are grouped by 状態."
+        ),
+        "backlog_needs_file":  (
+            "Upload a Backlog issue-list CSV from the Inputs tab to "
+            "unlock this view."
+        ),
+        "backlog_empty":       "No issues match the current filters.",
+        "backlog_facet_type":          "Type (種別)",
+        "backlog_facet_status":        "Status (状態)",
+        "backlog_facet_category":      "Category (カテゴリ)",
+        "backlog_facet_phase":         "Phase (発生フェーズ)",
+        "backlog_facet_customer":      "Customer-shared (顧客共有)",
+        "backlog_facet_due":           "Due date",
+        "backlog_due_option_all":       "All",
+        "backlog_due_option_overdue":   "Overdue",
+        "backlog_due_option_this_week": "This week",
+        "backlog_due_option_this_month":"This month",
+        "backlog_due_option_future":    "Future",
+        "backlog_due_option_none":      "No due date",
+        "backlog_tile_due_label":       "Due",
+        "backlog_tile_no_due":          "—",
+        "backlog_tile_assignee_none":   "(unassigned)",
+        "backlog_lane_empty":           "(none)",
+        "backlog_status_total":         "{n} issues",
+        "backlog_filter_reset":         "Reset filters",
         "dora_section_title": "🏁 Team delivery performance (DORA 5Keys)",
         "dora_section_caption": (
             "Trailing {days} days — {n} features completed in window."
@@ -4115,6 +4237,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_roster_hint":    "team / assignee / PC / phone / VPN (xlsx)",
         "src_calendar_label": "Calendar (events + non-working days)",
         "src_calendar_hint":  "2 sheets: events + non-working days (xlsx)",
+        "src_backlog_label":  "Backlog issues",
+        "src_backlog_hint":   "csv from Backlog.com (SJIS), 13 cols incl. キーID / ID / 種別 / 状態 / …",
         "card_template_dl":   "⬇ template ({label})",
         "card_dl_template_help": "Download a template",
         "card_dl_sample_help":   "Download sample data",
@@ -4134,17 +4258,47 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     },
     "ja": {
         "intro_caption": "管理チーム用の統合ダッシュボードシステム",
-        "main_tab_dashboard": "インプット",
-        "main_tab_charts": "グラフ",
-        "main_tab_calendar": "カレンダー",
+        "main_tab_dashboard": "📥 インプット",
+        "main_tab_charts": "📊 グラフ",
+        "main_tab_calendar": "📅 カレンダー",
         "main_tab_alert": "🚨 アラート",
         "main_tab_delivery": "🏁 配信パフォーマンス",
-        "main_tab_design": "設計書ページ数",
-        "main_tab_settings": "設定",
+        "main_tab_backlog": "📋 Backlog",
+        "main_tab_design": "📐 設計書ページ数",
+        "main_tab_settings": "⚙️ 設定",
         "delivery_needs_data": (
             "機能マスタと WBS を取り込むとチーム配信パフォーマンスが表示されます。"
         ),
-        # DORA 5Keys デリバリーパフォーマンスパネル（配信パフォーマンスタブ）
+        # Backlog タブ (📋) — Backlog.com の課題一覧
+        "backlog_tab_title":   "📋 Backlog — 課題 & リスク",
+        "backlog_tab_caption": (
+            "Backlog.com から CSV (SJIS) でエクスポートした課題一覧。"
+            "上部のフィルタで絞り込み、**種別ごとの縦レーン**に"
+            "状態別グループで表示します。"
+        ),
+        "backlog_needs_file":  (
+            "インプットタブから Backlog の課題一覧 CSV を取り込むと"
+            "この画面が有効になります。"
+        ),
+        "backlog_empty":       "現在のフィルタ条件に一致する課題はありません。",
+        "backlog_facet_type":          "種別",
+        "backlog_facet_status":        "状態",
+        "backlog_facet_category":      "カテゴリ",
+        "backlog_facet_phase":         "発生フェーズ",
+        "backlog_facet_customer":      "顧客共有",
+        "backlog_facet_due":           "期限日",
+        "backlog_due_option_all":       "すべて",
+        "backlog_due_option_overdue":   "超過",
+        "backlog_due_option_this_week": "今週",
+        "backlog_due_option_this_month":"今月",
+        "backlog_due_option_future":    "今月以降",
+        "backlog_due_option_none":      "期限日なし",
+        "backlog_tile_due_label":       "期限",
+        "backlog_tile_no_due":          "—",
+        "backlog_tile_assignee_none":   "(未割当)",
+        "backlog_lane_empty":           "(なし)",
+        "backlog_status_total":         "{n} 件",
+        "backlog_filter_reset":         "フィルタをリセット",
         "dora_section_title": "🏁 チーム配信パフォーマンス（DORA 5Keys）",
         "dora_section_caption": (
             "過去 {days} 日間 — 期間内に完了した機能 {n} 件"
@@ -5261,6 +5415,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_roster_hint":    "チーム / 担当者名 / PC / 携帯 / VPN (xlsx)",
         "src_calendar_label": "カレンダー (イベント+非稼働日)",
         "src_calendar_hint":  "2シート: イベント+非稼働日 (xlsx)",
+        "src_backlog_label":  "Backlog 課題一覧",
+        "src_backlog_hint":   "Backlog.com の CSV (SJIS)、13 列: キーID / ID / 種別 / 状態 / …",
         "card_template_dl":   "⬇ テンプレをDL ({label})",
         "card_dl_template_help": "テンプレートをダウンロード",
         "card_dl_sample_help":   "サンプルデータをダウンロード",
@@ -5372,6 +5528,19 @@ SOURCE_SPECS: list[dict] = [
         "template_fn": generate_calendar_template,
         "template_filename": "calendar_template.xlsx",
         "sample_filename": "calendar.xlsx",
+    },
+    {
+        "key": "backlog",
+        "label_key": "src_backlog_label",
+        "hint_key": "src_backlog_hint",
+        "icon": "📋",
+        "types": ["csv"],
+        "loader": load_backlog,
+        "required": False,
+        # No template_fn on purpose — the sample CSV doubles as a
+        # concrete shape reference; exposing a separate "template" on
+        # top of it would be redundant.
+        "sample_filename": "backlog.csv",
     },
 ]
 
@@ -7033,6 +7202,256 @@ def render_delivery_tab() -> None:
         st.info(t("delivery_needs_data"))
         return
     _render_dora_panel(kpi_df)
+
+
+def _backlog_due_bucket(d, today_d) -> str:
+    """Classify a due date into one of the facet filter buckets (used by
+    `render_backlog_tab`). Returns one of:
+      - "overdue"     : d < today
+      - "this_week"   : today ≤ d < today + 7
+      - "this_month"  : today ≤ d within the current calendar month
+      - "future"      : d beyond the current month
+      - "none"        : no due date (None)
+    A ticket can satisfy more than one bucket (e.g. a due date later
+    this week also falls in this_month); the caller treats these as
+    independently-queryable sets so 'This week' is a proper subset of
+    'This month'."""
+    if d is None:
+        return "none"
+    if d < today_d:
+        return "overdue"
+    if d < today_d + timedelta(days=7):
+        return "this_week"
+    if d.year == today_d.year and d.month == today_d.month:
+        return "this_month"
+    return "future"
+
+
+def _apply_backlog_filters(
+    df: pd.DataFrame,
+    *,
+    types: list[str],
+    statuses: list[str],
+    categories: list[str],
+    phases: list[str],
+    customers: list[str],
+    due_bucket: str,
+    today_d: date,
+) -> pd.DataFrame:
+    """Narrow the Backlog dataframe to rows matching the current facet
+    selections. Each facet uses OR within itself (checked values) and AND
+    across facets. Empty selections match everything (filter bypassed)."""
+    out = df
+    if types:
+        out = out[out["種別"].isin(types)]
+    if statuses:
+        out = out[out["状態"].isin(statuses)]
+    if categories:
+        out = out[out["カテゴリ"].isin(categories)]
+    if phases:
+        out = out[out["発生フェーズ"].isin(phases)]
+    if customers:
+        out = out[out["顧客共有"].isin(customers)]
+    if due_bucket and due_bucket != "all":
+        if due_bucket == "none":
+            out = out[out["期限日"].isna()]
+        elif due_bucket == "overdue":
+            out = out[out["期限日"].notna()
+                      & (out["期限日"].map(
+                          lambda d: d < today_d if d else False))]
+        elif due_bucket == "this_week":
+            out = out[out["期限日"].notna()
+                      & (out["期限日"].map(
+                          lambda d: (d is not None
+                                     and today_d <= d <
+                                     today_d + timedelta(days=7))))]
+        elif due_bucket == "this_month":
+            out = out[out["期限日"].notna()
+                      & (out["期限日"].map(
+                          lambda d: (d is not None and today_d <= d
+                                     and d.year == today_d.year
+                                     and d.month == today_d.month)))]
+        elif due_bucket == "future":
+            out = out[out["期限日"].notna()
+                      & (out["期限日"].map(
+                          lambda d: (d is not None
+                                     and not (d.year == today_d.year
+                                              and d.month == today_d.month)
+                                     and d >= today_d)))]
+    return out
+
+
+_BACKLOG_STATUS_COLOR = {
+    "未対応":   "#8a8a8a",
+    "処理中":   "#f5b400",
+    "処理済み": "#3c78d8",
+    "完了":     "#4ec78a",
+}
+
+
+def _backlog_status_colour(status: str) -> str:
+    """Pick a tile-border colour for a Backlog 状態. Unknown values get
+    a muted grey — Backlog lets users add custom statuses so the map
+    can't be exhaustive."""
+    return _BACKLOG_STATUS_COLOR.get(status, "#bbbbbb")
+
+
+def render_backlog_tab() -> None:
+    """📋 Backlog tab — facet-filtered kanban view of Backlog.com issues.
+
+    Phase 1: read-only display.
+      - Top row: multiselect facets (種別 / 状態 / カテゴリ / 発生フェーズ /
+        顧客共有) + a due-date preset selector + a Reset button.
+      - Main area: one column per 種別 (after filtering). Within each
+        column, cards are grouped under their 状態. Each card shows
+        件名, 担当者 (falls back to "(未割当)"), and 期限日.
+
+    Further phases layer the details dialog (Phase 2), edit/add (P3),
+    CSV export (P3), Calendar layer (P4), and Gantt subsection (P5)."""
+    df = st.session_state.dfs.get("backlog")
+    if df is None or df.empty:
+        st.info(t("backlog_needs_file"))
+        return
+
+    st.subheader(t("backlog_tab_title"))
+    st.caption(t("backlog_tab_caption"))
+
+    today_d = date.today()
+
+    # ---- Facet bar ---------------------------------------------------------
+    # Use sorted unique values from the current dataset so selection lists
+    # match the uploaded CSV (Backlog users extend the option lists over
+    # time; re-deriving every render keeps us current).
+    def _opts(col: str) -> list[str]:
+        return sorted([str(v) for v in df[col].dropna().unique() if str(v)])
+
+    with st.container():
+        f1, f2, f3, f4, f5, f6 = st.columns(6, gap="small")
+        sel_type    = f1.multiselect(t("backlog_facet_type"),
+                                     options=_opts("種別"),
+                                     key="bl_facet_type")
+        sel_status  = f2.multiselect(t("backlog_facet_status"),
+                                     options=_opts("状態"),
+                                     key="bl_facet_status")
+        sel_cat     = f3.multiselect(t("backlog_facet_category"),
+                                     options=_opts("カテゴリ"),
+                                     key="bl_facet_category")
+        sel_phase   = f4.multiselect(t("backlog_facet_phase"),
+                                     options=_opts("発生フェーズ"),
+                                     key="bl_facet_phase")
+        sel_cust    = f5.multiselect(t("backlog_facet_customer"),
+                                     options=_opts("顧客共有"),
+                                     key="bl_facet_customer")
+        due_options = [
+            ("all",        t("backlog_due_option_all")),
+            ("overdue",    t("backlog_due_option_overdue")),
+            ("this_week",  t("backlog_due_option_this_week")),
+            ("this_month", t("backlog_due_option_this_month")),
+            ("future",     t("backlog_due_option_future")),
+            ("none",       t("backlog_due_option_none")),
+        ]
+        due_keys = [k for k, _ in due_options]
+        due_labels = dict(due_options)
+        sel_due = f6.selectbox(
+            t("backlog_facet_due"),
+            options=due_keys,
+            format_func=due_labels.__getitem__,
+            key="bl_facet_due",
+        )
+
+    filtered = _apply_backlog_filters(
+        df,
+        types=sel_type, statuses=sel_status, categories=sel_cat,
+        phases=sel_phase, customers=sel_cust,
+        due_bucket=sel_due, today_d=today_d,
+    )
+
+    st.caption(t("backlog_status_total", n=f"{len(filtered):,}"))
+
+    if filtered.empty:
+        st.info(t("backlog_empty"))
+        return
+
+    # ---- Kanban board ------------------------------------------------------
+    # Columns = 種別 (ordered by frequency desc so the fullest lane sits
+    # on the left). Within each lane, cards are grouped by 状態 — using
+    # the sorted unique statuses from the full dataset so lane vertical
+    # positions stay stable as filters narrow results.
+    type_order = (filtered["種別"]
+                  .value_counts()
+                  .index.tolist())
+    status_order = _opts("状態")
+
+    cols = st.columns(len(type_order), gap="small")
+    for col, ttype in zip(cols, type_order):
+        sub = filtered[filtered["種別"] == ttype]
+        with col:
+            st.markdown(
+                f"<div style='font-size:13px;font-weight:700;"
+                f"color:#222;padding:4px 0;'>"
+                f"{ttype} "
+                f"<span style='color:#888;font-weight:400;'>"
+                f"({len(sub)})</span></div>",
+                unsafe_allow_html=True,
+            )
+            for status in status_order:
+                rows = sub[sub["状態"] == status]
+                if rows.empty:
+                    continue
+                # Status header pill.
+                colour = _backlog_status_colour(status)
+                st.markdown(
+                    f"<div style='font-size:11px;margin-top:6px;"
+                    f"margin-bottom:2px;color:#555;'>"
+                    f"<span style='display:inline-block;width:8px;"
+                    f"height:8px;border-radius:50%;background:{colour};"
+                    f"margin-right:6px;vertical-align:middle;'></span>"
+                    f"{status} ({len(rows)})</div>",
+                    unsafe_allow_html=True,
+                )
+                for _, r in rows.iterrows():
+                    _render_backlog_card(r, today_d)
+
+
+def _render_backlog_card(row, today_d: date) -> None:
+    """Render one Backlog issue tile. Minimal Phase 1 layout — 件名,
+    担当者, 期限日 — coloured by 状態."""
+    title = str(row.get("件名") or "").strip() or "—"
+    assignee = (str(row.get("担当者") or "").strip()
+                or t("backlog_tile_assignee_none"))
+    due = row.get("期限日")
+    if due is None:
+        due_text = t("backlog_tile_no_due")
+        due_color = "#888"
+    else:
+        due_text = due.isoformat()
+        # Overdue tiles get a red due-date; same-week gets amber; else grey.
+        if due < today_d:
+            due_color = "#f05050"
+        elif due < today_d + timedelta(days=7):
+            due_color = "#f5b400"
+        else:
+            due_color = "#666"
+    colour = _backlog_status_colour(str(row.get("状態") or ""))
+    st.markdown(
+        f"""
+<div style="padding:8px 10px; margin-bottom:6px;
+            border-left:3px solid {colour};
+            background:rgba(128,128,128,0.06);
+            border-radius:4px;">
+  <div style="font-size:13px; color:#222; line-height:1.35;
+              word-break:break-word;">{title}</div>
+  <div style="display:flex; justify-content:space-between;
+              margin-top:4px; font-size:11px; color:#666;">
+    <span>👤 {assignee}</span>
+    <span style="color:{due_color};">
+      {t('backlog_tile_due_label')} {due_text}
+    </span>
+  </div>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_dashboard_tab() -> None:
@@ -12835,7 +13254,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.83</span>
+    <span class="ver">Ver1.0.84</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -12853,12 +13272,13 @@ def main() -> None:
 
     # --- Top-level tabs ------------------------------------------------------
     (tab_dashboard, tab_charts, tab_calendar, tab_alert, tab_delivery,
-     tab_design, tab_settings) = st.tabs([
+     tab_backlog, tab_design, tab_settings) = st.tabs([
         t("main_tab_dashboard"),
         t("main_tab_charts"),
         t("main_tab_calendar"),
         t("main_tab_alert"),
         t("main_tab_delivery"),
+        t("main_tab_backlog"),
         t("main_tab_design"),
         t("main_tab_settings"),
     ])
@@ -12872,6 +13292,8 @@ def main() -> None:
         render_alert_tab()
     with tab_delivery:
         render_delivery_tab()
+    with tab_backlog:
+        render_backlog_tab()
     with tab_design:
         render_design_pages_tab()
     with tab_settings:

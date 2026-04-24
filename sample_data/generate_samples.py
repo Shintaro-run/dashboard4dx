@@ -586,6 +586,108 @@ def make_calendar() -> Path:
     return out
 
 
+# ----- 8. Backlog tickets CSV -------------------------------------------------
+# Synthetic Backlog.com export. The real file's 担当者 column holds names like
+# `田中太郎` / `田中 太郎` / `田中　太郎` (no-space / ASCII space / full-width
+# space) — we mix all three so the loader's normalisation path is exercised.
+# Encoding: CP932, line-endings: LF, dates: M/D/YYYY, blanks: literal `""`.
+BACKLOG_ASSIGNEES = [
+    "田中太郎", "田中 太郎", "田中　太郎",  # 3 variants of the same person
+    "佐藤 花子", "鈴木次郎", "高橋　美咲",
+    "伊藤 健一", "渡辺　涼", "小林 真理",
+    "",  # intentionally unassigned
+]
+BACKLOG_TYPES = ["リスク", "課題", "作業", "質問"]
+BACKLOG_STATUSES = ["未対応", "処理中", "処理済み", "完了"]
+BACKLOG_CATEGORIES = [
+    "性能", "セキュリティ", "UI/UX", "互換性", "ドキュメント",
+    "インフラ", "データ移行", "運用", "",
+]
+BACKLOG_PHASES = ["要件定義", "基本設計", "詳細設計", "実装",
+                   "テスト", "リリース", "運用", ""]
+BACKLOG_SUBJECTS = [
+    "ログイン画面のレスポンス遅延", "API 仕様書の更新漏れ",
+    "本番 DB 接続タイムアウト調査", "管理画面の権限バグ",
+    "顧客データ移行手順の確認", "SSL 証明書更新",
+    "決済処理のエラーハンドリング強化", "通知メール文面レビュー",
+    "帳票出力フォーマットの見直し", "パスワードリセットのフロー改善",
+    "監視アラート閾値の調整", "自動テストの追加",
+    "ドキュメントの翻訳", "セッションタイムアウト設定",
+    "バックアップ復元訓練", "オンプレ → クラウド移行計画",
+    "コードレビュー指摘事項の対応", "CI パイプラインの高速化",
+    "既存機能のリファクタリング",
+]
+BACKLOG_DETAILS = [
+    "詳細調査中。再現手順を固めてから改修に入る予定。",
+    "別部署からの連絡待ち。今週金曜までに回答を得たい。",
+    "顧客から改善要望あり。次スプリントで対応方針を決定。",
+    "一時対応済み。恒久対応は次フェーズにキャリーオーバー。",
+    "現在の設計では対応難。代替案を検討中。",
+    "",  # blank detail — realistic for quickly-filed tickets
+]
+
+
+def make_backlog() -> Path:
+    """Write a synthetic Backlog.com issue-list CSV.
+
+    Columns (13): キーID / ID / 種別 / 状態 / カテゴリ / 件名 / 詳細 /
+    担当者 / 開始日 / 期限日 / 更新日 / 発生フェーズ / 顧客共有.
+    Kept deliberately broad so the Dashboard's facet filters have
+    something to do; a handful of tickets left 状態=完了 and 担当者=""
+    to exercise the empty-state / filter-edge cases."""
+    out = OUT_DIR / "backlog.csv"
+    today = date(2026, 4, 20)
+    rows: list[dict[str, str]] = []
+    # Start keyIDs at 1001 so they look like realistic Backlog numeric IDs.
+    for i in range(35):
+        key_id = 1000 + i + 1
+        issue_id = f"DEMO-{i+1:03d}"
+        ttype = random.choice(BACKLOG_TYPES)
+        status = random.choice(BACKLOG_STATUSES)
+        cat = random.choice(BACKLOG_CATEGORIES)
+        subj = random.choice(BACKLOG_SUBJECTS)
+        detail = random.choice(BACKLOG_DETAILS)
+        assignee = random.choice(BACKLOG_ASSIGNEES)
+        phase = random.choice(BACKLOG_PHASES)
+        # 顧客共有: 要 / 不 / blank (~60/30/10 mix)
+        share = random.choices(["要", "不", ""], weights=[6, 3, 1])[0]
+        # Dates. 開始日 is always set for in-flight items; 期限日 may be
+        # missing for open-ended tickets; 更新日 exists for every ticket
+        # but can lag up to 30 days behind today.
+        start = today - timedelta(days=random.randint(2, 120))
+        has_due = random.random() > 0.2
+        due = (start + timedelta(days=random.randint(3, 60))
+               if has_due else None)
+        updated = today - timedelta(days=random.randint(0, 30))
+        rows.append({
+            "キーID": str(key_id),
+            "ID": issue_id,
+            "種別": ttype,
+            "状態": status,
+            "カテゴリ": cat,
+            "件名": subj,
+            "詳細": detail,
+            "担当者": assignee,
+            "開始日": start.strftime("%-m/%-d/%Y"),
+            "期限日": due.strftime("%-m/%-d/%Y") if due else "",
+            "更新日": updated.strftime("%-m/%-d/%Y"),
+            "発生フェーズ": phase,
+            "顧客共有": share,
+        })
+
+    # Backlog's real export uses CP932 with LF line endings. QUOTE_ALL so
+    # commas inside 詳細 never split fields; matches real export behaviour.
+    with out.open("w", encoding="cp932", newline="\n",
+                   errors="replace") as f:
+        writer = csv.DictWriter(
+            f, fieldnames=list(rows[0].keys()),
+            quoting=csv.QUOTE_ALL, lineterminator="\n",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
+    return out
+
+
 def main() -> None:
     print("Generating sample files into", OUT_DIR)
     for path in [
@@ -596,6 +698,7 @@ def main() -> None:
         make_code_counts(),
         make_roster(),
         make_calendar(),
+        make_backlog(),
     ]:
         size = path.stat().st_size
         print(f"  {path.name:28s} {size:>8,} bytes")
