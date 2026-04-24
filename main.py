@@ -1382,7 +1382,7 @@ def load_defects(file_bytes: bytes) -> pd.DataFrame:
 # source CSV are preserved as-is and echoed back unchanged on export so
 # round-tripping to Backlog doesn't drop fields we didn't model.
 BACKLOG_CORE_COLS = (
-    "キーID", "ID", "種別", "状態", "カテゴリ", "件名", "詳細",
+    "キーID", "ID", "種別", "状態", "カテゴリー名", "件名", "詳細",
     "担当者", "開始日", "期限日", "更新日", "発生フェーズ", "顧客共有",
 )
 # Date columns — stored as python `date` objects internally; serialised back
@@ -1445,7 +1445,7 @@ def load_backlog(file_bytes: bytes) -> pd.DataFrame:
     # Strip whitespace on enum-ish fields so "  未対応" == "未対応" in
     # filters. 件名 / 詳細 keep their internal whitespace; trimming only
     # at the ends keeps free-text intact.
-    for c in ("種別", "状態", "カテゴリ", "発生フェーズ", "顧客共有"):
+    for c in ("種別", "状態", "カテゴリー名", "発生フェーズ", "顧客共有"):
         df[c] = df[c].astype(str).map(lambda s: s.strip())
 
     df["担当者_normalized"] = df["担当者"].map(_normalize_backlog_assignee)
@@ -3046,7 +3046,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "backlog_empty":       "No issues match the current filters.",
         "backlog_facet_type":          "Type (種別)",
         "backlog_facet_status":        "Status (状態)",
-        "backlog_facet_category":      "Category (カテゴリ)",
+        "backlog_facet_category":      "Category (カテゴリー名)",
         "backlog_facet_phase":         "Phase (発生フェーズ)",
         "backlog_facet_customer":      "Customer-shared (顧客共有)",
         "backlog_facet_due":           "Due date",
@@ -4283,7 +4283,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "backlog_empty":       "現在のフィルタ条件に一致する課題はありません。",
         "backlog_facet_type":          "種別",
         "backlog_facet_status":        "状態",
-        "backlog_facet_category":      "カテゴリ",
+        "backlog_facet_category":      "カテゴリー名",
         "backlog_facet_phase":         "発生フェーズ",
         "backlog_facet_customer":      "顧客共有",
         "backlog_facet_due":           "期限日",
@@ -7247,7 +7247,7 @@ def _apply_backlog_filters(
     if statuses:
         out = out[out["状態"].isin(statuses)]
     if categories:
-        out = out[out["カテゴリ"].isin(categories)]
+        out = out[out["カテゴリー名"].isin(categories)]
     if phases:
         out = out[out["発生フェーズ"].isin(phases)]
     if customers:
@@ -7300,7 +7300,7 @@ def render_backlog_tab() -> None:
     """📋 Backlog tab — facet-filtered kanban view of Backlog.com issues.
 
     Phase 1: read-only display.
-      - Top row: multiselect facets (種別 / 状態 / カテゴリ / 発生フェーズ /
+      - Top row: multiselect facets (種別 / 状態 / カテゴリー名 / 発生フェーズ /
         顧客共有) + a due-date preset selector + a Reset button.
       - Main area: one column per 種別 (after filtering). Within each
         column, cards are grouped under their 状態. Each card shows
@@ -7334,7 +7334,7 @@ def render_backlog_tab() -> None:
                                      options=_opts("状態"),
                                      key="bl_facet_status")
         sel_cat     = f3.multiselect(t("backlog_facet_category"),
-                                     options=_opts("カテゴリ"),
+                                     options=_opts("カテゴリー名"),
                                      key="bl_facet_category")
         sel_phase   = f4.multiselect(t("backlog_facet_phase"),
                                      options=_opts("発生フェーズ"),
@@ -13277,7 +13277,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.85</span>
+    <span class="ver">Ver1.0.86</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

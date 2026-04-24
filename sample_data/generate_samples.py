@@ -630,7 +630,7 @@ BACKLOG_DETAILS = [
 def make_backlog() -> Path:
     """Write a synthetic Backlog.com issue-list CSV.
 
-    Columns (13): キーID / ID / 種別 / 状態 / カテゴリ / 件名 / 詳細 /
+    Columns (13): キーID / ID / 種別 / 状態 / カテゴリー名 / 件名 / 詳細 /
     担当者 / 開始日 / 期限日 / 更新日 / 発生フェーズ / 顧客共有.
     Kept deliberately broad so the Dashboard's facet filters have
     something to do; a handful of tickets left 状態=完了 and 担当者=""
@@ -664,7 +664,7 @@ def make_backlog() -> Path:
             "ID": issue_id,
             "種別": ttype,
             "状態": status,
-            "カテゴリ": cat,
+            "カテゴリー名": cat,
             "件名": subj,
             "詳細": detail,
             "担当者": assignee,
