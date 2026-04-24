@@ -3617,16 +3617,17 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Assignee bubble map (breadth × quality × defect exposure)"
         ),
         "role_analytics_bubble_caption": (
-            "One bubble per assignee. X = features they're on in the WBS, "
-            "Y = avg Redmine fault rate on those features, "
-            "size = total Redmine defects, colour = their dominant role "
-            "(derived from WBS sub-task names). Dashed lines mark the "
-            "overall mean Y and the median X — top-right is the "
-            "'attention' quadrant, bottom-right is 'reliable coverage'. "
-            "Assignees whose features have no recorded fault-rate data "
-            "are placed at 0% (hover shows `—` for their rate); "
-            "zero-defect bubbles render at a minimum size so they stay "
-            "visible."
+            "One bubble per assignee with a **measurable** quality "
+            "signal (at least one executed test AND at least one "
+            "defect on their features). X = features they're on in "
+            "the WBS, Y = avg Redmine fault rate on those features, "
+            "size = total Redmine defects, colour = their dominant "
+            "role (derived from WBS sub-task names). Dashed lines "
+            "mark the overall mean Y and the median X — top-right is "
+            "the 'attention' quadrant, bottom-right is 'reliable "
+            "coverage'. Assignees with no executed tests or zero "
+            "defects don't belong on this scatter — they appear in "
+            "the two watch-lists below instead."
         ),
         "role_analytics_bubble_color_legend": "Dominant role",
         # Core explanation — safe for both on-screen and PDF use.
@@ -3641,6 +3642,42 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "role_analytics_dominant_role_hover_hint": (
             "Hover over a bubble to see its per-role breakdown."
         ),
+        # Watch-list sections below the bubble map. One for "tested but
+        # no defects registered" (ambiguous — genuine quality or
+        # under-reporting) and one for "tests planned but not executed"
+        # (process gap, quality cannot be measured yet).
+        "role_analytics_watch_zero_defect_title": (
+            "⚠️ Watch-list A: zero defects registered"
+        ),
+        "role_analytics_watch_zero_defect_caption": (
+            "These assignees had at least one test executed on their "
+            "features (test-counts **column D = 実施済** ≥ 1) but "
+            "**zero rows in defects.csv (Redmine export)** for any of "
+            "their Function IDs. Three readings: (1) genuine high "
+            "quality, (2) **defects went unreported** in Redmine, "
+            "(3) the **test-spec coverage was shallow** and missed the "
+            "bugs. 📂 Cross-check: defects.csv (registration reality), "
+            "the test-spec sheet (coverage depth), test-counts column "
+            "D (executed count)."
+        ),
+        "role_analytics_watch_no_exec_title": (
+            "⚠️ Watch-list B: no tests executed yet"
+        ),
+        "role_analytics_watch_no_exec_caption": (
+            "Every feature these assignees touched has **実施済 = 0** "
+            "in the test-counts CSV — tests were **planned but never "
+            "executed**, so the Y-axis (fault rate = defects ÷ 実施済) "
+            "is undefined. Not 'bad quality', just 'not yet measured'. "
+            "📂 Check: the test-spec sheet (are the plans in place), "
+            "test-counts **column D** (which features stay at 0), "
+            "**WBS column T** (end date — are they slipping?). "
+            "Follow up on the actual test-execution schedule."
+        ),
+        "role_analytics_watch_empty": "None — every assignee is on the main scatter.",
+        "role_analytics_watch_col_assignee": "Assignee",
+        "role_analytics_watch_col_features": "Features touched",
+        "role_analytics_watch_col_defects":  "Defects",
+        "role_analytics_watch_col_roles":    "Role breakdown",
         "role_analytics_strip_title": (
             "Problem-class mix per assignee (stacked % of their defects)"
         ),
@@ -4679,15 +4716,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "担当者バブルマップ（広さ × 品質 × 障害量）"
         ),
         "role_analytics_bubble_caption": (
-            "1つのバブル＝1人の担当者。横軸は WBS サブタスクで関わった機能の数、"
-            "縦軸はそれらの機能の Redmine 障害発生率の平均、バブルの大きさは "
-            "Redmine 障害件数の合計、色はその人のメインのロール（WBS から判定）"
-            "を表します。破線は全体の平均ライン。**右上＝広く関わって障害が多い"
-            "（要注意）**、**右下＝広く関わっているが品質が良い（頼れる）**、"
-            "というように4つのエリアで読み取れます。"
-            "**障害発生率のデータが無い担当者は 0% 位置に配置**し、"
-            "ホバー時の発生率は `—` と表示されます。障害 0 件のバブルも"
-            "最小サイズで必ず描画されるため、担当者サマリの全員が表示されます。"
+            "1つのバブル＝1人の担当者（**測定可能な品質シグナルを持つ人のみ**"
+            "＝テストが1件以上実施済 かつ 障害が1件以上登録されている）。"
+            "横軸は WBS サブタスクで関わった機能の数、縦軸はそれらの機能の "
+            "Redmine 障害発生率の平均、バブルの大きさは Redmine 障害件数の合計、"
+            "色はその人のメインのロール（WBS から判定）を表します。破線は"
+            "全体の平均ライン。**右上＝広く関わって障害が多い（要注意）**、"
+            "**右下＝広く関わっているが品質が良い（頼れる）** というように"
+            "4つのエリアで読み取れます。テスト未実施 or 障害 0 件の担当者は"
+            "この散布図に載らず、**下の 2 つの要注意リスト**に分類されます。"
         ),
         "role_analytics_bubble_color_legend": "ドミナントロール",
         # 画面・PDF 共通の基本説明
@@ -4702,6 +4739,44 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "role_analytics_dominant_role_hover_hint": (
             "バブルにカーソルを当てるとロール別件数が表示されます。"
         ),
+        # バブルマップ配下の要注意リスト 2 種。
+        # A = 障害 0 件（曖昧。超優秀 or レビュー漏れ or テスト浅い）
+        # B = テスト未実施（実施済 = 0。プロセス上の赤旗）
+        "role_analytics_watch_zero_defect_title": (
+            "⚠️ 要注意リストA：障害 0 件"
+        ),
+        "role_analytics_watch_zero_defect_caption": (
+            "関わった機能について **仕様書別テスト集計（test_counts CSV）"
+            "の D 列 = 実施済** が 1 件以上 あり、かつ "
+            "**Redmine 不具合一覧（defects.csv）** にその機能 ID の "
+            "障害が **0 件** 登録されている担当者。3 通りの解釈が"
+            "ありえます：(1) **超優秀**で本当に欠陥ゼロ、"
+            "(2) Redmine への **登録漏れ**、"
+            "(3) **テスト仕様書のカバレッジが浅い**ためバグを"
+            "検出できていない。📂 突合先: **defects.csv**（登録実態）／"
+            "**テスト仕様書**（テスト観点の十分性）／"
+            "**仕様書別テスト集計 D列**（実施済件数）。"
+        ),
+        "role_analytics_watch_no_exec_title": (
+            "⚠️ 要注意リストB：テスト未実施"
+        ),
+        "role_analytics_watch_no_exec_caption": (
+            "関わった機能すべてが **仕様書別テスト集計（test_counts CSV）"
+            "の D 列 = 実施済 = 0**（テスト計画はあるが 1 件も実施されて"
+            "いない）な担当者。Y 軸（発生率 = 障害件数 ÷ 実施済）が"
+            "**計算不能** なのでバブルマップに載せられません。"
+            "**品質が悪いのではなく、まだ測れない**状態です — "
+            "**プロセス上の要フォローアップ**に該当します。"
+            "📂 確認先: **テスト仕様書**（テスト計画の整備状況）／"
+            "**仕様書別テスト集計 D列**（実施済が 0 の機能特定）／"
+            "**WBS T列**（終了予定日 — 遅延していないか）。"
+            "テスト実施スケジュールを確認してください。"
+        ),
+        "role_analytics_watch_empty": "該当者なし — 全員メイン散布図に掲載されています。",
+        "role_analytics_watch_col_assignee": "担当者",
+        "role_analytics_watch_col_features": "関与機能数",
+        "role_analytics_watch_col_defects":  "障害件数",
+        "role_analytics_watch_col_roles":    "ロール内訳",
         "role_analytics_strip_title": (
             "担当者別 問題分類ミックス（その人の障害内訳を100%で積み上げ）"
         ),
@@ -7613,12 +7688,49 @@ def _build_assignee_bubble_df(
         "role_count_test_spec": counts["test_spec"].values,
         "role_count_test_exec": counts["test_exec"].values,
     })
-    # Drop rows with no touchable quality signal (NaN Y) AND no defects —
-    # they'd render as invisible zero-size markers on NaN coordinates.
-    has_signal = (out["avg_incident_rate"].notna()
-                  | (out["defect_total"] > 0)
-                  | (out["feature_count"] > 0))
-    return out[has_signal].reset_index(drop=True)
+    # Keep everyone with at least one feature — downstream splitters
+    # decide which bucket each assignee lands in (measurable / no-defects
+    # / no-test-execution). Previously this function filtered aggressively,
+    # which made the bubble map's empty-data cases invisible without a
+    # follow-up channel.
+    return out[out["feature_count"] > 0].reset_index(drop=True)
+
+
+def _split_bubble_by_signal(
+    bubble_df: pd.DataFrame,
+) -> dict[str, pd.DataFrame]:
+    """Partition the bubble frame into three exclusive buckets so each
+    gets rendered in the viz/table that actually fits its meaning:
+
+      - `main`       — `defect_total > 0` AND `avg_incident_rate` is
+        a real number. These are the only rows plotted on the main
+        scatter — their X/Y/size are all populated, so the
+        breadth × quality × exposure reading holds.
+      - `no_exec`    — `avg_incident_rate` is NaN, which means every
+        feature they touched has 実施済 = 0 (tests planned, none
+        executed). Quality cannot be measured yet — this is a process
+        red flag, not a quality signal.
+      - `zero_defect` — has measurable incident_rate (so tests were
+        executed), but `defect_total = 0`. Ambiguous: could be genuine
+        quality or under-reporting / shallow test coverage.
+
+    Priority: `no_exec` wins over `zero_defect` when both are true,
+    because "no tests executed" is the root cause and the defect count
+    is meaningless without executions to compare against."""
+    if bubble_df is None or bubble_df.empty:
+        empty = pd.DataFrame(columns=bubble_df.columns if bubble_df is not None
+                             else [])
+        return {"main": empty, "no_exec": empty, "zero_defect": empty}
+    rate_nan = bubble_df["avg_incident_rate"].isna()
+    no_exec = bubble_df[rate_nan].copy()
+    rest = bubble_df[~rate_nan]
+    zero_defect = rest[rest["defect_total"] == 0].copy()
+    main = rest[rest["defect_total"] > 0].copy()
+    return {
+        "main": main.reset_index(drop=True),
+        "no_exec": no_exec.reset_index(drop=True),
+        "zero_defect": zero_defect.reset_index(drop=True),
+    }
 
 
 def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
@@ -7632,15 +7744,6 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     df = bubble_df.copy()
     df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
                                     errors="coerce") * 100.0
-    # Plotly silently drops points with NaN Y — which hides every
-    # assignee whose features lack incident_rate data (i.e. no test
-    # execution recorded yet). Plot them at 0% so they still appear
-    # on the chart, and keep the real value in `rate_display` so the
-    # hover can annotate "—" instead of a misleading "0.0%".
-    df["rate_pct_plot"] = df["rate_pct"].fillna(0.0)
-    df["rate_display"] = df["rate_pct"].apply(
-        lambda v: f"{v:.1f}%" if pd.notna(v) else "—"
-    )
     role_labels_local = {
         "dev":       t("role_dev"),
         "test_spec": t("role_test_spec"),
@@ -7662,29 +7765,25 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     fig = px.scatter(
         df,
         x="feature_count",
-        y="rate_pct_plot",
+        y="rate_pct",
         size="defect_total",
         color="role_label",
         text="assignee",
         size_max=60,
         color_discrete_map=color_map_local,
-        custom_data=["assignee", "feature_count", "rate_display",
+        custom_data=["assignee", "feature_count", "rate_pct",
                      "defect_total", "hover_roles"],
     )
-    # marker.sizemin keeps zero-defect bubbles visible (Plotly scales
-    # `size=defect_total` to literal zero-area markers otherwise, which
-    # made people with no registered defects silently disappear).
     fig.update_traces(
         textposition="top center",
         textfont=dict(size=13, color="#1f2937",
                       family="Hiragino Sans, Yu Gothic, sans-serif"),
         cliponaxis=False,
-        marker=dict(line=dict(color="#444", width=0.7), opacity=0.85,
-                    sizemin=8),
+        marker=dict(line=dict(color="#444", width=0.7), opacity=0.85),
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
             f"{t('col_feature_count')}: %{{customdata[1]}}<br>"
-            f"{t('col_avg_incident_rate')}: %{{customdata[2]}}<br>"
+            f"{t('col_avg_incident_rate')}: %{{customdata[2]:.1f}}%<br>"
             f"{t('col_defect_total')}: %{{customdata[3]}}<br>"
             "%{customdata[4]}"
             "<extra></extra>"
@@ -7721,6 +7820,51 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     y_max = float(df["rate_pct"].max()) if df["rate_pct"].notna().any() else 10.0
     fig.update_yaxes(automargin=True, range=[0, max(10.0, y_max * 1.15)])
     return fig
+
+
+def _render_bubble_watchlist(
+    df: pd.DataFrame,
+    *,
+    title_key: str,
+    caption_key: str,
+    hide_defect_col: bool = False,
+) -> None:
+    """Render one of the two bubble-map watch-lists (zero-defect or
+    tests-not-executed) as a Streamlit section — bold title, a
+    definition caption explaining what the bucket actually means, and
+    a compact dataframe with assignee / features touched / defects /
+    role breakdown.
+
+    The caller decides which bucket by passing the translation keys
+    and (for the no-exec bucket) hides the Defects column since it's
+    always zero and would be misleading next to the caption that
+    says the quality can't be measured yet."""
+    st.markdown(f"**{t(title_key)}**")
+    st.caption(t(caption_key))
+    if df is None or df.empty:
+        st.info(t("role_analytics_watch_empty"))
+        return
+    role_labels_local = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    rows = []
+    for _, r in df.iterrows():
+        role_bits = [
+            f"{role_labels_local[k]}: {int(r.get(f'role_count_{k}', 0) or 0)}"
+            for k in ("dev", "test_spec", "test_exec")
+        ]
+        rows.append({
+            t("role_analytics_watch_col_assignee"): r["assignee"],
+            t("role_analytics_watch_col_features"): int(r["feature_count"]),
+            t("role_analytics_watch_col_defects"):  int(r["defect_total"]),
+            t("role_analytics_watch_col_roles"):    " · ".join(role_bits),
+        })
+    wdf = pd.DataFrame(rows)
+    if hide_defect_col:
+        wdf = wdf.drop(columns=[t("role_analytics_watch_col_defects")])
+    st.dataframe(wdf, use_container_width=True, hide_index=True)
 
 
 def _build_assignee_problem_share_df(
@@ -8607,11 +8751,6 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     df = bubble_df.copy()
     df["rate_pct"] = pd.to_numeric(df["avg_incident_rate"],
                                     errors="coerce") * 100.0
-    # Mirror the Plotly fix: matplotlib's scatter also silently drops
-    # points with NaN Y. Fill NaN rate_pct → 0 so every assignee from
-    # the summary also appears in the map; the label halo + legend
-    # can't help when the point itself never gets drawn.
-    df["rate_pct_plot"] = df["rate_pct"].fillna(0.0)
     df["_defect_total"] = pd.to_numeric(df["defect_total"],
                                          errors="coerce").fillna(0)
     plt = _mpl_plt()
@@ -8626,7 +8765,7 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     colors = [_ROLE_COLOR_MAP.get(r, "#888888")
               for r in df["dominant_role"]]
     ax.scatter(
-        df["feature_count"], df["rate_pct_plot"],
+        df["feature_count"], df["rate_pct"],
         s=marker_sizes, c=colors,
         alpha=0.75, edgecolors="#333", linewidth=0.8,
     )
@@ -8635,9 +8774,11 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
     # bubble or the grid lines.
     import matplotlib.patheffects as _pe
     for _, r in df.iterrows():
+        if pd.isna(r["rate_pct"]):
+            continue
         txt = ax.annotate(
             r["assignee"],
-            xy=(r["feature_count"], r["rate_pct_plot"]),
+            xy=(r["feature_count"], r["rate_pct"]),
             xytext=(0, 11), textcoords="offset points",
             ha="center", fontsize=11, color="#1f2937", fontweight="bold",
         )
@@ -9767,6 +9908,91 @@ def generate_test_density_pdf(
     return pdf
 
 
+def _md_bold_html(text: str) -> str:
+    """Convert markdown `**bold**` to ReportLab's HTML-subset `<b>bold</b>`
+    so translation strings that use markdown for emphasis can be reused
+    as Paragraph content in the PDF without the stars leaking through."""
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+
+
+def _append_watchlist_pdf_section(
+    story: list,
+    df: pd.DataFrame,
+    *,
+    title_key: str,
+    caption_key: str,
+    h2_style,
+    caption_style,
+    small_body,
+    inner_w: float,
+    hide_defect_col: bool = False,
+) -> None:
+    """Render one of the two bubble watch-lists into the PDF `story`.
+
+    Mirrors `_render_bubble_watchlist` (on-screen) so the PDF carries the
+    same title / definition caption / compact table, with the Defects
+    column suppressed for the no-exec bucket (always zero and would
+    contradict the caption's "quality cannot be measured" framing)."""
+    from reportlab.lib import colors
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(t(title_key), h2_style))
+    story.append(Paragraph(_md_bold_html(t(caption_key)), caption_style))
+    story.append(Spacer(1, 3))
+    if df is None or df.empty:
+        story.append(Paragraph(t("role_analytics_watch_empty"), caption_style))
+        return
+    role_labels_local = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    header = [
+        t("role_analytics_watch_col_assignee"),
+        t("role_analytics_watch_col_features"),
+    ]
+    if not hide_defect_col:
+        header.append(t("role_analytics_watch_col_defects"))
+    header.append(t("role_analytics_watch_col_roles"))
+
+    rows = [[Paragraph(h, small_body) for h in header]]
+    for _, r in df.iterrows():
+        role_bits = " · ".join(
+            f"{role_labels_local[k]}: "
+            f"{int(r.get(f'role_count_{k}', 0) or 0)}"
+            for k in ("dev", "test_spec", "test_exec")
+        )
+        cells = [
+            Paragraph(str(r["assignee"]), small_body),
+            Paragraph(str(int(r["feature_count"])), small_body),
+        ]
+        if not hide_defect_col:
+            cells.append(Paragraph(str(int(r["defect_total"])), small_body))
+        cells.append(Paragraph(role_bits, small_body))
+        rows.append(cells)
+    # Column widths: assignee / features / (defects) / roles — roles
+    # takes the lion's share since it's the only wrappable column.
+    if hide_defect_col:
+        col_ws = [inner_w * 0.22, inner_w * 0.14, inner_w * 0.64]
+    else:
+        col_ws = [inner_w * 0.20, inner_w * 0.12, inner_w * 0.12,
+                  inner_w * 0.56]
+    tbl = Table(rows, colWidths=col_ws, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#fff4e5")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("ALIGN", (1, 1), (-2, -1), "RIGHT"),
+    ]))
+    story.append(tbl)
+
+
 def generate_role_analytics_pdf(
     kpi_df: pd.DataFrame,
     wbs_df: Optional[pd.DataFrame],
@@ -10079,12 +10305,14 @@ def generate_role_analytics_pdf(
     # --- Bubble map ---------------------------------------------------------
     bubble_df = _build_assignee_bubble_df(role_df, kpi_df, defects_df)
     if not bubble_df.empty:
+        buckets = _split_bubble_by_signal(bubble_df)
         story.append(PageBreak())
         story.append(Paragraph(t("ra_pdf_h_bubble"), h2_style))
         story.append(Paragraph(
-            t("role_analytics_bubble_caption"), caption_style))
+            _md_bold_html(t("role_analytics_bubble_caption")),
+            caption_style))
         story.append(Spacer(1, 6))
-        result = _mpl_chart_assignee_bubble(bubble_df)
+        result = _mpl_chart_assignee_bubble(buckets["main"])
         if result is not None:
             png, w_px, h_px = result
             aspect = h_px / w_px if w_px else 0.5
@@ -10097,14 +10325,30 @@ def generate_role_analytics_pdf(
             # picked so PDF readers aren't left guessing at the legend.
             # ReportLab's Paragraph parser speaks a tiny HTML subset
             # but not markdown, so convert **...** → <b>...</b>.
-            _note = re.sub(
-                r"\*\*(.+?)\*\*",
-                r"<b>\1</b>",
-                t("role_analytics_dominant_role_note"),
+            _note = _md_bold_html(
+                t("role_analytics_dominant_role_note")
             ).replace("›", "＞")
             story.append(Paragraph(_note, caption_style))
         else:
             story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
+        # Watch-lists: each bucket gets its own heading + definition
+        # caption + table (or "該当者なし" info row) so the PDF carries
+        # the same reasoning the on-screen section provides.
+        _append_watchlist_pdf_section(
+            story, buckets["zero_defect"],
+            title_key="role_analytics_watch_zero_defect_title",
+            caption_key="role_analytics_watch_zero_defect_caption",
+            h2_style=h2_style, caption_style=caption_style,
+            small_body=small_body, inner_w=inner_w,
+        )
+        _append_watchlist_pdf_section(
+            story, buckets["no_exec"],
+            title_key="role_analytics_watch_no_exec_title",
+            caption_key="role_analytics_watch_no_exec_caption",
+            h2_style=h2_style, caption_style=caption_style,
+            small_body=small_body, inner_w=inner_w,
+            hide_defect_col=True,
+        )
 
     # --- Problem-class strip (includes raw counts per segment) -------------
     # Heatmap section was removed in v1.0.43 — the strip now carries the
@@ -10599,15 +10843,27 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
     # ----- Advanced viz 1/2: 案A 担当者バブルマップ -----
     bubble_df = _build_assignee_bubble_df(role_df, kpi_df, defects_df)
     if not bubble_df.empty:
+        buckets = _split_bubble_by_signal(bubble_df)
         st.markdown(f"**{t('role_analytics_bubble_title')}**")
         st.caption(t("role_analytics_bubble_caption"))
-        fig_b = _chart_assignee_bubble(bubble_df)
+        fig_b = _chart_assignee_bubble(buckets["main"])
         if fig_b is not None:
             st.plotly_chart(fig_b, use_container_width=True)
             st.caption(
                 t("role_analytics_dominant_role_note")
                 + "  \n" + t("role_analytics_dominant_role_hover_hint")
             )
+        _render_bubble_watchlist(
+            buckets["zero_defect"],
+            title_key="role_analytics_watch_zero_defect_title",
+            caption_key="role_analytics_watch_zero_defect_caption",
+        )
+        _render_bubble_watchlist(
+            buckets["no_exec"],
+            title_key="role_analytics_watch_no_exec_title",
+            caption_key="role_analytics_watch_no_exec_caption",
+            hide_defect_col=True,
+        )
 
     # ----- Advanced viz 2/2: 案C 問題分類ストリップ (件数埋め込み) -----
     # Strip now embeds `N件` inside each segment and shows
@@ -12046,7 +12302,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.70</span>
+    <span class="ver">Ver1.0.71</span>
   </div>
 </div>
 """, unsafe_allow_html=True)

@@ -142,6 +142,32 @@ WBS_ROLE_ASSIGNEES: dict[object, list[str]] = {
     None:        ["田中", "佐藤", "鈴木", "渡辺", "高橋"],
 }
 
+# Demo-specific assignee pools used *only* on specific Function IDs so the
+# bubble map exercises the two edge rendering cases:
+#   - CLEAN_ONLY: features in `CLEAN_FIDS` never get defects, so these
+#     assignees end up with defect_total = 0 and showcase the
+#     marker.sizemin floor that keeps zero-defect bubbles visible.
+#   - NO_EXEC_ONLY: features in `NO_EXEC_FIDS` have 実施済 = 0 so
+#     incident_rate is NaN for every feature they touch, showcasing the
+#     "NaN → 0% fallback with `—` hover value" path.
+WBS_CLEAN_ONLY_ASSIGNEES: dict[object, list[str]] = {
+    "dev":       ["福田"],
+    "test_spec": ["清水"],
+    "test_exec": ["松本"],
+    None:        ["福田"],
+}
+WBS_NO_EXEC_ONLY_ASSIGNEES: dict[object, list[str]] = {
+    "dev":       ["吉田"],
+    "test_spec": ["石川"],
+    "test_exec": ["堀"],
+    None:        ["吉田"],
+}
+# Function IDs reserved for the two demo scenarios above. These are excluded
+# from the defects generator (CLEAN_FIDS) and get 実施済 = 0 in test counts
+# (NO_EXEC_FIDS) respectively.
+CLEAN_FIDS   = {"AUDIT01", "ADM001", "SYNC001"}
+NO_EXEC_FIDS = {"IMP001", "EXP001"}
+
 # Chance that a sub-task row's 担当者 (N column) is left blank — surfaces as
 # 「（未割当）」in the analytics and exercises that fallback path.
 WBS_UNASSIGNED_PROB = 0.15
@@ -299,8 +325,19 @@ def make_wbs() -> Path:
             # Pick 担当者 from the role pool so a name tends to own either
             # dev or test work consistently. Blank ~15% of the time to
             # exercise the (未割当) surface in the analytics.
+            #
+            # Features flagged as CLEAN_FIDS or NO_EXEC_FIDS route to
+            # dedicated assignee pools so those people end up with
+            # defect_total = 0 or incident_rate = NaN respectively —
+            # exercises the bubble-map edge cases on-screen.
             if random.random() < WBS_UNASSIGNED_PROB:
                 assignee = ""
+            elif fid in CLEAN_FIDS:
+                assignee = random.choice(
+                    WBS_CLEAN_ONLY_ASSIGNEES[role_key])
+            elif fid in NO_EXEC_FIDS:
+                assignee = random.choice(
+                    WBS_NO_EXEC_ONLY_ASSIGNEES[role_key])
             else:
                 assignee = random.choice(WBS_ROLE_ASSIGNEES[role_key])
 
@@ -382,9 +419,13 @@ def make_defects() -> Path:
     assignees = ["alice", "bob", "carol", "dave", "ellen"]
 
     today = date(2026, 4, 20)
+    # CLEAN_FIDS never receive defects — by construction, any assignee
+    # who only works on those features ends up with defect_total = 0
+    # and demos the marker.sizemin floor in the bubble map.
+    defect_eligible_fids = [f for f in UNIQUE_IDS if f not in CLEAN_FIDS]
     rows = []
     for i in range(80):
-        fid = random.choice(UNIQUE_IDS)
+        fid = random.choice(defect_eligible_fids)
         tracker = random.choice(trackers)
         status = random.choice(statuses)
         start = today - timedelta(days=random.randint(1, 120))
@@ -420,9 +461,19 @@ def make_test_counts() -> Path:
         writer.writerow(["機能ID", "", "総テスト", "実施済", "OK", "NG"])
         for fid in UNIQUE_IDS:
             total = random.randint(20, 120)
-            executed = random.randint(int(total * 0.4), total)
-            ok = random.randint(int(executed * 0.6), executed)
-            ng = executed - ok
+            # NO_EXEC_FIDS: planned but never executed → 実施済 = 0 so
+            # incident_rate for that feature is NaN (divide-by-zero). Any
+            # WBS assignee whose sub-tasks land only on these features
+            # therefore ends up with avg_incident_rate = NaN, which is
+            # the second rendering edge case the bubble map now handles.
+            if fid in NO_EXEC_FIDS:
+                executed = 0
+                ok = 0
+                ng = 0
+            else:
+                executed = random.randint(int(total * 0.4), total)
+                ok = random.randint(int(executed * 0.6), executed)
+                ng = executed - ok
             writer.writerow([fid, "", total, executed, ok, ng])
     return out
 
