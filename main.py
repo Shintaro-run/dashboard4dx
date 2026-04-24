@@ -1380,8 +1380,8 @@ def load_defects(file_bytes: bytes) -> pd.DataFrame:
 # =============================================================================
 def load_test_counts(file_bytes: bytes) -> pd.DataFrame:
     """Parse test counts CSV. Accepts UTF-8 or CP932. Column layout is positional
-    (A=機能ID, C=総テスト, D=実施済, E=OK, F=NG; B intentionally unused).
-    Derives 未実施 = 総テスト - 実施済."""
+    (A=機能ID, C=総設定テスト数, D=実施済, E=OK, F=NG; B intentionally unused).
+    Derives 未実施 = 総設定テスト数 - 実施済."""
     text = _decode_csv_bytes(file_bytes)
     raw = pd.read_csv(io.StringIO(text), header=0, dtype=str).fillna("")
     if raw.shape[1] < 6:
@@ -1389,13 +1389,13 @@ def load_test_counts(file_bytes: bytes) -> pd.DataFrame:
 
     df = pd.DataFrame({
         "機能ID": raw.iloc[:, 0].map(_normalize_fid),
-        "総テスト": pd.to_numeric(raw.iloc[:, 2], errors="coerce"),
+        "総設定テスト数": pd.to_numeric(raw.iloc[:, 2], errors="coerce"),
         "実施済": pd.to_numeric(raw.iloc[:, 3], errors="coerce"),
         "OK": pd.to_numeric(raw.iloc[:, 4], errors="coerce"),
         "NG": pd.to_numeric(raw.iloc[:, 5], errors="coerce"),
     })
     df = df[df["機能ID"].notna()].copy()
-    df["未実施"] = df["総テスト"] - df["実施済"]
+    df["未実施"] = df["総設定テスト数"] - df["実施済"]
     return df.reset_index(drop=True)
 
 
@@ -2317,7 +2317,7 @@ def _preflight_tests(data: bytes) -> list[StepResult]:
     _step(steps, "step_tests_fid", "ok", detail=f"{len(fids)} rows with IDs")
 
     bad_numeric = []
-    for idx, label in [(2, "C 総テスト"), (3, "D 実施済"),
+    for idx, label in [(2, "C 総設定テスト数"), (3, "D 実施済"),
                        (4, "E OK"), (5, "F NG")]:
         s = pd.to_numeric(raw.iloc[:, idx], errors="coerce")
         nan_count = int(s.isna().sum())
@@ -2334,7 +2334,7 @@ def _preflight_tests(data: bytes) -> list[StepResult]:
     over = int((run > total).sum())
     if over:
         _step(steps, "step_tests_sanity", "warn",
-              detail=f"{over} rows have 実施済 > 総テスト")
+              detail=f"{over} rows have 実施済 > 総設定テスト数")
     else:
         _step(steps, "step_tests_sanity", "ok")
     return steps
@@ -2460,7 +2460,7 @@ def integrate(
 
     if tests is not None and not tests.empty:
         df = df.merge(
-            tests[["機能ID", "総テスト", "実施済", "OK", "NG", "未実施"]],
+            tests[["機能ID", "総設定テスト数", "実施済", "OK", "NG", "未実施"]],
             on="機能ID", how="left",
         )
 
@@ -2545,11 +2545,11 @@ def compute_kpis(
     Per-Function-ID metrics added (when their inputs exist):
       - bug_density     = NG / LoC               (test-spec defect density;
                                                   ≠ Redmine fault count)
-      - test_density    = 総テスト / 設計書ページ数  (tests per design page)
+      - test_density    = 総設定テスト数 / 設計書ページ数  (tests per design page)
       - complexity      = LoC / 設計書ページ数      (lines per design page)
-      - test_run_rate   = 実施済 / 総テスト         (0..1)
+      - test_run_rate   = 実施済 / 総設定テスト数         (0..1)
       - test_pass_rate  = OK / 実施済              (0..1)
-      - defect_rate     = NG / 総テスト             (test-spec defect rate;
+      - defect_rate     = NG / 総設定テスト数             (test-spec defect rate;
                                                   ≠ incident_rate)
       - incident_rate   = defect_total / 実施済    (Redmine fault rate;
                                                   numerator from Redmine,
@@ -2572,18 +2572,18 @@ def compute_kpis(
     # Densities & rates
     if "NG" in df.columns and "LoC" in df.columns:
         df["bug_density"] = _safe_div(df["NG"], df["LoC"])
-    if "総テスト" in df.columns and "設計書ページ数" in df.columns:
-        df["test_density"] = _safe_div(df["総テスト"], df["設計書ページ数"])
+    if "総設定テスト数" in df.columns and "設計書ページ数" in df.columns:
+        df["test_density"] = _safe_div(df["総設定テスト数"], df["設計書ページ数"])
     if "LoC" in df.columns and "設計書ページ数" in df.columns:
         df["complexity"] = _safe_div(df["LoC"], df["設計書ページ数"])
-    if "実施済" in df.columns and "総テスト" in df.columns:
-        df["test_run_rate"] = _safe_div(df["実施済"], df["総テスト"])
+    if "実施済" in df.columns and "総設定テスト数" in df.columns:
+        df["test_run_rate"] = _safe_div(df["実施済"], df["総設定テスト数"])
     if "OK" in df.columns and "実施済" in df.columns:
         df["test_pass_rate"] = _safe_div(df["OK"], df["実施済"])
-    if "NG" in df.columns and "総テスト" in df.columns:
-        df["defect_rate"] = _safe_div(df["NG"], df["総テスト"])
+    if "NG" in df.columns and "総設定テスト数" in df.columns:
+        df["defect_rate"] = _safe_div(df["NG"], df["総設定テスト数"])
     # incident_rate is the Redmine fault count over executed tests, kept
-    # deliberately separate from defect_rate (test-spec NG / 総テスト).
+    # deliberately separate from defect_rate (test-spec NG / 総設定テスト数).
     if "defect_total" in df.columns and "実施済" in df.columns:
         df["incident_rate"] = _safe_div(df["defect_total"], df["実施済"])
 
@@ -2625,7 +2625,7 @@ COLUMN_HELP_KEYS: dict[str, str] = {
     "機能名称": "help_func_name",
     "defect_total": "help_defect_total",
     "defect_unresolved": "help_defect_unresolved",
-    "総テスト": "help_test_total",
+    "総設定テスト数": "help_test_total",
     "実施済": "help_test_run",
     "OK": "help_test_ok",
     "NG": "help_test_ng",
@@ -2724,7 +2724,7 @@ def project_kpi_summary(kpi_df: pd.DataFrame) -> dict:
         return float(s.mean()) if len(s) else None
 
     total_loc      = _sum("LoC")
-    total_tests    = _sum("総テスト")
+    total_tests    = _sum("総設定テスト数")
     total_run      = _sum("実施済")
     total_ok       = _sum("OK")
     total_ng       = _sum("NG")
@@ -3060,11 +3060,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "help_chart_overview_compare": (
             "**🦕 4-metric overview comparison**\n\n"
             "Four side-by-side horizontal bar panels showing 設計書ページ数 / "
-            "LoC / 総テスト / 障害件数（Redmine） per Function ID — each on "
+            "LoC / 総設定テスト数 / 障害件数（Redmine） per Function ID — each on "
             "its own X scale so absolute values stay readable, with a shared "
             "Y axis so the eye can track each FID across all four panels.\n\n"
             "📂 Source: design pages (manual), code counts (LoC), test counts "
-            "(総テスト), Redmine defect tracker (defect_total)."
+            "(総設定テスト数), Redmine defect tracker (defect_total)."
         ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "(size: design pages, color: risk score)",
@@ -3161,7 +3161,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "settings_test_density_threshold": "Test density warning threshold (tests / page)",
         "settings_test_density_threshold_caption": (
-            "Default 10. Function IDs whose 総テスト ÷ 設計書ページ数 falls "
+            "Default 10. Function IDs whose 総設定テスト数 ÷ 設計書ページ数 falls "
             "below this value are highlighted on the test density chart."
         ),
         "settings_incident_rate_threshold": "Fault rate (Redmine) warning threshold (%)",
@@ -3226,7 +3226,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_tests_min_cols":  "Verify ≥6 columns (A–F)",
         "step_tests_fid":       "Extract Function IDs from col A",
         "step_tests_numeric":   "Numeric values in C/D/E/F",
-        "step_tests_sanity":    "Sanity: 実施済 ≤ 総テスト",
+        "step_tests_sanity":    "Sanity: 実施済 ≤ 総設定テスト数",
         "step_code_sheet":      "Find sheet '機能ID別サマリ'",
         "step_code_fid":        "Extract Function IDs from col A",
         "step_code_loc":        "Numeric LoC values in col B",
@@ -3365,7 +3365,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The numerator and the denominator come from different sources."
         ),
         "help_test_total": (
-            "**🦕 Total tests (総テスト)**\n\n"
+            "**🦕 Total tests (総設定テスト数)**\n\n"
             "Planned test cases for this function.\n\n"
             "📂 Source: Test counts per spec, column C.\n\n"
             "💡 Denominator for test run rate and density."
@@ -3390,7 +3390,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_notrun": (
             "**🦕 Not run (未実施)**\n\n"
-            "🧮 総テスト − 実施済.\n\n"
+            "🧮 総設定テスト数 − 実施済.\n\n"
             "📂 Source: derived from test counts columns C and D.\n\n"
             "💡 Visible work remaining to complete the test plan."
         ),
@@ -3449,7 +3449,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_density": (
             "**🦕 Test density**\n\n"
-            "🧮 総テスト ÷ 設計書ページ数.\n\n"
+            "🧮 総設定テスト数 ÷ 設計書ページ数.\n\n"
             "📂 Source: test counts column C ÷ design pages (manual input).\n\n"
             "💡 Tests per design page. Low values may indicate under-tested specs."
         ),
@@ -3461,7 +3461,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_run_rate": (
             "**🦕 Test run rate**\n\n"
-            "🧮 実施済 ÷ 総テスト.\n\n"
+            "🧮 実施済 ÷ 総設定テスト数.\n\n"
             "📂 Source: test counts column D ÷ column C.\n\n"
             "💡 Test execution progress. 100% = every planned test ran."
         ),
@@ -3473,7 +3473,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_defect_rate": (
             "**🦕 Defect rate – test spec**\n\n"
-            "🧮 NG ÷ 総テスト (test-spec NG over planned test cases).\n\n"
+            "🧮 NG ÷ 総設定テスト数 (test-spec NG over planned test cases).\n\n"
             "📂 Source: test counts column F ÷ column C.\n\n"
             "💡 Failure rate against the full test plan.\n\n"
             "⚠ This is **not** the Redmine fault rate (*Fault rate (Redmine)*)."
@@ -3525,7 +3525,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_test_density": (
             "**🦕 Test density (test count sufficiency)**\n\n"
-            "🧮 総テスト ÷ 設計書ページ数 — sorted ascending so the bottom "
+            "🧮 総設定テスト数 ÷ 設計書ページ数 — sorted ascending so the bottom "
             "of the chart is the under-tested specs.\n\n"
             "📂 Source: Test counts per spec (C), design pages."
         ),
@@ -3723,7 +3723,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "ra_pdf_input_tests":        "Test counts CSV",
         "ra_pdf_input_tests_note":   (
-            "総テスト / 実施済 / NG columns come from the test counts CSV."
+            "総設定テスト数 / 実施済 / NG columns come from the test counts CSV."
         ),
         "ra_pdf_h_rules":            "2. Role classification rules",
         "ra_pdf_rules_body": (
@@ -3890,7 +3890,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_col_item":          "Item",
         "td_pdf_col_source":        "Source file / location",
         "td_pdf_col_method":        "Method",
-        "td_pdf_input_tests":       "Total tests (総テスト)",
+        "td_pdf_input_tests":       "Total tests (総設定テスト数)",
         "td_pdf_input_pages":       "Design pages — visual count (設計書頁数（目視確認）)",
         "td_pdf_input_master":      "Function master (ID / name)",
         "td_pdf_method_auto":       "Auto-loaded CSV/XLSX",
@@ -4056,8 +4056,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "warn_master_dups": (
             "{n} Function IDs appear with multiple names — kept all rows."
         ),
-        "warn_tests_overrun": "{n} rows have 実施済 > 総テスト",
-        "warn_tests_nan_total": "{n} rows have non-numeric 総テスト",
+        "warn_tests_overrun": "{n} rows have 実施済 > 総設定テスト数",
+        "warn_tests_nan_total": "{n} rows have non-numeric 総設定テスト数",
         "warn_code_zero_loc": "{n} rows have missing or zero LoC",
         "warn_defects_empty": "no '不具合管理' rows after filter",
     },
@@ -4189,11 +4189,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_overview_compare_empty": "現在のフィルタに合致する機能IDがありません。",
         "help_chart_overview_compare": (
             "**🦕 機能ID俯瞰比較（4指標）**\n\n"
-            "設計書ページ数 / LoC / 総テスト / 障害件数（Redmine） を機能ID別に "
+            "設計書ページ数 / LoC / 総設定テスト数 / 障害件数（Redmine） を機能ID別に "
             "横棒グラフ4つで並列表示。各指標は独立したX軸スケールで絶対値が読める一方、"
             "Y軸の機能IDは共有しているので、横にスライドして同じ機能IDの4指標を比較できます。\n\n"
             "📂 出典: 設計書ページ数（手動入力）, コード行数（LoC）, "
-            "テスト集計（総テスト）, Redmine 障害一覧（defect_total）。"
+            "テスト集計（総設定テスト数）, Redmine 障害一覧（defect_total）。"
         ),
         "chart_loc_vs_ng": "LoC × NG",
         "chart_loc_vs_ng_sub": "（サイズ: 設計ページ数、色: リスクスコア）",
@@ -4236,7 +4236,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_closed": "解決",
         "chart_label_open_cum": "未解決（累積）",
         "chart_label_loc_total": "総LoC",
-        "chart_label_total_tests": "総テスト",
+        "chart_label_total_tests": "総設定テスト数",
         "chart_label_executed": "実施済",
         "chart_label_total": "合計",
         "chart_label_coverage": "カバレッジ",
@@ -4287,7 +4287,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "settings_test_density_threshold": "テスト密度の警告閾値（テスト/ページ）",
         "settings_test_density_threshold_caption": (
-            "既定値 10。総テスト ÷ 設計書ページ数 がこの値を下回る機能IDは、"
+            "既定値 10。総設定テスト数 ÷ 設計書ページ数 がこの値を下回る機能IDは、"
             "テスト密度チャートで赤＋⚠マーカーで強調表示されます。"
         ),
         "settings_incident_rate_threshold": "障害発生率（Redmine）の警告閾値（%）",
@@ -4351,7 +4351,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_tests_min_cols":  "6列以上(A〜F)を確認",
         "step_tests_fid":       "A列から機能IDを抽出",
         "step_tests_numeric":   "C/D/E/F列が数値であることを確認",
-        "step_tests_sanity":    "妥当性: 実施済 ≤ 総テスト",
+        "step_tests_sanity":    "妥当性: 実施済 ≤ 総設定テスト数",
         "step_code_sheet":      "シート '機能ID別サマリ' を確認",
         "step_code_fid":        "A列から機能IDを抽出",
         "step_code_loc":        "B列のLoCが数値であることを確認",
@@ -4481,11 +4481,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "📂 出典: Redmine不具合一覧（トラッカー='不具合管理'） × "
             "仕様書別テスト集計 D列。\n\n"
             "💡 実施1件あたりに Redmine 起票の障害がどれだけ出たかの目安。\n\n"
-            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
+            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総設定テスト数) ではありません**。"
             "分子と分母の出典が違います。"
         ),
         "help_test_total": (
-            "**🦕 総テスト**\n\n"
+            "**🦕 総設定テスト数**\n\n"
             "計画されたテストケース総数。\n\n"
             "📂 出典: 仕様書別テスト集計 C列。\n\n"
             "💡 実施率や密度の分母になります。"
@@ -4507,7 +4507,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_notrun": (
             "**🦕 未実施**\n\n"
-            "🧮 総テスト − 実施済。\n\n"
+            "🧮 総設定テスト数 − 実施済。\n\n"
             "📂 出典: 仕様書別テスト集計 C列 と D列 から算出。\n\n"
             "💡 残作業量の見える化。"
         ),
@@ -4560,7 +4560,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_density": (
             "**🦕 テスト密度**\n\n"
-            "🧮 総テスト ÷ 設計書ページ数。\n\n"
+            "🧮 総設定テスト数 ÷ 設計書ページ数。\n\n"
             "📂 出典: 仕様書別テスト集計 C列 ÷ 設計書ページ数（手動入力）。\n\n"
             "💡 設計1ページあたりのテスト件数。低い場合は仕様のテスト不足の可能性。"
         ),
@@ -4572,7 +4572,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_test_run_rate": (
             "**🦕 テスト実施率**\n\n"
-            "🧮 実施済 ÷ 総テスト。\n\n"
+            "🧮 実施済 ÷ 総設定テスト数。\n\n"
             "📂 出典: 仕様書別テスト集計 D列 ÷ C列。\n\n"
             "💡 テストの消化進捗。100% で全件実施。"
         ),
@@ -4584,7 +4584,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_defect_rate": (
             "**🦕 不具合率（テスト仕様書）**\n\n"
-            "🧮 NG ÷ 総テスト（テスト仕様書の NG ÷ 計画テスト件数）。\n\n"
+            "🧮 NG ÷ 総設定テスト数（テスト仕様書の NG ÷ 計画テスト件数）。\n\n"
             "📂 出典: 仕様書別テスト集計 F列 ÷ C列。\n\n"
             "💡 全テスト計画に対する不合格率。\n\n"
             "⚠ これは**「障害発生率（Redmine）」ではありません**。"
@@ -4632,7 +4632,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_test_density": (
             "**🦕 テスト密度（テスト件数に関する充足率）**\n\n"
-            "🧮 総テスト ÷ 設計書ページ数 — 昇順ソートで下が手薄。\n\n"
+            "🧮 総設定テスト数 ÷ 設計書ページ数 — 昇順ソートで下が手薄。\n\n"
             "📂 出典: 仕様書別テスト集計（C列）, 設計書ページ数。"
         ),
         "help_chart_incident_rate": (
@@ -4640,7 +4640,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "🧮 Redmine `defect_total` ÷ 仕様書別テスト集計 `実施済` を機能ID別に表示。"
             "降順ソートで悪い方が上に並びます。\n\n"
             "📂 出典: Redmine 障害一覧（defect_total）÷ テスト集計（D列 実施済）。\n\n"
-            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総テスト) ではありません**。"
+            "⚠ これは**「不具合率（テスト仕様書）」(NG / 総設定テスト数) ではありません**。"
         ),
         "help_chart_defect_class": (
             "**🦕 障害の問題分類内訳（Redmine）**\n\n"
@@ -4820,7 +4820,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "ra_pdf_input_tests":        "仕様書別テスト集計CSV",
         "ra_pdf_input_tests_note":   (
-            "仕様書別テスト集計CSV から、総テスト数・実施済数・NG数を取得します。"
+            "仕様書別テスト集計CSV から、総設定テスト数数・実施済数・NG数を取得します。"
         ),
         "ra_pdf_h_rules":            "2. ロール判定ルール",
         "ra_pdf_rules_body": (
@@ -4979,7 +4979,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_col_item":          "項目",
         "td_pdf_col_source":        "ファイル / 保管先",
         "td_pdf_col_method":        "取得方法",
-        "td_pdf_input_tests":       "総テスト",
+        "td_pdf_input_tests":       "総設定テスト数",
         "td_pdf_input_pages":       "設計書頁数（目視確認）",
         "td_pdf_input_master":      "機能マスタ（機能ID / 名称）",
         "td_pdf_method_auto":       "自動取込",
@@ -4987,7 +4987,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_input_tests_note":  "（テスト集計CSVのC列）",
         "td_pdf_input_pages_note":  "（input/design_pages.json、設計書頁数タブで編集）",
         "td_pdf_h_output":          "2. アウトプット（算出する密度）",
-        "td_pdf_output_formula":    "<b>テスト密度</b> ＝ 総テスト ÷ 設計書頁数（目視確認）",
+        "td_pdf_output_formula":    "<b>テスト密度</b> ＝ 総設定テスト数 ÷ 設計書頁数（目視確認）",
         "td_pdf_output_unit":       "単位：テスト件数 / 設計書1ページ",
         "td_pdf_output_meaning":    (
             "意味：設計書1ページあたりのテスト計画件数。"
@@ -5019,7 +5019,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "td_pdf_h_below":           "6. 閾値未満の機能ID一覧",
         "td_pdf_col_fid":           "機能ID",
         "td_pdf_col_name":          "機能名称",
-        "td_pdf_col_tests":         "総テスト",
+        "td_pdf_col_tests":         "総設定テスト数",
         "td_pdf_col_pages":         "設計書頁数 (目視確認)",
         "td_pdf_col_density":       "密度",
         "td_pdf_col_gap":           "閾値との差",
@@ -5054,7 +5054,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "help_chart_test_trend": (
             "**🦕 テスト件数推移**\n\n"
-            "保存済 tests スナップショットの総テスト数 vs 実施済推移。\n\n"
+            "保存済 tests スナップショットの総設定テスト数数 vs 実施済推移。\n\n"
             "📂 出典: input/<日付>/tests/*.csv。\n\n"
             "💡 総数と実施済の差 = テストバックログの推移。"
         ),
@@ -5083,7 +5083,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "col_complexity":    "複雑度 (LoC/ページ)",
         "col_test_run_rate": "テスト実施率",
         "col_test_pass_rate":"テスト成功率",
-        "col_defect_rate":   "不具合率（テスト仕様書, NG/総テスト）",
+        "col_defect_rate":   "不具合率（テスト仕様書, NG/総設定テスト数）",
         "col_delay_days":    "遅延日数",
         "col_delay_rate":    "遅延率",
         "col_health_score":  "健全性スコア",
@@ -5135,8 +5135,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "calendar_layer_nonwork": "非稼働表示",
         "err_zero_rows": "0行しか読めませんでした — シート名や列構成をご確認ください",
         "warn_master_dups": "{n}件の機能IDに複数の名称がありました（全て保持しています）",
-        "warn_tests_overrun": "{n}行で 実施済 > 総テスト になっています",
-        "warn_tests_nan_total": "{n}行の 総テスト が数値ではありません",
+        "warn_tests_overrun": "{n}行で 実施済 > 総設定テスト数 になっています",
+        "warn_tests_nan_total": "{n}行の 総設定テスト数 が数値ではありません",
         "warn_code_zero_loc": "{n}行で LoC が未入力または0です",
         "warn_defects_empty": "フィルタ後に「不具合管理」の行がありません",
     },
@@ -6191,7 +6191,7 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
         # Tests
         st.markdown(f"#### {t('drilldown_section_tests')}")
         t_cols = st.columns(7, gap="small")
-        t_cols[0].metric("総テスト", _f(row.get("総テスト"), "{:.0f}"))
+        t_cols[0].metric("総設定テスト数", _f(row.get("総設定テスト数"), "{:.0f}"))
         t_cols[1].metric("実施済", _f(row.get("実施済"), "{:.0f}"))
         t_cols[2].metric("OK", _f(row.get("OK"), "{:.0f}"))
         t_cols[3].metric(t("col_test_ng"), _f(row.get("NG"), "{:.0f}"),
@@ -6376,7 +6376,7 @@ def detect_kpi_alerts(kpi_df: pd.DataFrame) -> list[dict]:
         # Mostly-unexecuted test plan (>60% unrun with a non-trivial
         # plan size). Catches features where the spec is written but
         # execution hasn't progressed in a long time.
-        total = r.get("総テスト")
+        total = r.get("総設定テスト数")
         notrun = r.get("未実施")
         if (pd.notna(total) and float(total) >= 10
                 and pd.notna(notrun)
@@ -6677,7 +6677,7 @@ def render_dashboard_tab() -> None:
     overview_cols = base_cols + [
         c for c in [
             "defect_total", "defect_unresolved",
-            "総テスト", "実施済", "NG", "未実施",
+            "総設定テスト数", "実施済", "NG", "未実施",
             "LoC", "設計書ページ数",
             "actual_progress", "planned_progress",
             "risk_score", "health_score",
@@ -6705,7 +6705,7 @@ def render_dashboard_tab() -> None:
         if c in kpi_df.columns
     ]
     test_cols = base_cols + [
-        c for c in ["総テスト", "実施済", "OK", "NG", "未実施",
+        c for c in ["総設定テスト数", "実施済", "OK", "NG", "未実施",
                     "test_run_rate", "test_pass_rate", "defect_rate"]
         if c in kpi_df.columns
     ]
@@ -6904,14 +6904,14 @@ _OVERVIEW_COMPARE_METRICS: list[tuple[str, str, str]] = [
     # (df column, panel title, bar color)
     ("設計書ページ数", "設計書ページ数",     "#9aa0a6"),
     ("LoC",            "LoC",                "#7aaef0"),
-    ("総テスト",        "総テスト",            "#4ec78a"),
+    ("総設定テスト数",        "総設定テスト数",            "#4ec78a"),
     ("defect_total",   "障害件数（Redmine）", "#f05050"),
 ]
 
 
 def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     """Small-multiples horizontal bars: 機能ID × {設計書ページ数, LoC,
-    総テスト, 障害件数（Redmine）}.
+    総設定テスト数, 障害件数（Redmine）}.
 
     Four side-by-side panels share a single Y axis (Function IDs) so each
     column's absolute magnitude stays readable on its own scale, while the
@@ -7005,7 +7005,7 @@ def _incident_rate_threshold() -> float:
 
 
 def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
-    if not {"test_density", "総テスト", "設計書ページ数"}.issubset(kpi_df.columns):
+    if not {"test_density", "総設定テスト数", "設計書ページ数"}.issubset(kpi_df.columns):
         return None
     df = kpi_df.dropna(subset=["test_density"]).copy()
     if df.empty:
@@ -7025,14 +7025,14 @@ def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     bar_colors = np.where(below, "#f05050", "#7aaef0")
     bar_lines = np.where(below, "#a02020", "#7aaef0")
     customdata = np.column_stack([
-        df["総テスト"].fillna(0).astype(int),
+        df["総設定テスト数"].fillna(0).astype(int),
         df["設計書ページ数"].fillna(0).astype(float),
         densities,
     ])
     below_marker = t("chart_test_density_below_marker")
     hover_tmpl = (
         "<b>%{y}</b><br>"
-        "総テスト: %{customdata[0]}  "
+        "総設定テスト数: %{customdata[0]}  "
         "設計書ページ数: %{customdata[1]:.0f}<br>"
         f"{t('col_test_density')}: %{{customdata[2]:.2f}}"
         f" (閾値: {threshold:g})"
@@ -8012,7 +8012,7 @@ def _chart_test_trend() -> Optional[go.Figure]:
         return None
     rows = []
     for snap_date, _, df_snap in snaps:
-        tot = pd.to_numeric(df_snap["総テスト"], errors="coerce").fillna(0).sum()
+        tot = pd.to_numeric(df_snap["総設定テスト数"], errors="coerce").fillna(0).sum()
         run = pd.to_numeric(df_snap["実施済"], errors="coerce").fillna(0).sum()
         rows.append({"date": snap_date,
                      t("chart_label_total_tests"): int(tot),
@@ -8156,7 +8156,7 @@ def _chart_defect_class(defects_df: Optional[pd.DataFrame]
 def _collect_fid_history(function_id: str) -> pd.DataFrame:
     """Walk every saved tests/code snapshot under ``input/`` and extract the
     row for ``function_id``. Returns a long-ish dataframe indexed by
-    snapshot date with columns {総テスト, 実施済, OK, NG, 未実施, LoC}
+    snapshot date with columns {総設定テスト数, 実施済, OK, NG, 未実施, LoC}
     (only those that were present). Missing cells stay NaN so the chart
     silently omits them.
     """
@@ -8169,7 +8169,7 @@ def _collect_fid_history(function_id: str) -> pd.DataFrame:
             continue
         r = sub.iloc[0]
         bucket = rows.setdefault(snap_date, {})
-        for c in ("総テスト", "実施済", "OK", "NG", "未実施"):
+        for c in ("総設定テスト数", "実施済", "OK", "NG", "未実施"):
             if c in sub.columns:
                 v = r.get(c)
                 bucket[c] = float(v) if pd.notna(v) else None
@@ -8192,7 +8192,7 @@ def _collect_fid_history(function_id: str) -> pd.DataFrame:
 
 
 def _chart_fid_trend(function_id: str) -> Optional[go.Figure]:
-    """Per-Function-ID trend: NG / 実施済 / 総テスト on the left axis
+    """Per-Function-ID trend: NG / 実施済 / 総設定テスト数 on the left axis
     (counts) and LoC on the right axis (lines of code). Returns None when
     fewer than two snapshots have data for this FID."""
     df = _collect_fid_history(function_id)
@@ -8205,8 +8205,8 @@ def _chart_fid_trend(function_id: str) -> Optional[go.Figure]:
     if "実施済" in df.columns and df["実施済"].notna().any():
         fig.add_scatter(name="実施済", x=df["date"], y=df["実施済"],
                         mode="lines+markers", line=dict(color="#4ec78a"))
-    if "総テスト" in df.columns and df["総テスト"].notna().any():
-        fig.add_scatter(name="総テスト", x=df["date"], y=df["総テスト"],
+    if "総設定テスト数" in df.columns and df["総設定テスト数"].notna().any():
+        fig.add_scatter(name="総設定テスト数", x=df["date"], y=df["総設定テスト数"],
                         mode="lines+markers", line=dict(color="#7aaef0"))
     if "LoC" in df.columns and df["LoC"].notna().any():
         fig.add_scatter(name="LoC", x=df["date"], y=df["LoC"],
@@ -8654,7 +8654,7 @@ def _mpl_chart_test_trend():
         return None
     rows = []
     for snap_date, _, df_snap in snaps:
-        tot = pd.to_numeric(df_snap["総テスト"], errors="coerce").fillna(0).sum()
+        tot = pd.to_numeric(df_snap["総設定テスト数"], errors="coerce").fillna(0).sum()
         run = pd.to_numeric(df_snap["実施済"], errors="coerce").fillna(0).sum()
         rows.append({"date": pd.Timestamp(snap_date),
                      "total": int(tot), "executed": int(run)})
@@ -9760,7 +9760,7 @@ def generate_test_density_pdf(
 
     # --- Below-threshold list ----------------------------------------------
     below_df = (
-        df[below_mask][["機能ID", "機能名称", "総テスト",
+        df[below_mask][["機能ID", "機能名称", "総設定テスト数",
                         "設計書ページ数", "test_density"]]
         .sort_values("test_density", ascending=True)
         .reset_index(drop=True)
@@ -9778,7 +9778,7 @@ def generate_test_density_pdf(
         ]
         rows = [[Paragraph(h, body_style) for h in header]]
         for _, r in below_df.iterrows():
-            tests_v = r.get("総テスト")
+            tests_v = r.get("総設定テスト数")
             pages_v = r.get("設計書ページ数")
             rows.append([
                 Paragraph(str(r["機能ID"]), body_style),
@@ -12075,11 +12075,11 @@ def render_settings_tab() -> None:
 # -----------------------------------------------------------------------------
 _DERIVED_KPI_INPUTS: dict[str, list[tuple[str, str]]] = {
     "bug_density":    [("NG", "tests"), ("LoC", "code")],
-    "test_density":   [("総テスト", "tests"), ("設計書ページ数", "design")],
+    "test_density":   [("総設定テスト数", "tests"), ("設計書ページ数", "design")],
     "complexity":     [("LoC", "code"), ("設計書ページ数", "design")],
-    "test_run_rate":  [("実施済", "tests"), ("総テスト", "tests")],
+    "test_run_rate":  [("実施済", "tests"), ("総設定テスト数", "tests")],
     "test_pass_rate": [("OK", "tests"), ("実施済", "tests")],
-    "defect_rate":    [("NG", "tests"), ("総テスト", "tests")],
+    "defect_rate":    [("NG", "tests"), ("総設定テスト数", "tests")],
     "incident_rate":  [("defect_total", "defects"), ("実施済", "tests")],
     "delay_days":     [("planned_end", "wbs")],
     "delay_rate":     [("planned_start", "wbs"), ("planned_end", "wbs")],
@@ -12302,7 +12302,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.71</span>
+    <span class="ver">Ver1.0.72</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
