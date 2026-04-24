@@ -8064,25 +8064,34 @@ def _chart_assignee_problem_strip(
                 "<extra></extra>"
             ),
         )
+    # `n=<total>` annotations sit just past the 100% bar; extend the
+    # axis range and reserve extra right margin so the text isn't clipped
+    # by the plot boundary (same idea as the matplotlib version's
+    # `ax.set_xlim(0, 108)`).
+    _strip_margin = dict(_INLINE_MARGIN_LONG_Y)
+    _strip_margin["r"] = 70
     fig.update_layout(
         barmode="stack",
         height=max(260, 30 * len(assignees) + 120),
-        margin=_INLINE_MARGIN_LONG_Y,
+        margin=_strip_margin,
         xaxis_title="%",
         yaxis_title=None,
         legend_title_text=t("chart_defect_class_col_class"),
         uniformtext_minsize=9, uniformtext_mode="hide",
     )
-    fig.update_xaxes(range=[0, 100], automargin=True, ticksuffix="%")
+    fig.update_xaxes(range=[0, 112], automargin=True, ticksuffix="%",
+                     tickvals=[0, 25, 50, 75, 100])
     fig.update_yaxes(autorange="reversed", automargin=True)
     # Right-hand "n=<total>" annotation — absolute volume, so percent bars
     # don't mislead (a 100%-of-tiny person looks equal to a 100%-of-huge
-    # person without this).
+    # person without this). Bumped font weight + darker colour + a subtle
+    # label prefix so the count actually reads from across the room.
     for name, tot in zip(assignees, totals.reindex(assignees).values):
         fig.add_annotation(
             x=101, y=name, xref="x", yref="y",
-            text=f"n={int(tot)}", showarrow=False,
-            xanchor="left", font=dict(color="#666", size=10),
+            text=f"<b>n={int(tot)}</b>",
+            showarrow=False,
+            xanchor="left", font=dict(color="#333", size=11),
         )
     return fig
 
@@ -12400,7 +12409,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.74</span>
+    <span class="ver">Ver1.0.75</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
