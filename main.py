@@ -3272,6 +3272,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_panel_title": "🦖 Function ID drill-down",
         "drilldown_close": "Close drill-down",
         "drilldown_section_wbs":     "Schedule (WBS)",
+        "drilldown_to_deadline":     "To deadline",
+        "drilldown_deadline_future": "{n} days remaining",
+        "drilldown_deadline_today":  "Due today!",
+        "drilldown_deadline_overdue": "+{n} days overdue",
+        "drilldown_deadline_completed": "Completed ({date})",
+        "drilldown_deadline_unknown":   "—",
+        "drilldown_help_deadline": (
+            "Days between **WBS R column (planned_end)** and today. "
+            "Hidden once the feature has an actual_end (shows the "
+            "completion date instead)."
+        ),
+        "drilldown_assignees_label": "Assignees on this feature",
+        "drilldown_assignees_none":  "(no WBS sub-tasks)",
+        "drilldown_role_progress_label": "Role progress",
+        "drilldown_role_progress_caption": (
+            "Sub-task completion per role. Helps spot features where "
+            "dev is done but test execution hasn't started."
+        ),
+        "drilldown_subtask_expander": "🔍 Sub-task breakdown (from WBS)",
+        "drilldown_subtask_none":  "No WBS sub-tasks for this Function ID.",
+        "drilldown_status_completed":   "Completed",
+        "drilldown_status_in_progress": "In progress",
+        "drilldown_status_not_started": "Not started",
+        "drilldown_subtask_col_label":    "Task",
+        "drilldown_subtask_col_assignee": "Assignee",
+        "drilldown_subtask_col_role":     "Role",
+        "drilldown_subtask_col_planned":  "Planned",
+        "drilldown_subtask_col_actual":   "Actual",
+        "drilldown_subtask_col_progress": "Actual %",
+        "drilldown_subtask_col_delay":    "Delay (d)",
+        "drilldown_subtask_role_other":   "—",
         "drilldown_section_defects": "Defects",
         "drilldown_section_trend": "Trend (across snapshots)",
         "drilldown_section_trend_caption": (
@@ -4041,6 +4072,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "origin_upload": "just uploaded",
         "origin_auto": "auto-loaded from input/",
         "origin_snapshot": "snapshot {date}",
+        "origin_ingested_at": "ingested {ts}",
         "toast_loaded": "{label} loaded · saved to {path}",
         "toast_failed": "{label}: {msg}",
         "save_warn": "validated, but couldn't save to input/: {err}",
@@ -4410,6 +4442,37 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "drilldown_panel_title": "🦖 機能IDドリルダウン",
         "drilldown_close": "ドリルダウンを閉じる",
         "drilldown_section_wbs":     "スケジュール (WBS)",
+        "drilldown_to_deadline":     "終了予定まで",
+        "drilldown_deadline_future": "残 {n} 日",
+        "drilldown_deadline_today":  "本日が予定日",
+        "drilldown_deadline_overdue": "+{n}日超過",
+        "drilldown_deadline_completed": "完了 ({date})",
+        "drilldown_deadline_unknown":   "—",
+        "drilldown_help_deadline": (
+            "**WBS R列（終了予定日）** と今日との差分。"
+            "実績終了日がある機能は完了として扱い、超過日数ではなく"
+            "完了日を表示します。"
+        ),
+        "drilldown_assignees_label": "この機能の担当者",
+        "drilldown_assignees_none":  "(WBS サブタスクなし)",
+        "drilldown_role_progress_label": "ロール別進捗",
+        "drilldown_role_progress_caption": (
+            "ロールごとのサブタスク進捗。開発だけ完了していて"
+            "テスト実施が未着手、といった詰まりを見つけるための指標です。"
+        ),
+        "drilldown_subtask_expander": "🔍 サブタスク詳細 (WBS)",
+        "drilldown_subtask_none":  "この機能 ID の WBS サブタスクはありません。",
+        "drilldown_status_completed":   "完了",
+        "drilldown_status_in_progress": "進行中",
+        "drilldown_status_not_started": "未着手",
+        "drilldown_subtask_col_label":    "タスク",
+        "drilldown_subtask_col_assignee": "担当者",
+        "drilldown_subtask_col_role":     "ロール",
+        "drilldown_subtask_col_planned":  "予定",
+        "drilldown_subtask_col_actual":   "実績",
+        "drilldown_subtask_col_progress": "実績 %",
+        "drilldown_subtask_col_delay":    "遅延 (日)",
+        "drilldown_subtask_role_other":   "—",
         "drilldown_section_defects": "不具合",
         "drilldown_section_trend": "トレンド（スナップショット横断）",
         "drilldown_section_trend_caption": (
@@ -5137,6 +5200,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "origin_upload": "今アップロード",
         "origin_auto": "input/ から自動読込",
         "origin_snapshot": "スナップショット {date}",
+        "origin_ingested_at": "投入日時 {ts}",
         "toast_loaded": "{label} 取込完了 · {path} に保存",
         "toast_failed": "{label}: {msg}",
         "save_warn": "検証はOKですが input/ への保存に失敗: {err}",
@@ -5454,14 +5518,22 @@ def _pill(kind: str, text: str) -> str:
 _STEP_STATUS_ICON = {"ok": "✅", "warn": "⚠️", "error": "❌", "pending": "⏳"}
 
 
-def render_dino_runner(steps: list[StepResult], slot: str) -> None:
+def render_dino_runner(steps: list[StepResult], slot: str,
+                       nonce: Optional[str] = None) -> None:
     """Embed a Chrome-dino-style canvas animation that runs over every
     validation step. The sprite (a raptor — T-Rex is reserved for the page
     chrome) jumps over OK/warning cacti and crashes into the first error
-    cactus. Triggers once per (slot, step-signature)."""
+    cactus. Triggers once per (slot, nonce, step-signature).
+
+    `nonce` lets the caller force a re-run even when the step pattern is
+    identical across uploads — pass the Streamlit uploader's `file_id`
+    (fresh on every new upload) or the filename so a second upload of a
+    file that still validates identically still re-plays the animation
+    (without it, the signature was content-derived and silently
+    deduped)."""
     if not steps:
         return
-    sig = (slot, tuple((s.label_key, s.status) for s in steps))
+    sig = (slot, nonce, tuple((s.label_key, s.status) for s in steps))
     last_sig_key = f"_dino_runner_sig_{slot}"
     if st.session_state.get(last_sig_key) == sig:
         # Already animated this exact run; skip to keep the iframe quiet.
@@ -5860,9 +5932,18 @@ def render_upload_card(spec: dict) -> None:
         error_step = next((s for s in steps if s.status == "error"), None)
         warn_steps = [s for s in steps if s.status == "warn"]
 
-        # Dino runs over each step. Plays once per (file/auto, step-signature)
-        # to avoid restarting on unrelated reruns.
-        render_dino_runner(steps, spec["key"])
+        # Dino runs over each step. Plays once per (file/auto, step-
+        # signature) to avoid restarting on unrelated reruns — but the
+        # nonce (file_id on upload / filename on auto-load) differs
+        # between a fresh upload and the previously-cached run, so a
+        # new upload always re-plays even when the validation result
+        # pattern happens to match the prior one.
+        if origin_kind == "upload" and file is not None:
+            _dino_nonce = str(getattr(file, "file_id", None) or origin_name
+                              or "")
+        else:
+            _dino_nonce = origin_name or ""
+        render_dino_runner(steps, spec["key"], nonce=_dino_nonce)
 
         # Always-visible checklist of what we just checked.
         render_step_checklist(steps)
@@ -5944,7 +6025,21 @@ def render_upload_card(spec: dict) -> None:
         snap = _snapshot_date_from_filename(origin_name or "")
         snap_text = (" · " + t("origin_snapshot", date=snap.isoformat())
                      if snap else "")
-        st.caption(f"{src_icon} {src_text} · `{origin_name}`{snap_text}")
+        # Ingest timestamp = when the bytes landed on disk under input/.
+        # For auto-load it's the file's mtime; for a fresh upload we
+        # just saved the file above so origin_path.stat() still reflects
+        # that save moment. Shows a human-readable `YYYY-MM-DD HH:MM`.
+        ingest_text = ""
+        if origin_path is not None:
+            try:
+                ts = datetime.fromtimestamp(origin_path.stat().st_mtime)
+                ingest_text = (" · " + t("origin_ingested_at",
+                                          ts=ts.strftime("%Y-%m-%d %H:%M")))
+            except Exception:
+                pass
+        st.caption(
+            f"{src_icon} {src_text} · `{origin_name}`{snap_text}{ingest_text}"
+        )
 
         st.session_state.dfs[spec["key"]] = df
         st.session_state.origin_names[spec["key"]] = origin_name or ""
@@ -6112,6 +6207,152 @@ def render_drilldown_presence_strip(fid: str) -> None:
     )
 
 
+def _render_drilldown_subtask_views(subtasks: pd.DataFrame) -> None:
+    """Render the three WBS-derived drill-down widgets for a feature:
+    assignee roster, role-progress mini-bars, and sub-task breakdown
+    table. No-op when the feature has no WBS sub-tasks."""
+    if subtasks is None or subtasks.empty:
+        st.caption(
+            f"**{t('drilldown_assignees_label')}:** "
+            f"{t('drilldown_assignees_none')}"
+        )
+        return
+
+    role_labels_local = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    status_colors = {
+        "completed":  "#4ec78a",
+        "in_progress": "#f5b400",
+        "not_started": "#c0c0c0",
+    }
+
+    # ---- Assignee roster (unique (assignee, role) pairs) ---------------
+    roster_pairs: list[tuple[str, str]] = []
+    seen: set = set()
+    for _, r in subtasks.iterrows():
+        a = _normalize_assignee(r.get("assignee"))
+        role = r.get("role") or ""
+        if not a:
+            continue
+        key = (a, role)
+        if key in seen:
+            continue
+        seen.add(key)
+        roster_pairs.append(key)
+    if roster_pairs:
+        parts = [
+            f"{a}"
+            + (f" <span style='color:#888;'>({role_labels_local[r]})</span>"
+               if r in role_labels_local else "")
+            for a, r in roster_pairs
+        ]
+        st.markdown(
+            f"**{t('drilldown_assignees_label')}:** 👥 "
+            + " · ".join(parts),
+            unsafe_allow_html=True,
+        )
+
+    # ---- Role-progress mini-bars -------------------------------------
+    # For each of the 3 analytics roles, count how many of this
+    # feature's sub-tasks are completed / in-progress / not-started and
+    # render a short stacked bar so "dev done but test_exec hasn't
+    # started" pops out visually.
+    subtasks = subtasks.copy()
+    subtasks["_status"] = subtasks.apply(_subtask_progress_bucket, axis=1)
+    role_rows: list[str] = []
+    for role in ROLE_KEYWORDS:
+        sub = subtasks[subtasks["role"] == role]
+        if sub.empty:
+            continue
+        counts = sub["_status"].value_counts()
+        total = int(counts.sum())
+        c_done = int(counts.get("completed", 0))
+        c_prog = int(counts.get("in_progress", 0))
+        c_idle = int(counts.get("not_started", 0))
+        # Build a 3-segment stacked bar sized by status share.
+        pct_done = (c_done / total) * 100 if total else 0
+        pct_prog = (c_prog / total) * 100 if total else 0
+        pct_idle = 100 - pct_done - pct_prog
+        bar = (
+            f"<span style='display:inline-block;width:150px;height:10px;"
+            f"border-radius:3px;overflow:hidden;"
+            f"background:{status_colors['not_started']};vertical-align:middle;'>"
+            f"<span style='display:inline-block;width:{pct_done:.1f}%;"
+            f"height:100%;background:{status_colors['completed']};'></span>"
+            f"<span style='display:inline-block;width:{pct_prog:.1f}%;"
+            f"height:100%;background:{status_colors['in_progress']};'></span>"
+            f"</span>"
+        )
+        role_rows.append(
+            f"<div style='display:flex;align-items:center;gap:10px;"
+            f"font-size:12px;padding:1px 0;'>"
+            f"<span style='min-width:100px;'>{role_labels_local[role]}</span>"
+            f"{bar}"
+            f"<span style='color:#666;font-size:11px;'>"
+            f"{t('drilldown_status_completed')} {c_done} · "
+            f"{t('drilldown_status_in_progress')} {c_prog} · "
+            f"{t('drilldown_status_not_started')} {c_idle}</span>"
+            f"</div>"
+        )
+    if role_rows:
+        st.markdown(
+            f"**{t('drilldown_role_progress_label')}**  \n"
+            f"<span style='color:#888;font-size:11px;'>"
+            f"{t('drilldown_role_progress_caption')}</span>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("\n".join(role_rows), unsafe_allow_html=True)
+
+    # ---- Sub-task breakdown table (inside an expander so it doesn't
+    # dominate the panel when the feature has many sub-tasks) ----------
+    with st.expander(t("drilldown_subtask_expander"), expanded=False):
+        def _fmt_date(v) -> str:
+            d = _to_pydate(v)
+            return d.isoformat() if d else "—"
+
+        def _fmt_period(s, e) -> str:
+            return f"{_fmt_date(s)} → {_fmt_date(e)}"
+
+        def _subtask_delay(r) -> str:
+            pe = _to_pydate(r.get("planned_end"))
+            ae = _to_pydate(r.get("actual_end"))
+            if pe is None:
+                return "—"
+            if ae is not None:
+                d = (ae - pe).days
+            else:
+                d = (date.today() - pe).days
+            return f"{d}" if d > 0 else "0"
+
+        rows = []
+        for _, r in subtasks.iterrows():
+            role = r.get("role") or ""
+            role_text = role_labels_local.get(
+                role, t("drilldown_subtask_role_other"))
+            prog = r.get("actual_progress")
+            # actual_progress is already 0..100 (normalised by
+            # `_to_percent_scale`) — don't multiply again.
+            prog_text = (f"{float(prog):.0f}%"
+                         if pd.notna(prog) else "—")
+            rows.append({
+                t("drilldown_subtask_col_label"): r.get("task_label") or "",
+                t("drilldown_subtask_col_assignee"):
+                    _normalize_assignee(r.get("assignee")) or "—",
+                t("drilldown_subtask_col_role"): role_text,
+                t("drilldown_subtask_col_planned"): _fmt_period(
+                    r.get("planned_start"), r.get("planned_end")),
+                t("drilldown_subtask_col_actual"): _fmt_period(
+                    r.get("actual_start"), r.get("actual_end")),
+                t("drilldown_subtask_col_progress"): prog_text,
+                t("drilldown_subtask_col_delay"): _subtask_delay(r),
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True,
+                     hide_index=True)
+
+
 def render_drilldown_panel(kpi_df: pd.DataFrame,
                            defects_df: Optional[pd.DataFrame],
                            function_id: str) -> None:
@@ -6210,13 +6451,71 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                           lambda v: _f(v, "{:.0f}"))
         wbs_cols[4].metric(t("col_delay_days"), _v, help=_h)
 
-        prog_cols = st.columns(2, gap="small")
+        # Progress + ⏰ To-deadline share a 3-column row so the deadline
+        # readout gets ~2× the width of the 6-col version — avoids
+        # truncating long values like `完了 04/12` or `本日が予定日`.
+        prog_cols = st.columns(3, gap="small")
         prog_cols[0].metric(t("drilldown_planned_progress"),
                             _f(row.get("planned_progress"), "{:.0f}%"),
                             help=t("help_planned_progress"))
         prog_cols[1].metric(t("drilldown_actual_progress"),
                             _f(row.get("actual_progress"), "{:.0f}%"),
                             help=t("help_actual_progress"))
+        # ⏰ To-deadline — keep `st.metric` for in-spec / completed /
+        # unknown cases so sizing & alignment match the sibling metrics
+        # exactly. Only the overdue case swaps to a hand-rolled markdown
+        # block (same sizes as `st.metric`, font-weight 400 so the red
+        # text isn't shouty in bold).
+        _actual_end = _to_pydate(row.get("actual_end"))
+        _planned_end = _to_pydate(row.get("planned_end"))
+        _overdue_days = None
+        if _actual_end is not None:
+            deadline_text = t("drilldown_deadline_completed",
+                              date=_actual_end.strftime("%m/%d"))
+        elif _planned_end is not None:
+            delta = (_planned_end - date.today()).days
+            if delta > 0:
+                deadline_text = t("drilldown_deadline_future", n=delta)
+            elif delta == 0:
+                deadline_text = t("drilldown_deadline_today")
+            else:
+                _overdue_days = -delta
+                deadline_text = t("drilldown_deadline_overdue",
+                                  n=_overdue_days)
+        else:
+            deadline_text = t("drilldown_deadline_unknown")
+        if _overdue_days is not None:
+            # Match st.metric's DOM / sizes: outer padding mirrors the
+            # streamlit-emotion metric container; label → 0.875rem grey,
+            # value → 1.875rem regular-weight (NOT bold) in red.
+            with prog_cols[2]:
+                st.markdown(
+                    f"""
+<div style="display:flex;flex-direction:column;padding:0;">
+  <div style="font-size:0.875rem;color:rgba(49,51,63,0.6);
+              font-weight:400;line-height:1.25;"
+       title="{t('drilldown_help_deadline')}">
+    ⏰ {t('drilldown_to_deadline')}
+  </div>
+  <div style="font-size:1.875rem;color:#f05050;font-weight:400;
+              line-height:1.6;padding-top:0.25rem;">
+    {deadline_text}
+  </div>
+</div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+        else:
+            prog_cols[2].metric("⏰ " + t("drilldown_to_deadline"),
+                                deadline_text,
+                                help=t("drilldown_help_deadline"))
+
+        # Per-feature WBS sub-tasks — powers the assignee list, the
+        # role-progress bars, and the sub-task breakdown table below.
+        # Each is a no-op when the feature has no sub-tasks.
+        wbs_df = st.session_state.dfs.get("wbs")
+        subtasks = _subtasks_for_function(wbs_df, function_id)
+        _render_drilldown_subtask_views(subtasks)
 
         # Tests
         st.markdown(f"#### {t('drilldown_section_tests')}")
@@ -7456,6 +7755,68 @@ def _normalize_assignee(raw) -> str:
     s = s.replace("　", " ")
     s = re.sub(r"\s+", " ", s).strip()
     return s
+
+
+def _subtask_role_for_label(label: str) -> str:
+    """Return the analytics role ('dev' / 'test_spec' / 'test_exec') that
+    matches `label`, or '' when the label doesn't match any role keyword.
+
+    Same matching rule as `_extract_role_assignments` (NFKC normalise →
+    exclude-keywords block the role → include-keywords claim it). Used by
+    the per-feature drill-down to label each WBS sub-task row with its
+    role without re-flattening the whole WBS."""
+    label_n = unicodedata.normalize("NFKC", str(label or ""))
+    for role, cfg in ROLE_KEYWORDS.items():
+        if any(unicodedata.normalize("NFKC", e) in label_n
+               for e in cfg.get("exclude", [])):
+            continue
+        if any(unicodedata.normalize("NFKC", i) in label_n
+               for i in cfg.get("include", [])):
+            return role
+    return ""
+
+
+def _subtask_progress_bucket(row) -> str:
+    """Classify a WBS sub-task as one of 'completed' / 'in_progress' /
+    'not_started', which drives the role-progress mini-bars in the
+    drill-down.
+
+    `actual_progress` is already normalised by `_to_percent_scale` to a
+    0..100 scale (fractional 0..1 values coming out of Excel's percent
+    format are multiplied to match), so the comparison uses `>= 100`
+    rather than `>= 1.0`."""
+    ae = row.get("actual_end")
+    prog = row.get("actual_progress")
+    if pd.notna(ae) or (pd.notna(prog) and float(prog) >= 100.0):
+        return "completed"
+    if pd.notna(prog) and float(prog) > 0:
+        return "in_progress"
+    return "not_started"
+
+
+def _subtasks_for_function(
+    wbs_df: Optional[pd.DataFrame], function_id: str,
+) -> pd.DataFrame:
+    """Return the WBS sub-task rows for a single Function ID, with a
+    derived `role` column. Empty frame when WBS isn't loaded or the ID
+    has no sub-tasks."""
+    cols = ["機能ID", "task_label", "assignee",
+            "planned_start", "planned_end",
+            "actual_start", "actual_end",
+            "planned_progress", "actual_progress",
+            "planned_effort", "actual_effort",
+            "role"]
+    if wbs_df is None or wbs_df.empty or "is_subtask" not in wbs_df.columns:
+        return pd.DataFrame(columns=cols)
+    df = wbs_df[
+        (wbs_df["機能ID"].astype(str) == str(function_id))
+        & (wbs_df["is_subtask"].fillna(False).astype(bool))
+    ].copy()
+    if df.empty:
+        return pd.DataFrame(columns=cols)
+    df["role"] = df["task_label"].map(_subtask_role_for_label)
+    keep = [c for c in cols if c != "role" and c in df.columns]
+    return df[keep + ["role"]].reset_index(drop=True)
 
 
 def _extract_role_assignments(wbs_df: Optional[pd.DataFrame]) -> pd.DataFrame:
@@ -12409,7 +12770,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.75</span>
+    <span class="ver">Ver1.0.80</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
