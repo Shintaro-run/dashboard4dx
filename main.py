@@ -3625,6 +3625,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "'attention' quadrant, bottom-right is 'reliable coverage'."
         ),
         "role_analytics_bubble_color_legend": "Dominant role",
+        # Core explanation — safe for both on-screen and PDF use.
+        "role_analytics_dominant_role_note": (
+            "**Dominant role** = the bubble is coloured by the role this "
+            "assignee has the **most** WBS sub-tasks in. Tie-break order: "
+            "**Dev › Test-spec › Test-exec**. A single colour hides "
+            "multi-role involvement — refer to the role summary above for "
+            "the full per-role counts."
+        ),
+        # Screen-only addendum pointing at the hover tooltip.
+        "role_analytics_dominant_role_hover_hint": (
+            "Hover over a bubble to see its per-role breakdown."
+        ),
         "role_analytics_strip_title": (
             "Problem-class mix per assignee (stacked % of their defects)"
         ),
@@ -4671,6 +4683,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "というように4つのエリアで読み取れます。"
         ),
         "role_analytics_bubble_color_legend": "ドミナントロール",
+        # 画面・PDF 共通の基本説明
+        "role_analytics_dominant_role_note": (
+            "**ドミナントロール** ＝ その担当者の WBS サブタスクを集計し、"
+            "**最も件数が多かったロール 1 つ**でバブルを着色。同点時は "
+            "**開発 ＞ テスト仕様書 ＞ テスト実施** の順で決定します。"
+            "単色なので複数ロール兼務は色から読み取れません — "
+            "**詳細は上の「担当者×ロール サマリ」表**でロール別件数を確認できます。"
+        ),
+        # 画面のみ追記する（PDFでは表示しない）ホバーの案内
+        "role_analytics_dominant_role_hover_hint": (
+            "バブルにカーソルを当てるとロール別件数が表示されます。"
+        ),
         "role_analytics_strip_title": (
             "担当者別 問題分類ミックス（その人の障害内訳を100%で積み上げ）"
         ),
@@ -7633,7 +7657,9 @@ def _chart_assignee_bubble(bubble_df: pd.DataFrame) -> Optional[go.Figure]:
     )
     fig.update_traces(
         textposition="top center",
-        textfont=dict(size=11),
+        textfont=dict(size=13, color="#1f2937",
+                      family="Hiragino Sans, Yu Gothic, sans-serif"),
+        cliponaxis=False,
         marker=dict(line=dict(color="#444", width=0.7), opacity=0.85),
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
@@ -8579,15 +8605,21 @@ def _mpl_chart_assignee_bubble(bubble_df: pd.DataFrame):
         s=marker_sizes, c=colors,
         alpha=0.75, edgecolors="#333", linewidth=0.8,
     )
-    # Label every bubble just above its centre.
+    # Label every bubble just above its centre. White path-effect halo
+    # keeps the name readable even when it overlaps a large coloured
+    # bubble or the grid lines.
+    import matplotlib.patheffects as _pe
     for _, r in df.iterrows():
-        ax.annotate(
+        txt = ax.annotate(
             r["assignee"],
             xy=(r["feature_count"], r["rate_pct"] if pd.notna(r["rate_pct"])
                 else 0),
-            xytext=(0, 10), textcoords="offset points",
-            ha="center", fontsize=9, color="#222",
+            xytext=(0, 11), textcoords="offset points",
+            ha="center", fontsize=11, color="#1f2937", fontweight="bold",
         )
+        txt.set_path_effects([
+            _pe.withStroke(linewidth=2.2, foreground="white"),
+        ])
     # Reference lines
     rates = df["rate_pct"].dropna()
     if len(rates):
@@ -10036,6 +10068,17 @@ def generate_role_analytics_pdf(
             disp_h = min(disp_w * aspect, 17 * cm)
             story.append(Image(
                 io.BytesIO(png), width=disp_w, height=disp_h))
+            story.append(Spacer(1, 4))
+            # Brief explanation of how the "dominant role" colour is
+            # picked so PDF readers aren't left guessing at the legend.
+            # ReportLab's Paragraph parser speaks a tiny HTML subset
+            # but not markdown, so convert **...** → <b>...</b>.
+            _note = re.sub(
+                r"\*\*(.+?)\*\*",
+                r"<b>\1</b>",
+                t("role_analytics_dominant_role_note"),
+            ).replace("›", "＞")
+            story.append(Paragraph(_note, caption_style))
         else:
             story.append(Paragraph(t("ra_pdf_no_data"), caption_style))
 
@@ -10537,6 +10580,10 @@ def _render_role_analytics(kpi_df: pd.DataFrame) -> None:
         fig_b = _chart_assignee_bubble(bubble_df)
         if fig_b is not None:
             st.plotly_chart(fig_b, use_container_width=True)
+            st.caption(
+                t("role_analytics_dominant_role_note")
+                + "  \n" + t("role_analytics_dominant_role_hover_hint")
+            )
 
     # ----- Advanced viz 2/2: 案C 問題分類ストリップ (件数埋め込み) -----
     # Strip now embeds `N件` inside each segment and shows
@@ -11975,7 +12022,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.67</span>
+    <span class="ver">Ver1.0.69</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
