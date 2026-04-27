@@ -18,7 +18,7 @@ A3-landscape PDF report.
 
 | # | Source (EN / 日本語) | Format | Required structure |
 |---|---|---|---|
-| 1 | Function ID master / 機能ID一覧 | xlsx | sheet `機能一覧`, **col F** = Function ID, **col G** = Function name. Scan range = row 2 .. last row where col B is filled. Rows whose F cell is empty (section headers, totals) are skipped. Strike-through cells are kept. |
+| 1 | Function ID master / 機能ID一覧 | xlsx | sheet `機能一覧`, **col F** = Function ID, **col G** = Function name, **col L** = 機能概要 (free-form description, optional — surfaced as the "機能の説明" section in the drilldown panel and the drilldown PDF). Scan range = row 2 .. last row where col B is filled. Rows whose F cell is empty (section headers, totals) are skipped. Strike-through cells are kept. |
 | 2 | WBS / WBS | xlsm | sheet `メイン`, data from row 16. Function ID extracted from cells `機能ID：XXXX` / `機能ID:XXXX` / bare `XXXX` in cols **E–I**. Schedule columns: **N** assignee (担当者 on sub-task rows), **P** planned effort, **Q** planned start, **R** planned end, **S** actual start, **T** actual end, **U** actual effort, **V** actual progress %, **AA** planned progress %. Sub-task rows (marked with ● in col L) carry the role keyword (開発/テスト仕様書作成/テスト実施) that drives the 担当者×ロール analytics. |
 | 3 | Redmine defect list / Redmine不具合一覧 | csv | columns: トラッカー, ステータス, 担当者, 実開始日, 実終了日, 機能ID, 問題分類. Filter applied: tracker = `不具合管理`. Dates parsed as `MM/DD/YYYY`. |
 | 4 | Test counts per spec / 仕様書別テスト集計 | csv | positional columns — A = Function ID, C = 総設定テスト数 (planned total = 実施済 + 未実施), D = 実施済, E = OK, F = NG. |
@@ -157,12 +157,29 @@ saved snapshot history:
 Each section title has a "?" tooltip with definition / source / how-to-
 read, plus a unique cute B&W dinosaur icon.
 
-A **"Generate PDF report"** button at the top of this tab renders every
-chart + the Gantt + a project-wide KPI table to an **A3-landscape** PDF
-in the language currently selected. The 担当者×ロール analytics
-(including both watch-lists and the ドミナントロール explanation) gets
-its own A4-portrait PDF via a separate button. Both PDFs embed a
-CJK-capable font so Japanese names render correctly.
+**PDF exports.** Every PDF surfaced by the dashboard shares the same
+chrome: cover → table of contents → content → final T-Rex signature
+page, with a per-page era-icon footer.
+
+- **Generate PDF report** at the top of the Charts tab renders every
+  chart + the Gantt + a project-wide KPI table to a single
+  **A3-landscape** report. A multiselect lets the reader pick which
+  Function IDs to include; selection is unlimited so a 50+ FID export
+  fits one document.
+- **Per-section 📄 buttons** sit next to each chart heading
+  (進捗・テストカバレッジ・テスト密度・障害発生率・不具合の推移・問題分類内訳).
+  Each emits a focused single-category PDF on **A3 landscape with
+  auto-grown page height** so 50+ horizontal bars stay legible without
+  shrinking. テスト密度 has a richer A4 portrait variant with the
+  threshold callout and below-threshold list.
+- **担当者×ロール analytics** has its own A4-portrait PDF via a button
+  at the section header.
+- **Drilldown panel** (opens from any FID click in the Charts/Alerts
+  tables) has a 📄 button in its header that exports the full per-FID
+  view (機能の説明, schedule, tests, code/design, scores, related
+  defects) as an A4-portrait PDF.
+
+All PDFs embed a CJK-capable font so Japanese names render correctly.
 
 ### 3. Calendar
 

@@ -422,6 +422,10 @@ WBS_SUBTASK_MARK = "●"
 MASTER_SHEET = "機能一覧"
 MASTER_FID_COL = "F"
 MASTER_NAME_COL = "G"
+# Free-form 機能概要 / function description. Real production masters carry
+# this in column L; the drilldown panel surfaces it as a "機能の説明"
+# section. Empty cells are tolerated — the section just hides.
+MASTER_DESC_COL = "L"
 
 CODE_SHEET = "機能ID別サマリ"
 
@@ -1038,6 +1042,7 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
 
     fid_idx = _col_to_idx(MASTER_FID_COL)
     name_idx = _col_to_idx(MASTER_NAME_COL)
+    desc_idx = _col_to_idx(MASTER_DESC_COL)
     b_idx = _col_to_idx("B")
 
     # Buffer rows so we can identify the last B-filled row in a single pass.
@@ -1052,7 +1057,7 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
             last_b_offset = i
 
     if last_b_offset < 0:
-        return pd.DataFrame(columns=["機能ID", "機能名称"])
+        return pd.DataFrame(columns=["機能ID", "機能名称", "機能概要"])
 
     rows = []
     for row in buffered[: last_b_offset + 1]:
@@ -1060,16 +1065,20 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
             continue
         raw_fid = row[fid_idx - 1] if len(row) >= fid_idx else None
         raw_name = row[name_idx - 1] if len(row) >= name_idx else None
+        raw_desc = row[desc_idx - 1] if len(row) >= desc_idx else None
         fid = _normalize_fid(raw_fid)
         if fid is None:
             # F empty (or non-ID-shaped) — skip row, keep going.
             continue
         name = "" if raw_name is None else str(raw_name).strip()
-        rows.append({"機能ID": fid, "機能名称": name})
+        desc = "" if raw_desc is None else str(raw_desc).strip()
+        rows.append({"機能ID": fid, "機能名称": name, "機能概要": desc})
 
-    df = pd.DataFrame(rows, columns=["機能ID", "機能名称"])
+    df = pd.DataFrame(rows, columns=["機能ID", "機能名称", "機能概要"])
     # Drop exact duplicates only — duplicate 機能ID with different names stays.
-    df = df.drop_duplicates(subset=["機能ID", "機能名称"]).reset_index(drop=True)
+    df = df.drop_duplicates(
+        subset=["機能ID", "機能名称", "機能概要"]
+    ).reset_index(drop=True)
     return df
 
 
@@ -2538,7 +2547,7 @@ def integrate(
     onto each name row. Aggregations downstream account for this when needed.
     """
     if master is None or master.empty:
-        return pd.DataFrame(columns=["機能ID", "機能名称"])
+        return pd.DataFrame(columns=["機能ID", "機能名称", "機能概要"])
 
     df = master.copy()
 
@@ -3393,6 +3402,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "drilldown_panel_title": "🦖 Function ID drill-down",
         "drilldown_close": "Close drill-down",
+        "drilldown_section_description":  "Description",
+        "drilldown_no_description": (
+            "No description recorded — fill column L of 機能一覧 in the "
+            "Function master file to populate this section."
+        ),
+        "drilldown_pdf_title":            "Function ID drill-down report",
+        "drilldown_pdf_btn_help": (
+            "Export this drill-down (description, schedule, tests, "
+            "code/design, scores, defects) as a standalone PDF."
+        ),
         "drilldown_section_wbs":     "Schedule (WBS)",
         "drilldown_to_deadline":     "To deadline",
         "drilldown_deadline_future": "{n} days remaining",
@@ -4618,6 +4637,16 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "drilldown_panel_title": "🦖 機能IDドリルダウン",
         "drilldown_close": "ドリルダウンを閉じる",
+        "drilldown_section_description":  "機能の説明",
+        "drilldown_no_description": (
+            "機能概要は未登録です。機能ID一覧シートのL列に説明文を入力すると、"
+            "ここに表示されます。"
+        ),
+        "drilldown_pdf_title":            "機能IDドリルダウン レポート",
+        "drilldown_pdf_btn_help": (
+            "この機能IDのドリルダウン（機能の説明・スケジュール・テスト・"
+            "コード/設計・合成スコア・不具合）を1枚のPDFとして出力します。"
+        ),
         "drilldown_section_wbs":     "スケジュール (WBS)",
         "drilldown_to_deadline":     "終了予定まで",
         "drilldown_deadline_future": "残 {n} 日",
@@ -6565,6 +6594,40 @@ def _render_drilldown_subtask_views(subtasks: pd.DataFrame) -> None:
                      hide_index=True)
 
 
+def _drilldown_description_for(function_id: str) -> str:
+    """Return the 機能概要 string for `function_id`, or "" when none.
+
+    Source of truth is the master DataFrame in session_state.dfs (column
+    L of the 機能ID一覧 sheet). When a Function ID has multiple distinct
+    description entries on file, they are joined with a blank line so
+    every recorded description is visible.
+    """
+    master = st.session_state.get("dfs", {}).get("master")
+    if master is None or master.empty:
+        return ""
+    if "機能概要" not in master.columns:
+        return ""
+    rows = master[master["機能ID"] == function_id]
+    if rows.empty:
+        return ""
+    descs = [
+        s for s in rows["機能概要"].fillna("").astype(str).map(str.strip).tolist()
+        if s
+    ]
+    # De-duplicate while preserving order (a Function ID can legitimately
+    # appear with multiple names but identical description text).
+    seen: set[str] = set()
+    out: list[str] = []
+    for d in descs:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    # Escape HTML so the markdown unsafe-html block doesn't render any
+    # angle brackets / ampersands present in the description as markup.
+    import html
+    return "\n\n".join(html.escape(s) for s in out)
+
+
 def render_drilldown_panel(kpi_df: pd.DataFrame,
                            defects_df: Optional[pd.DataFrame],
                            function_id: str) -> None:
@@ -6583,9 +6646,10 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
     name_label = " / ".join(names) if names else ""
 
     with st.container(border=True):
-        # Header row + close button
-        title_col, close_col = st.columns([10, 1], gap="small",
-                                          vertical_alignment="center")
+        # Header row + PDF + close button
+        title_col, pdf_gen_col, pdf_dl_col, close_col = st.columns(
+            [16, 1, 1, 1], gap="small", vertical_alignment="center",
+        )
         with title_col:
             risk = row.get("risk_score")
             risk_color = ("#f05050" if pd.notna(risk) and risk >= 0.5
@@ -6604,6 +6668,53 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
             )
             if name_label:
                 st.caption(name_label)
+
+        # ---- PDF (generate) / Download / Close --------------------------
+        # Bytes are cached in session_state per (function_id, lang) so the
+        # second click reuses a fresh build instead of regenerating.
+        pdf_sig = (function_id, st.session_state.get("lang", "ja"))
+        pdf_bytes_key = f"drilldown_pdf_bytes::{function_id}"
+        pdf_sig_key = f"drilldown_pdf_sig::{function_id}"
+        have_fresh = bool(
+            st.session_state.get(pdf_bytes_key)
+            and st.session_state.get(pdf_sig_key) == pdf_sig
+        )
+        with pdf_gen_col:
+            if st.button(
+                "", icon=":material/picture_as_pdf:",
+                key=f"drilldown_pdf_gen_{function_id}",
+                help=t("drilldown_pdf_btn_help"),
+                use_container_width=True,
+                disabled=have_fresh,
+            ):
+                try:
+                    with st.spinner(t("pdf_generating")):
+                        pdf_bytes = generate_drilldown_pdf(
+                            kpi_df, function_id, defects_df=defects_df,
+                        )
+                    st.session_state[pdf_bytes_key] = pdf_bytes
+                    st.session_state[pdf_sig_key] = pdf_sig
+                    st.rerun()
+                except Exception as exc:
+                    _get_logger().exception(
+                        f"[drilldown_pdf:{function_id}] build failed: {exc}"
+                    )
+                    st.error(t("pdf_error", err=str(exc)))
+        with pdf_dl_col:
+            if have_fresh:
+                fname = (
+                    f"drilldown_{function_id}_"
+                    f"{date.today().strftime('%Y%m%d')}.pdf"
+                )
+                st.download_button(
+                    label="", icon=":material/download:",
+                    data=st.session_state[pdf_bytes_key],
+                    file_name=fname,
+                    mime="application/pdf",
+                    key=f"drilldown_pdf_dl_{function_id}",
+                    help=t("pdf_btn_download_short"),
+                    use_container_width=True,
+                )
         with close_col:
             if st.button("✕", key="drilldown_close_btn",
                          help=t("drilldown_close"),
@@ -6616,6 +6727,21 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
 
         # ---- Per-source presence strip ----------------------------------
         render_drilldown_presence_strip(function_id)
+
+        # ---- Description (機能概要 from master col L) ------------------
+        # Pull from the master DataFrame (not kpi_df, which may carry
+        # duplicate-name rows) and join distinct entries with a separator
+        # when a Function ID has multiple descriptions on file.
+        desc_text = _drilldown_description_for(function_id)
+        if desc_text:
+            st.markdown(f"#### {t('drilldown_section_description')}")
+            st.markdown(
+                f"<div style='padding:10px 14px;border-left:3px solid "
+                f"#4ec78a;background:rgba(78,199,138,0.06);"
+                f"border-radius:4px;line-height:1.6;white-space:pre-wrap;'>"
+                f"{desc_text}</div>",
+                unsafe_allow_html=True,
+            )
 
         # ---- Metric grid ------------------------------------------------
         def _f(v, fmt="{:.0f}"):
@@ -7664,12 +7790,10 @@ _INLINE_MARGIN_HEATMAP = dict(l=60, r=40, t=20, b=80)
 # collapse hard, so we show the worst N (sorted by the chart's native
 # metric) and annotate the truncation. Management-report audiences care
 # about the tail, not an unreadable all-hands scroll.
-# PDF / matplotlib charts keep a hard cap on per-FID bars — reportlab's
-# page area can't render 400 labels legibly and the build time blows up.
-# The dashboard (Plotly) side runs uncapped: the sidebar's global 機能ID
-# filter lets the user narrow scope when the full set is too large to
-# read comfortably.
-_BAR_CHART_MAX_ROWS = 30
+# Both the on-screen Plotly and the PDF/matplotlib renderers now run
+# essentially uncapped (10k safety net) — per-category PDFs let users
+# export the full set, with auto-height pagination handling tall charts.
+_BAR_CHART_MAX_ROWS = 10_000
 # Big-enough ceiling that no realistic dashboard dataset hits it, while
 # still keeping the browser from locking up on a pathological 10k+ row
 # scroll. If this ever trips, the sidebar filter is the intended escape.
@@ -10342,6 +10466,474 @@ def generate_report_pdf(
     return pdf
 
 
+# Category-PDF builders mapped from a category key. Each entry returns
+# (png_bytes, w_px, h_px) or None when there is nothing to plot.
+# `chart_test_density` is intentionally absent here — it has its own
+# richer A4 builder (`generate_test_density_pdf`) with input-source table,
+# threshold callout, and below-threshold list.
+def _category_chart_specs(
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame],
+) -> dict[str, tuple[str, Callable[[], Optional[tuple[bytes, int, int]]]]]:
+    return {
+        "chart_progress_gap":  ("help_chart_progress_gap",
+                                lambda: _mpl_chart_progress_gap(kpi_df)),
+        "chart_test_coverage": ("help_chart_test_coverage",
+                                lambda: _mpl_chart_test_coverage(kpi_df)),
+        "chart_incident_rate": ("help_chart_incident_rate",
+                                lambda: _mpl_chart_incident_rate(kpi_df)),
+        "chart_bug_trend":     ("help_chart_bug_trend",
+                                lambda: _mpl_chart_bug_trend(defects_df)),
+        "chart_defect_class":  ("help_chart_defect_class",
+                                lambda: _mpl_chart_defect_class(defects_df)),
+    }
+
+
+def generate_category_pdf(
+    kpi_df: pd.DataFrame,
+    category_key: str,
+    defects_df: Optional[pd.DataFrame] = None,
+) -> bytes:
+    """Single-category PDF: cover → TOC → content (title + definition +
+    chart) → final TREX signature page. Same chrome as the multi-chart
+    full report and the standalone test-density / role-analytics PDFs,
+    so every PDF emitted by the app has identical structure.
+
+    Page width is A3 landscape (~42 cm); page height auto-grows to fit
+    the chart at its intrinsic aspect ratio (no shrink) so 50+ bars stay
+    legible. Cover and TOC inherit the same height — they'll have extra
+    whitespace on tall pages but stay structurally consistent.
+
+    `category_key` must be present in `_category_chart_specs(...)`.
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A3, landscape
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+    )
+    from reportlab.platypus.tableofcontents import TableOfContents
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    JP_FONT = "HeiseiKakuGo-W5"
+
+    specs = _category_chart_specs(kpi_df, defects_df)
+    if category_key not in specs:
+        raise ValueError(f"unknown category_key: {category_key}")
+    help_key, builder = specs[category_key]
+
+    # Render the chart up-front so we can size the page to fit it.
+    result = builder()
+
+    base_w, base_h = landscape(A3)
+    margin = 1.5 * cm
+    inner_w = base_w - 2 * margin
+
+    # Header budget for the chart page: section title + definition + body
+    # paragraph + footer chrome. Generous to keep the chart from clipping.
+    header_budget = 7 * cm
+
+    if result is not None:
+        png_bytes, w_px, h_px = result
+        aspect = (h_px / w_px) if w_px else 0.5
+        disp_w = inner_w
+        disp_h = disp_w * aspect
+        page_h = max(base_h, disp_h + header_budget + 2 * margin)
+    else:
+        png_bytes = None
+        disp_w = disp_h = 0
+        page_h = base_h
+
+    page_size = (base_w, page_h)
+
+    styles = getSampleStyleSheet()
+    cover_title_style = ParagraphStyle(
+        "CatCoverTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=28, alignment=1, spaceAfter=20,
+    )
+    cover_meta_style = ParagraphStyle(
+        "CatCoverMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=13, alignment=1, textColor=colors.grey, leading=20,
+    )
+    toc_title_style = ParagraphStyle(
+        "CatTocTitle", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=20, alignment=1, spaceAfter=20,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_style = ParagraphStyle(
+        "CatTocEntry", fontName=JP_FONT, fontSize=12,
+        leftIndent=30, firstLineIndent=-14, spaceBefore=4, leading=20,
+    )
+    h2_style = ParagraphStyle(
+        "CatH2", parent=styles["Heading2"], fontName=JP_FONT,
+        fontSize=14, spaceAfter=8, spaceBefore=4,
+    )
+    h3_style = ParagraphStyle(
+        "CatH3", parent=styles["Heading3"], fontName=JP_FONT,
+        fontSize=11, spaceAfter=6, textColor=colors.HexColor("#3aa872"),
+    )
+    body_style = ParagraphStyle(
+        "CatBody", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=10, leading=14,
+    )
+    caption_style = ParagraphStyle(
+        "CatCaption", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, textColor=colors.grey,
+    )
+
+    buf = io.BytesIO()
+
+    # SimpleDocTemplate subclass that auto-registers a TOC entry every
+    # time a section-heading paragraph (style name "CatH2") is rendered.
+    # Mirrors the _PdfDoc / _TdDoc pattern used by the other PDF builders.
+    class _CatDoc(SimpleDocTemplate):
+        def afterFlowable(self, flowable):  # type: ignore[override]
+            if (isinstance(flowable, Paragraph)
+                    and flowable.style.name == "CatH2"):
+                self.notify(
+                    "TOCEntry",
+                    (0, flowable.getPlainText(), self.page),
+                )
+
+    doc = _CatDoc(
+        buf, pagesize=page_size,
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin,
+    )
+    story: list = []
+
+    # --- Page 1: Cover -----------------------------------------------------
+    cover_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=12)),
+        width=140, height=112,
+    )
+    cover_icon.hAlign = "CENTER"
+    story.append(Spacer(1, 120))
+    story.append(cover_icon)
+    story.append(Spacer(1, 28))
+    story.append(Paragraph(t(category_key), cover_title_style))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        f"{t('pdf_generated_at')}: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        cover_meta_style,
+    ))
+    story.append(PageBreak())
+
+    # --- Page 2: TOC -------------------------------------------------------
+    story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
+    toc = TableOfContents()
+    toc.levelStyles = [toc_entry_style]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # --- Page 3: Content ---------------------------------------------------
+    story.append(Paragraph(t(category_key), h2_style))
+    story.append(Paragraph(t("pdf_chart_definition"), h3_style))
+    story.append(Paragraph(_md_to_pdf(t(help_key)), body_style))
+    story.append(Spacer(1, 8))
+    if png_bytes is None:
+        story.append(Paragraph(t("pdf_no_chart"), caption_style))
+    else:
+        story.append(Image(io.BytesIO(png_bytes),
+                           width=disp_w, height=disp_h))
+
+    # _pdf_apply_chrome appends the final TREX signature page and returns
+    # the per-page footer callback. multiBuild is required so the TOC
+    # picks up real page numbers across two layout passes.
+    _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+    doc.multiBuild(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+
+def generate_drilldown_pdf(
+    kpi_df: pd.DataFrame,
+    function_id: str,
+    defects_df: Optional[pd.DataFrame] = None,
+) -> bytes:
+    """A4-portrait PDF for one Function ID — mirrors what the on-screen
+    drilldown panel shows: 機能の説明, schedule (WBS), tests, code/design,
+    composite scores, related defects.
+    """
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.platypus import (
+        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+        Table, TableStyle,
+    )
+    from reportlab.platypus.tableofcontents import TableOfContents
+
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    JP_FONT = "HeiseiKakuGo-W5"
+
+    page_size = A4
+    page_w, _ = page_size
+    margin = 1.5 * cm
+    inner_w = page_w - 2 * margin
+
+    styles = getSampleStyleSheet()
+    cover_title_style = ParagraphStyle(
+        "DdCoverTitle", parent=styles["Title"], fontName=JP_FONT,
+        fontSize=24, alignment=1, spaceAfter=16,
+    )
+    cover_subtitle_style = ParagraphStyle(
+        "DdCoverSubtitle", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=14, alignment=1, textColor=colors.HexColor("#2d6b4f"),
+        spaceAfter=8, leading=20,
+    )
+    cover_meta_style = ParagraphStyle(
+        "DdCoverMeta", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=12, alignment=1, textColor=colors.grey,
+        spaceAfter=6, leading=18,
+    )
+    toc_title_style = ParagraphStyle(
+        "DdTocTitle", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=18, alignment=1, spaceAfter=18,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_style = ParagraphStyle(
+        "DdTocEntry", fontName=JP_FONT, fontSize=11,
+        leftIndent=24, firstLineIndent=-12, spaceBefore=4, leading=18,
+    )
+    h2_style = ParagraphStyle(
+        "DdH2", parent=styles["Heading2"], fontName=JP_FONT,
+        fontSize=13, spaceAfter=4, spaceBefore=10,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    body_style = ParagraphStyle(
+        "DdBody", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=10, leading=15,
+    )
+    desc_style = ParagraphStyle(
+        "DdDesc", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=10, leading=16,
+        leftIndent=10, rightIndent=10,
+        spaceBefore=2, spaceAfter=2,
+    )
+    caption_style = ParagraphStyle(
+        "DdCaption", parent=styles["Normal"], fontName=JP_FONT,
+        fontSize=9, textColor=colors.grey,
+    )
+
+    rows = kpi_df[kpi_df["機能ID"] == function_id]
+    if rows.empty:
+        raise ValueError(f"function_id not in kpi_df: {function_id}")
+    row = rows.iloc[0]
+    names = sorted(rows["機能名称"].dropna().astype(str).unique())
+    name_label = " / ".join(names) if names else ""
+
+    buf = io.BytesIO()
+
+    # SimpleDocTemplate subclass — auto-registers a TOC entry every time
+    # an H2 paragraph is rendered. Mirrors _PdfDoc / _TdDoc / _CatDoc.
+    class _DdDoc(SimpleDocTemplate):
+        def afterFlowable(self, flowable):  # type: ignore[override]
+            if (isinstance(flowable, Paragraph)
+                    and flowable.style.name == "DdH2"):
+                self.notify(
+                    "TOCEntry",
+                    (0, flowable.getPlainText(), self.page),
+                )
+
+    doc = _DdDoc(
+        buf, pagesize=page_size,
+        leftMargin=margin, rightMargin=margin,
+        topMargin=margin, bottomMargin=margin,
+    )
+    story: list = []
+
+    # --- Page 1: Cover -----------------------------------------------------
+    cover_icon = Image(
+        io.BytesIO(_pixel_icon_png("bronto", scale=10)),
+        width=110, height=88,
+    )
+    cover_icon.hAlign = "CENTER"
+    story.append(Spacer(1, 130))
+    story.append(cover_icon)
+    story.append(Spacer(1, 24))
+    story.append(Paragraph(t("drilldown_pdf_title"), cover_title_style))
+    story.append(Paragraph(f"`{function_id}`", cover_subtitle_style))
+    if name_label:
+        story.append(Paragraph(name_label, cover_meta_style))
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(
+        f"{t('pdf_generated_at')}: "
+        f"{datetime.now().strftime('%Y-%m-%d %H:%M')}",
+        cover_meta_style,
+    ))
+    story.append(PageBreak())
+
+    # --- Page 2: TOC -------------------------------------------------------
+    story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
+    toc = TableOfContents()
+    toc.levelStyles = [toc_entry_style]
+    story.append(toc)
+    story.append(PageBreak())
+
+    # ----- 機能の説明 -----
+    desc_text = _drilldown_description_for(function_id)
+    story.append(Paragraph(t("drilldown_section_description"), h2_style))
+    if desc_text:
+        # Description was HTML-escaped by the helper; for the PDF we want
+        # the raw text instead, so re-decode entities and split paragraphs.
+        import html as _html
+        for para in _html.unescape(desc_text).split("\n\n"):
+            story.append(Paragraph(para.replace("\n", "<br/>"), desc_style))
+            story.append(Spacer(1, 4))
+    else:
+        story.append(Paragraph(t("drilldown_no_description"), caption_style))
+
+    # ----- Helpers -----
+    def _f(v, fmt="{:.0f}"):
+        if v is None or (isinstance(v, float) and pd.isna(v)):
+            return "—"
+        try:
+            return fmt.format(float(v))
+        except (TypeError, ValueError):
+            return str(v)
+
+    def _pct(v):
+        return f"{float(v) * 100:.1f}%" if pd.notna(v) else "—"
+
+    def _date(v):
+        d = _to_pydate(v)
+        return d.isoformat() if d else "—"
+
+    def _kv_table(rows_in: list[list[str]]) -> Table:
+        cells = [
+            [Paragraph(str(c), body_style) for c in r] for r in rows_in
+        ]
+        tbl = Table(cells, colWidths=[inner_w * 0.45, inner_w * 0.55])
+        tbl.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f0f4f0")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("TOPPADDING",    (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ]))
+        return tbl
+
+    # ----- Schedule (WBS) -----
+    story.append(Paragraph(t("drilldown_section_wbs"), h2_style))
+    wbs_kv = [
+        [t("drilldown_planned_period"),
+         f"{_date(row.get('planned_start'))} → {_date(row.get('planned_end'))}"],
+        [t("drilldown_actual_period"),
+         f"{_date(row.get('actual_start'))} → {_date(row.get('actual_end'))}"],
+        [t("drilldown_planned_effort"),
+         _f(row.get("planned_effort"), "{:.1f}")],
+        [t("drilldown_actual_effort"),
+         _f(row.get("actual_effort"), "{:.1f}")],
+        [t("col_delay_days"), _f(row.get("delay_days"), "{:.0f}")],
+        [t("drilldown_planned_progress"),
+         _f(row.get("planned_progress"), "{:.0f}%")],
+        [t("drilldown_actual_progress"),
+         _f(row.get("actual_progress"), "{:.0f}%")],
+    ]
+    story.append(_kv_table(wbs_kv))
+
+    # ----- Tests -----
+    story.append(Paragraph(t("drilldown_section_tests"), h2_style))
+    test_kv = [
+        ["総設定テスト数", _f(row.get("総設定テスト数"))],
+        ["実施済", _f(row.get("実施済"))],
+        ["OK", _f(row.get("OK"))],
+        [t("col_test_ng"), _f(row.get("NG"))],
+        ["未実施", _f(row.get("未実施"))],
+        [t("col_test_run_rate"), _pct(row.get("test_run_rate"))],
+        [t("col_test_pass_rate"), _pct(row.get("test_pass_rate"))],
+    ]
+    story.append(_kv_table(test_kv))
+
+    # ----- Code & Design -----
+    story.append(Paragraph(t("drilldown_section_code"), h2_style))
+    code_kv = [
+        ["LoC", _f(row.get("LoC"), "{:,.0f}")],
+        ["設計書ページ数", _f(row.get("設計書ページ数"))],
+        [t("col_complexity"), _f(row.get("complexity"), "{:.1f}")],
+        [t("col_test_density"), _f(row.get("test_density"), "{:.2f}")],
+        [t("col_bug_density"), _f(row.get("bug_density"), "{:.3f}")],
+    ]
+    story.append(_kv_table(code_kv))
+
+    # ----- Composite scores -----
+    story.append(Paragraph(t("drilldown_section_scores"), h2_style))
+    score_kv = [
+        [t("col_health_score"), _f(row.get("health_score"), "{:.2f}")],
+        [t("col_risk_score"), _f(row.get("risk_score"), "{:.2f}")],
+    ]
+    story.append(_kv_table(score_kv))
+
+    # ----- Defects -----
+    story.append(Paragraph(t("drilldown_section_defects"), h2_style))
+    def_kv = [
+        [t("col_defect_total"), _f(row.get("defect_total"))],
+        [t("col_defect_unresolved"), _f(row.get("defect_unresolved"))],
+        [t("col_defect_rate"), _pct(row.get("defect_rate"))],
+        [t("col_incident_rate"), _pct(row.get("incident_rate"))],
+    ]
+    story.append(_kv_table(def_kv))
+
+    if defects_df is not None and not defects_df.empty:
+        related = defects_df[defects_df["機能ID"] == function_id].copy()
+        if not related.empty:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(
+                f"<b>{t('drilldown_related_defects', n=len(related))}</b>",
+                body_style,
+            ))
+            cols = ["トラッカー", "ステータス", "担当者",
+                    "実開始日", "実終了日", "問題分類"]
+            cols = [c for c in cols if c in related.columns]
+            header = [Paragraph(c, body_style) for c in cols]
+            data = [header]
+            for _, dr in related.iterrows():
+                data.append([
+                    Paragraph("" if pd.isna(dr[c]) else str(dr[c]),
+                              body_style)
+                    for c in cols
+                ])
+            tbl = Table(data, repeatRows=1,
+                        colWidths=[inner_w / len(cols)] * len(cols))
+            tbl.setStyle(TableStyle([
+                ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f4f0")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+                ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ]))
+            story.append(tbl)
+        else:
+            story.append(Paragraph(t("drilldown_no_defects"), caption_style))
+    else:
+        story.append(Paragraph(t("drilldown_no_defects"), caption_style))
+
+    # multiBuild required so the TOC picks up real page numbers across
+    # two layout passes. _pdf_apply_chrome appends the final TREX page.
+    _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
+    doc.multiBuild(story, onFirstPage=_footer_cb, onLaterPages=_footer_cb)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+
 def generate_test_density_pdf(
     kpi_df: pd.DataFrame,
     fid_filter_active: bool = False,
@@ -11468,7 +12060,6 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
         chosen = st.multiselect(
             t("pdf_select_label"),
             options=labels,
-            max_selections=30,
             key="pdf_fid_multiselect",
         )
         st.caption(t("pdf_select_count", n=len(chosen)))
@@ -11487,8 +12078,6 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
     # --- Stage 2: generate (replaces stage 1 in `body`) ---------------------
     selected_fids = [label_to_fid[c] for c in chosen]
     # Filter kpi_df + defects_df so every chart sees only the chosen rows.
-    # The per-chart _BAR_CHART_MAX_ROWS safety cap will not trigger here
-    # because user selection is already ≤ 30.
     kdf = kpi_df[kpi_df["機能ID"].isin(selected_fids)].copy()
     defects_src = st.session_state.dfs.get("defects")
     ddf = (defects_src[defects_src["機能ID"].isin(selected_fids)].copy()
@@ -11576,7 +12165,17 @@ def _render_defect_class_breakdown(defects_df: Optional[pd.DataFrame]
         return
     if "問題分類" not in defects_df.columns:
         return
-    section_header("chart_defect_class", "help_chart_defect_class")
+    # Need a kpi_df handle for the PDF section header's cache signature.
+    # The defect-class chart itself doesn't use kpi_df, but the helper
+    # uses the row count as part of its cache key.
+    kpi_df = get_current_kpi_df()
+    if kpi_df is None:
+        section_header("chart_defect_class", "help_chart_defect_class")
+    else:
+        _render_category_pdf_section_header(
+            "chart_defect_class", "help_chart_defect_class",
+            kpi_df, defects_df=defects_df,
+        )
     selected = _get_global_fids()
     df = defects_df
     if selected:
@@ -11967,6 +12566,93 @@ def _render_overview_compare(kpi_df: pd.DataFrame) -> None:
         st.plotly_chart(fig, use_container_width=True)
 
 
+def _render_category_pdf_section_header(
+    category_key: str,
+    help_key: str,
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame] = None,
+) -> None:
+    """Section header for a category whose chart can be exported as a
+    standalone PDF via `generate_category_pdf`. Layout matches
+    `_render_test_density_section_header`: dino icon + title + 📄 + ⬇.
+
+    Bytes are cached in session_state (keyed by category + FID filter +
+    row count + lang) so repeated clicks reuse a fresh build instead of
+    rebuilding on every rerun.
+    """
+    sig: tuple = (
+        category_key,
+        tuple(_get_global_fids()),
+        int(len(kpi_df)),
+        # Defects fingerprint — bug_trend / defect_class category PDFs
+        # depend on this DataFrame, so a cache built before the user
+        # uploaded defects must rebuild once they appear.
+        int(len(defects_df) if defects_df is not None else 0),
+        st.session_state.get("lang", "ja"),
+    )
+    state_bytes_key = f"cat_pdf_bytes::{category_key}"
+    state_sig_key = f"cat_pdf_sig::{category_key}"
+    have_fresh = bool(
+        st.session_state.get(state_bytes_key)
+        and st.session_state.get(state_sig_key) == sig
+    )
+
+    dino_name = CHART_DINOS.get(category_key, _DEFAULT_SECTION_DINO)
+    icon_uri = dino_data_uri(dino_name)
+    icon_col, title_col, btn_col = st.columns(
+        [1, 19, 5], gap="small", vertical_alignment="center",
+    )
+    with icon_col:
+        st.markdown(
+            f'<img src="{icon_uri}" alt="{dino_name}" '
+            'style="width:36px;height:36px;display:block;margin:0 auto;" />',
+            unsafe_allow_html=True,
+        )
+    anchor = f"sec-{category_key}"
+    with title_col:
+        st.subheader(t(category_key), help=t(help_key), anchor=anchor)
+    _register_toc_entry(anchor, t(category_key))
+
+    with btn_col:
+        gen_slot, dl_slot = st.columns([1, 1], gap="small")
+        with gen_slot:
+            if st.button(
+                "", icon=":material/picture_as_pdf:",
+                key=f"cat_pdf_generate::{category_key}",
+                help=t("pdf_btn_generate_short"),
+                use_container_width=True,
+                disabled=have_fresh,
+            ):
+                try:
+                    with st.spinner(t("pdf_generating")):
+                        pdf_bytes = generate_category_pdf(
+                            kpi_df, category_key, defects_df=defects_df,
+                        )
+                    st.session_state[state_bytes_key] = pdf_bytes
+                    st.session_state[state_sig_key] = sig
+                    st.rerun()
+                except Exception as exc:
+                    _get_logger().exception(
+                        f"[cat_pdf:{category_key}] build failed: {exc}"
+                    )
+                    st.error(t("pdf_error", err=str(exc)))
+        with dl_slot:
+            if have_fresh:
+                fname = (
+                    f"{category_key}_"
+                    f"{date.today().strftime('%Y%m%d')}.pdf"
+                )
+                st.download_button(
+                    label="", icon=":material/download:",
+                    data=st.session_state[state_bytes_key],
+                    file_name=fname,
+                    mime="application/pdf",
+                    key=f"cat_pdf_download::{category_key}",
+                    help=t("pdf_btn_download_short"),
+                    use_container_width=True,
+                )
+
+
 def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
     """Header row for the 機能ID別テスト密度 chart with an inline PDF button.
 
@@ -12113,12 +12799,16 @@ def render_charts_tab() -> None:
 
     fig = _chart_progress_gap(kpi_df)
     if fig is not None:
-        section_header("chart_progress_gap", "help_chart_progress_gap")
+        _render_category_pdf_section_header(
+            "chart_progress_gap", "help_chart_progress_gap", kpi_df,
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_test_coverage(kpi_df)
     if fig is not None:
-        section_header("chart_test_coverage", "help_chart_test_coverage")
+        _render_category_pdf_section_header(
+            "chart_test_coverage", "help_chart_test_coverage", kpi_df,
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_test_density(kpi_df)
@@ -12128,7 +12818,9 @@ def render_charts_tab() -> None:
 
     fig = _chart_incident_rate(kpi_df)
     if fig is not None:
-        section_header("chart_incident_rate", "help_chart_incident_rate")
+        _render_category_pdf_section_header(
+            "chart_incident_rate", "help_chart_incident_rate", kpi_df,
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     col1, col2 = st.columns(2, gap="medium")
@@ -12179,9 +12871,15 @@ def render_charts_tab() -> None:
     defects_df = st.session_state.dfs.get("defects")
     fig = _chart_bug_trend(defects_df)
     if fig is not None:
-        section_header("chart_bug_trend", "help_chart_bug_trend")
+        _render_category_pdf_section_header(
+            "chart_bug_trend", "help_chart_bug_trend",
+            kpi_df, defects_df=defects_df,
+        )
         st.plotly_chart(fig, use_container_width=True)
     elif defects_df is None or defects_df.empty:
+        # Even with no data we still want the header — but skip the PDF
+        # button: a chartless PDF here would just be cover + TOC + "no
+        # data" which is misleading.
         section_header("chart_bug_trend", "help_chart_bug_trend")
         st.caption(t("chart_no_defects"))
 
