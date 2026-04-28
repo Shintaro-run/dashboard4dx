@@ -3191,6 +3191,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
         "chart_progress_actual": "actual",
+        "chart_progress_actual_within": "actual (on track)",
+        "chart_progress_actual_over": "actual (over plan)",
         "chart_progress_over_marker": "⚠ over",
         "chart_test_coverage": "Test coverage (OK / NG / not run)",
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
@@ -4431,6 +4433,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
         "chart_progress_actual": "実績",
+        "chart_progress_actual_within": "実績（計画通り）",
+        "chart_progress_actual_over": "実績（計画超過）",
         "chart_progress_over_marker": "⚠ 超過",
         "chart_test_coverage": "テストカバレッジ (OK / NG / 未実施)",
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
@@ -7833,30 +7837,46 @@ def _chart_progress_gap(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if total > _INLINE_BAR_CHART_MAX_ROWS:
         df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]  # reverse so worst shows at the top of the bar chart
-    over = df["actual_progress"] > df["planned_progress"]
-    actual_colors = np.where(over, "#f5b400", "#4ec78a")
-    actual_lines = np.where(over, "#a06a00", "#4ec78a")
+    over = (df["actual_progress"] > df["planned_progress"]).values
     over_marker = t("chart_progress_over_marker")
     planned_vals = df["planned_progress"].astype(float)
     actual_vals = df["actual_progress"].astype(float)
     planned_text = [f"{v:.0f}%" for v in planned_vals]
-    actual_text = [
-        f"{v:.0f}% {over_marker}" if o else f"{v:.0f}%"
+    # Split the actual bar into two traces — one for rows on/under plan
+    # (green) and one for rows that overshot plan (yellow). Sharing a
+    # single offsetgroup keeps them in the same row slot as if they were
+    # one bar, while giving the legend a distinct entry per colour.
+    within_vals = [(v if not o else 0) for v, o in zip(actual_vals, over)]
+    over_vals = [(v if o else 0) for v, o in zip(actual_vals, over)]
+    within_text = [
+        ("" if o else f"{v:.0f}%") for v, o in zip(actual_vals, over)
+    ]
+    over_text = [
+        (f"{v:.0f}% {over_marker}" if o else "")
         for v, o in zip(actual_vals, over)
     ]
     fig = go.Figure()
     fig.add_bar(name=t("chart_progress_planned"),
                 y=df["display"], x=planned_vals,
                 orientation="h", marker_color="#9aa",
+                offsetgroup="planned",
                 text=planned_text, textposition="outside",
                 textfont=dict(color="#6c6c6c", size=10),
                 cliponaxis=False)
-    fig.add_bar(name=t("chart_progress_actual"),
-                y=df["display"], x=actual_vals,
-                orientation="h",
-                marker_color=actual_colors.tolist(),
-                marker_line=dict(color=actual_lines.tolist(), width=1),
-                text=actual_text, textposition="outside",
+    fig.add_bar(name=t("chart_progress_actual_within"),
+                y=df["display"], x=within_vals,
+                orientation="h", marker_color="#4ec78a",
+                marker_line=dict(color="#4ec78a", width=1),
+                offsetgroup="actual",
+                text=within_text, textposition="outside",
+                textfont=dict(color="#2f7f55", size=10),
+                cliponaxis=False)
+    fig.add_bar(name=t("chart_progress_actual_over"),
+                y=df["display"], x=over_vals,
+                orientation="h", marker_color="#f5b400",
+                marker_line=dict(color="#a06a00", width=1),
+                offsetgroup="actual",
+                text=over_text, textposition="outside",
                 textfont=dict(color="#a06a00", size=10),
                 cliponaxis=False)
     fig.update_layout(barmode="group",
@@ -7877,6 +7897,23 @@ _OVERVIEW_COMPARE_METRICS: list[tuple[str, str, str]] = [
     ("defect_total",   "障害件数（Redmine）", "#f05050"),
 ]
 
+# Stacked-segment specs for panels whose total bar is broken out into
+# meaningful sub-counts. Keys match the column name in
+# _OVERVIEW_COMPARE_METRICS. Each segment is (label, df-column, color).
+# Order matters: the first segment is rendered at the left of the
+# horizontal bar, the last segment at the right (and so its outside-text
+# space is what we use for the total annotation).
+_OVERVIEW_COMPARE_SEGMENTS: dict[str, list[tuple[str, str, str]]] = {
+    "総設定テスト数": [
+        ("実施済", "実施済", "#3aa872"),
+        ("未実施", "未実施", "#cfeede"),
+    ],
+    "defect_total": [
+        ("解決済", "defect_resolved",   "#f7b3b3"),
+        ("未解決", "defect_unresolved", "#d92626"),
+    ],
+}
+
 
 def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     """Small-multiples horizontal bars: 機能ID × {設計書ページ数, LoC,
@@ -7892,8 +7929,18 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if not available:
         return None
     grp_cols = [c for c, _, _ in available]
+    # Pull in any extra columns referenced by stacked-segment panels so
+    # the per-FID groupby below preserves them. Keeps stacked breakdowns
+    # consistent with the panel total (since both come from the same agg).
+    extra_seg_cols: list[str] = []
+    for col_key, segs in _OVERVIEW_COMPARE_SEGMENTS.items():
+        if col_key not in grp_cols:
+            continue
+        for _lbl, sc, _c in segs:
+            if sc in kpi_df.columns and sc not in grp_cols + extra_seg_cols:
+                extra_seg_cols.append(sc)
     has_name = "機能名称" in kpi_df.columns
-    agg_kw: dict[str, tuple] = {c: (c, "mean") for c in grp_cols}
+    agg_kw: dict[str, tuple] = {c: (c, "mean") for c in grp_cols + extra_seg_cols}
     if has_name:
         agg_kw["機能名称"] = ("機能名称", "first")
     df = kpi_df.groupby("機能ID", as_index=False).agg(**agg_kw)
@@ -7901,6 +7948,15 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if df.empty:
         return None
     df = df.sort_values("機能ID", ascending=True)
+    # Derive 解決済 (= defect_total − defect_unresolved) on the fly so the
+    # defect-panel stack adds up to the total without polluting the ETL.
+    if ("defect_total" in df.columns
+            and "defect_unresolved" in df.columns
+            and "defect_resolved" not in df.columns):
+        df["defect_resolved"] = (
+            pd.to_numeric(df["defect_total"], errors="coerce").fillna(0)
+            - pd.to_numeric(df["defect_unresolved"], errors="coerce").fillna(0)
+        ).clip(lower=0)
     # y-axis labels: 機能ID：機能名 (from master-joined kpi_df), clipped
     # to keep long names from pushing the bars off the left margin.
     fids = _feature_display_series(df).map(_clip_label).tolist()
@@ -7913,6 +7969,48 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     for i, (col, lbl, color) in enumerate(available, start=1):
         raw = pd.to_numeric(df[col], errors="coerce").astype(float)
         vals = raw.tolist()
+        # Stacked panels: split the bar into named sub-segments and put
+        # the total at the bar end via an annotation.
+        seg_spec = _OVERVIEW_COMPARE_SEGMENTS.get(col)
+        if seg_spec and all(sc in df.columns for _, sc, _ in seg_spec):
+            for seg_lbl, seg_col, seg_color in seg_spec:
+                seg_raw = pd.to_numeric(df[seg_col],
+                                        errors="coerce").fillna(0)
+                seg_vals = seg_raw.tolist()
+                seg_text = [("" if v == 0 else f"{int(v)}")
+                            for v in seg_vals]
+                fig.add_trace(
+                    go.Bar(
+                        y=fids, x=seg_vals, orientation="h",
+                        marker_color=seg_color, showlegend=False,
+                        text=seg_text, textposition="inside",
+                        insidetextanchor="middle",
+                        textfont=dict(color="#1a1a1a", size=10),
+                        cliponaxis=False,
+                        name=seg_lbl,
+                        hovertemplate=(
+                            f"<b>%{{y}}</b><br>{seg_lbl}: %{{x:,.0f}}"
+                            "<extra></extra>"
+                        ),
+                    ),
+                    row=1, col=i,
+                )
+            # Total at the bar end (replaces the outside-text label the
+            # single-bar branch produces).
+            for fid_label, total_v in zip(fids, vals):
+                if pd.isna(total_v) or total_v == 0:
+                    continue
+                fig.add_annotation(
+                    x=float(total_v), y=fid_label,
+                    text=f"{int(total_v)}",
+                    xref=f"x{i}" if i > 1 else "x",
+                    yref=f"y{i}" if i > 1 else "y",
+                    xanchor="left", yanchor="middle",
+                    xshift=4,
+                    showarrow=False,
+                    font=dict(color="#555555", size=10),
+                )
+            continue
         bar_text = [
             "" if pd.isna(v) else (f"{int(v):,}" if col == "LoC"
                                    else f"{int(v)}")
@@ -7937,6 +8035,7 @@ def _chart_overview_compare(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         height=max(320, 24 * len(fids) + 100),
         margin=dict(l=140, r=20, t=60, b=40),
         bargap=0.2,
+        barmode="stack",
     )
     # Reverse on the (shared) y-axis so the alphabetically-first Function ID
     # sits at the top — matches every other per-FID chart in this file.
@@ -9039,7 +9138,11 @@ def _chart_loc_trend() -> Optional[go.Figure]:
         rows.append({"date": snap_date, "value": int(tot)})
     ts = pd.DataFrame(rows)
     fig = px.line(ts, x="date", y="value", markers=True,
+                  text="value",
                   labels={"value": t("chart_label_loc_total"), "date": ""})
+    fig.update_traces(textposition="top center",
+                      textfont=dict(color="#6c6c6c", size=10),
+                      cliponaxis=False)
     fig.update_layout(height=320, margin=_INLINE_MARGIN_DEFAULT)
     fig.update_xaxes(automargin=True)
     fig.update_yaxes(automargin=True)
@@ -9061,6 +9164,12 @@ def _chart_test_trend() -> Optional[go.Figure]:
     fig = px.line(ts, x="date",
                   y=[t("chart_label_total_tests"), t("chart_label_executed")],
                   markers=True)
+    for tr in fig.data:
+        tr.mode = "lines+markers+text"
+        tr.text = [str(int(v)) if v is not None else "" for v in tr.y]
+        tr.textposition = "top center"
+        tr.textfont = dict(color="#6c6c6c", size=10)
+        tr.cliponaxis = False
     fig.update_layout(height=320, margin=_INLINE_MARGIN_DEFAULT,
                       legend_title_text="")
     fig.update_xaxes(automargin=True)
@@ -9139,7 +9248,11 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
                 customdata=np.array(closed_fid_text).reshape(-1, 1),
                 hovertemplate=hover_closed)
     fig.add_scatter(name=t("chart_label_open_cum"), x=idx,
-                    y=cumulative_open, mode="lines+markers",
+                    y=cumulative_open, mode="lines+markers+text",
+                    text=[str(int(v)) for v in cumulative_open.values],
+                    textposition="top center",
+                    textfont=dict(color="#9a6b00", size=10),
+                    cliponaxis=False,
                     line=dict(color="#f5b400", width=2), yaxis="y2")
     fig.update_layout(barmode="group", height=380,
                       margin=_INLINE_MARGIN_DEFAULT,
@@ -9238,19 +9351,39 @@ def _chart_fid_trend(function_id: str) -> Optional[go.Figure]:
     df = _collect_fid_history(function_id)
     if len(df) < 2:
         return None
+    def _lbl(series):
+        return [("" if pd.isna(v) else str(int(v))) for v in series]
+
     fig = go.Figure()
     if "NG" in df.columns and df["NG"].notna().any():
         fig.add_scatter(name="NG", x=df["date"], y=df["NG"],
-                        mode="lines+markers", line=dict(color="#f05050"))
+                        mode="lines+markers+text", text=_lbl(df["NG"]),
+                        textposition="top center",
+                        textfont=dict(color="#a23030", size=10),
+                        cliponaxis=False,
+                        line=dict(color="#f05050"))
     if "実施済" in df.columns and df["実施済"].notna().any():
         fig.add_scatter(name="実施済", x=df["date"], y=df["実施済"],
-                        mode="lines+markers", line=dict(color="#4ec78a"))
+                        mode="lines+markers+text", text=_lbl(df["実施済"]),
+                        textposition="top center",
+                        textfont=dict(color="#2f7f55", size=10),
+                        cliponaxis=False,
+                        line=dict(color="#4ec78a"))
     if "総設定テスト数" in df.columns and df["総設定テスト数"].notna().any():
         fig.add_scatter(name="総設定テスト数", x=df["date"], y=df["総設定テスト数"],
-                        mode="lines+markers", line=dict(color="#7aaef0"))
+                        mode="lines+markers+text",
+                        text=_lbl(df["総設定テスト数"]),
+                        textposition="top center",
+                        textfont=dict(color="#3a6fa8", size=10),
+                        cliponaxis=False,
+                        line=dict(color="#7aaef0"))
     if "LoC" in df.columns and df["LoC"].notna().any():
         fig.add_scatter(name="LoC", x=df["date"], y=df["LoC"],
-                        mode="lines+markers", yaxis="y2",
+                        mode="lines+markers+text", text=_lbl(df["LoC"]),
+                        textposition="top center",
+                        textfont=dict(color="#9a6b00", size=10),
+                        cliponaxis=False,
+                        yaxis="y2",
                         line=dict(color="#f5b400", dash="dot"))
     # Need at least one trace worth charting
     if not fig.data:
@@ -9438,8 +9571,7 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
     ax.barh(y + h / 2, df["actual_progress"], height=h,
             color=actual_colors.tolist(),
             edgecolor=actual_lines.tolist(),
-            linewidth=0.6,
-            label=t("chart_progress_actual"))
+            linewidth=0.6)
     over_marker = t("chart_progress_over_marker")
     for yi, val, is_over in zip(y, df["actual_progress"].values, over):
         if is_over:
@@ -9447,7 +9579,17 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
                     color="#a06a00", fontsize=8, va="center", ha="left")
     ax.set_yticks(y); ax.set_yticklabels(df["display"])
     ax.set_xlabel("%")
-    ax.legend(loc="lower right", framealpha=0.9)
+    # Three legend entries — colour matches the two possible actual-bar
+    # states so the reader doesn't have to guess what yellow means.
+    from matplotlib.patches import Patch as _Patch
+    legend_handles = [
+        _Patch(facecolor="#9aa0a6", label=t("chart_progress_planned")),
+        _Patch(facecolor="#4ec78a", edgecolor="#4ec78a",
+               label=t("chart_progress_actual_within")),
+        _Patch(facecolor="#f5b400", edgecolor="#a06a00",
+               label=t("chart_progress_actual_over")),
+    ]
+    ax.legend(handles=legend_handles, loc="lower right", framealpha=0.9)
     ax.grid(axis="x", linestyle=":", alpha=0.3)
     if total > _BAR_CHART_MAX_ROWS:
         _mpl_truncated_title(ax, n, total)
@@ -9681,6 +9823,10 @@ def _mpl_chart_loc_trend():
     plt = _mpl_plt()
     fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 4), dpi=_MPL_DPI)
     ax.plot(ts["date"], ts["value"], marker="o", color="#4ec78a", linewidth=2)
+    for xv, yv in zip(ts["date"], ts["value"]):
+        ax.annotate(f"{int(yv)}", xy=(xv, yv),
+                    xytext=(0, 6), textcoords="offset points",
+                    ha="center", fontsize=8, color="#2f7f55")
     ax.set_ylabel(t("chart_label_loc_total"))
     ax.grid(True, linestyle=":", alpha=0.3)
     fig.autofmt_xdate()
@@ -9705,6 +9851,14 @@ def _mpl_chart_test_trend():
             label=t("chart_label_total_tests"), linewidth=2)
     ax.plot(ts["date"], ts["executed"], marker="s", color="#f5b400",
             label=t("chart_label_executed"), linewidth=2)
+    for xv, yv in zip(ts["date"], ts["total"]):
+        ax.annotate(f"{int(yv)}", xy=(xv, yv),
+                    xytext=(0, 6), textcoords="offset points",
+                    ha="center", fontsize=8, color="#2f7f55")
+    for xv, yv in zip(ts["date"], ts["executed"]):
+        ax.annotate(f"{int(yv)}", xy=(xv, yv),
+                    xytext=(0, -10), textcoords="offset points",
+                    ha="center", fontsize=8, color="#9a6b00")
     ax.legend(loc="best")
     ax.grid(True, linestyle=":", alpha=0.3)
     fig.autofmt_xdate()
@@ -9768,6 +9922,10 @@ def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
     ax2 = ax1.twinx()
     ax2.plot(x_num, cumulative_open.values, marker="o", color="#f5b400",
              linewidth=2, label=t("chart_label_open_cum"))
+    for xv, yv in zip(x_num, cumulative_open.values):
+        ax2.annotate(f"{int(yv)}", xy=(xv, yv),
+                     xytext=(0, 6), textcoords="offset points",
+                     ha="center", fontsize=8, color="#9a6b00")
     ax2.set_ylabel("open")
     ax1.xaxis_date()
     l1, lbl1 = ax1.get_legend_handles_labels()
@@ -14020,7 +14178,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.90</span>
+    <span class="ver">Ver1.0.93</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
