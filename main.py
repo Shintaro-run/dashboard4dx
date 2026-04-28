@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.1.11"
+APP_VERSION = "1.1.12"
 
 
 def log_error(category: str, summary: str, *,
@@ -2013,12 +2013,31 @@ def _preflight_master(data: bytes) -> list[StepResult]:
     _step(steps, "step_master_fid", "ok",
           detail=f"{len(fids)} ID rows · {len(set(fids))} unique IDs")
 
-    dups = sum(1 for c in __import__("collections").Counter(fids).values() if c > 1)
-    if dups:
-        _step(steps, "step_master_dups", "warn",
-              detail=f"{dups} Function IDs appear with multiple names")
+    # Surface the duplicate-FID picture as a warn-level checklist entry
+    # (never blocks the upload). With the "last occurrence wins" policy
+    # in load_function_master, the user wants to see at a glance which
+    # IDs were duplicated and how many were dropped, so the message
+    # itemises every offending ID.
+    from collections import Counter as _Counter
+    counter = _Counter(fids)
+    dups_map = {fid: c for fid, c in counter.items() if c > 1}
+    if dups_map:
+        # Keep the inline detail short; the message carries the full list.
+        n_dup_ids = len(dups_map)
+        n_dropped = sum(c - 1 for c in dups_map.values())  # rows discarded
+        # Show up to 8 duplicated IDs inline; collapse the rest with "…+N".
+        sample = sorted(dups_map.items(), key=lambda kv: -kv[1])
+        head = ", ".join(f"{fid}×{c}" for fid, c in sample[:8])
+        tail = (f" …+{len(sample) - 8}" if len(sample) > 8 else "")
+        _step(
+            steps, "step_master_dups", "warn",
+            message=(f"重複機能ID: {head}{tail}"),
+            detail=(f"{n_dup_ids}件の機能IDが重複（{n_dropped}行が後者採用で"
+                    "上書きされ、ユニークな機能IDのみが取り込まれます）"),
+        )
     else:
-        _step(steps, "step_master_dups", "ok")
+        _step(steps, "step_master_dups", "ok",
+              detail="重複なし — すべての機能IDがユニーク")
     return steps
 
 
@@ -3383,7 +3402,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_sheet":    "Find sheet '機能一覧'",
         "step_master_b_col":    "Find last B-column row",
         "step_master_fid":      "Extract Function IDs from F column",
-        "step_master_dups":     "Inspect duplicate Function IDs",
+        "step_master_dups":     "Check for duplicate Function IDs (last wins)",
         "step_wbs_sheet":       "Find sheet 'メイン'",
         "step_wbs_phase_dates": "Parse phase anchors J6 / N6 (年/月/日)",
         "step_wbs_fid":         "Extract Function IDs from cols E–I (row 16+)",
@@ -4658,7 +4677,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_sheet":    "シート '機能一覧' を確認",
         "step_master_b_col":    "B列の最終行を特定",
         "step_master_fid":      "F列から機能IDを抽出",
-        "step_master_dups":     "機能IDの重複を確認",
+        "step_master_dups":     "機能IDの重複を確認（重複時は後者採用）",
         "step_wbs_sheet":       "シート 'メイン' を確認",
         "step_wbs_phase_dates": "フェーズ期間 J6 / N6 を解析（年/月/日）",
         "step_wbs_fid":         "E〜I列から機能IDを抽出（16行目以降）",
