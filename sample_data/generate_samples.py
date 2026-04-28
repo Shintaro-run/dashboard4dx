@@ -27,26 +27,34 @@ OUT_DIR = Path(__file__).resolve().parent
 
 # ----- Function ID master -----------------------------------------------------
 # Real-world format: 1–10 ASCII letters + 1–10 ASCII digits, no separators.
-# A few IDs intentionally appear twice with different names (the spec allows
-# duplicate Function IDs with different Function names).
+# A few IDs intentionally appear more than once. Per the loader policy,
+# 機能ID is the unique key — when an ID is duplicated, the LAST occurrence
+# in the sheet wins (its 機能名称 + 機能概要 supersede the earlier draft).
+# The names below are tagged 旧仕様 / 新仕様 so the dedup behaviour is
+# obvious when you open function_master.xlsx and compare against the
+# loaded kpi_df: only the 新仕様 row should show up downstream.
 FUNCTION_ENTRIES: list[tuple[str, str]] = [
     ("AUTH001",  "User Login"),
     ("AUTH002",  "User Registration"),
     ("AUTH003",  "Password Reset"),
-    ("USER010",  "Profile Edit"),
+    ("USER010",  "Profile Edit (旧仕様 — 上書き対象)"),  # duplicated below
     ("USER020",  "Profile Edit (Admin)"),
-    ("SEARCH01", "Search (Basic)"),
-    ("SEARCH01", "Search (Advanced)"),     # duplicate ID, different name
+    ("SEARCH01", "Search (Basic 旧仕様 — 上書き対象)"),  # duplicated below
+    ("SEARCH01", "Search (Advanced 新仕様 — 採用される)"),
     ("CART001",  "Cart Add"),
     ("CART002",  "Cart Remove"),
     ("ORD001",   "Checkout"),
-    ("PAY001",   "Payment - Credit Card"),
-    ("PAY001",   "Payment - Bank Transfer"),  # duplicate ID, different name
+    ("PAY001",   "Payment - Credit Card (旧仕様 — 上書き対象)"),
+    ("PAY001",   "Payment - Bank Transfer (新仕様 — 採用される)"),
     ("ORD010",   "Order History"),
     ("NOTIFY01", "Notification - Email"),
     ("NOTIFY02", "Notification - Push"),
     ("SYNC001",  "Settings Sync"),
     ("EXP001",   "Data Export"),
+    # 3rd duplicate, deliberately far from the original USER010 row above
+    # so the test exercises the "non-adjacent duplicate" path too. Loader
+    # must keep this row, not the earlier one.
+    ("USER010",  "Profile Edit (新仕様 — 採用される)"),
     ("IMP001",   "Data Import"),
     ("AUDIT01",  "Audit Log"),
     ("ADM001",   "Admin Dashboard"),
@@ -61,7 +69,9 @@ def make_function_master() -> Path:
       - Section-header rows (col B filled, col F empty) interspersed in data
       - A trailing 'Total' row (col B filled, col F empty) past the last entry
       - Strike-through formatting on one row (must NOT be excluded)
-      - Duplicate Function IDs with different names
+      - Duplicate Function IDs (adjacent SEARCH01 / PAY001 + a non-
+        adjacent USER010). The loader's "last occurrence wins" rule
+        means downstream only the 新仕様 row should be visible.
     """
     wb = Workbook()
     ws = wb.active
