@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.1.9"
+APP_VERSION = "1.1.10"
 
 
 def log_error(category: str, summary: str, *,
@@ -14754,8 +14754,16 @@ def render_charts_tab() -> None:
                     f"[xlsx_export] build failed: {exc}"
                 )
                 st.error(t("xlsx_error", err=str(exc)))
+    # Re-evaluate AFTER the click handler — the local `have_xlsx` was
+    # bound before the button click, so a fresh build done in the same
+    # script run would otherwise skip the download column entirely
+    # ("TREX reached GOAL but no download appeared" report).
+    have_xlsx_now = bool(
+        st.session_state.get("report_xlsx_bytes")
+        and st.session_state.get("report_xlsx_sig") == xlsx_sig
+    )
     with xlsx_dl_col:
-        if have_xlsx:
+        if have_xlsx_now:
             fname_xlsx = (
                 f"dashboard4dx_report_"
                 f"{date.today().strftime('%Y%m%d')}.xlsx"
