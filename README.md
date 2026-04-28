@@ -343,11 +343,14 @@ app.
 - **Cute B&W dinosaur icons** — each chart and the calendar gets its own
   pixel-art dinosaur (raptor, stego, trike, para, spino, diplo, anky, ptero,
   bronto, plesio); the page favicon and title are the T-Rex.
-- **🦖 Raptor runner during exports** — every long-running file build (the
-  full Charts-tab PDF, the all-Function-IDs drilldown PDF, and the
-  multi-sheet Excel workbook) is fronted by an inline progress animation:
-  a tiny pixel-art raptor sprints from `START` toward the 🏁 finish flag,
-  jumping over a row of cacti while a green progress bar fills behind it.
+- **🦖 T-Rex runner during exports & file ingestion** — every long-running
+  file build (the full Charts-tab PDF, the all-Function-IDs drilldown PDF,
+  and the multi-sheet Excel workbook) is fronted by an inline progress
+  animation: the title-bar T-Rex sprints from `START` toward the 🏁
+  finish flag, jumping over a row of cacti while a green progress bar
+  fills behind it. The same T-Rex sprite hops across the file-ingestion
+  canvas during upload validation — every "running dino" in the app is
+  the same pixel-art logo, intentionally.
   The runner advances one segment per build step (per chart for PDFs, per
   sheet for Excel) so you can tell the build is alive even when a step
   takes a few seconds, and a short caption underneath names the current

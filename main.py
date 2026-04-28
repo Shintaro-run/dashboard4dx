@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.1.7"
+APP_VERSION = "1.1.9"
 
 
 def log_error(category: str, summary: str, *,
@@ -5849,8 +5849,9 @@ _STEP_STATUS_ICON = {"ok": "✅", "warn": "⚠️", "error": "❌", "pending": "
 def render_dino_runner(steps: list[StepResult], slot: str,
                        nonce: Optional[str] = None) -> None:
     """Embed a Chrome-dino-style canvas animation that runs over every
-    validation step. The sprite (a raptor — T-Rex is reserved for the page
-    chrome) jumps over OK/warning cacti and crashes into the first error
+    validation step. The sprite is the title-bar T-Rex (formerly a raptor;
+    user request — keep every "running dino" the same as the main logo)
+    that jumps over OK/warning cacti and crashes into the first error
     cactus. Triggers once per (slot, nonce, step-signature).
 
     `nonce` lets the caller force a re-run even when the step pattern is
@@ -5874,7 +5875,7 @@ def render_dino_runner(steps: list[StepResult], slot: str,
         for s in steps
     ]
     steps_json = json.dumps(steps_data, ensure_ascii=False)
-    runner_grid = [r for r in DINO_GRIDS["raptor"].strip("\n").split("\n") if r]
+    runner_grid = [r for r in DINO_GRIDS["trex"].strip("\n").split("\n") if r]
     runner_json = json.dumps(runner_grid)
     canvas_id = f"dinoCanvas_{slot}_{abs(hash(sig)) % 10**8}"
 
@@ -10259,6 +10260,147 @@ def _mpl_chart_test_trend():
     return _mpl_save(fig)
 
 
+def _mpl_chart_calendar_current_month(today_d: date):
+    """Month-grid for the CURRENT month — every cell shows the date plus
+    any events and any non-working markers. Weekends and JP holidays are
+    shaded as 非稼働. Replaces the old text-only calendar PDF section so
+    the report stays readable even when the project has hundreds of
+    Function IDs (the per-FID Gantt above already covers the long view).
+    """
+    import calendar as _pycal
+
+    cal_df = None
+    try:
+        cal_df = st.session_state.get("dfs", {}).get("calendar")
+    except Exception:
+        pass
+
+    year, month = today_d.year, today_d.month
+    weeks = _pycal.Calendar(firstweekday=6).monthdayscalendar(year, month)
+    n_weeks = len(weeks)
+
+    # Build per-day buckets for this month's window.
+    events_by_day: dict[date, list[str]] = {}
+    nonwork_by_day: dict[date, list[str]] = {}
+    if cal_df is not None and not cal_df.empty:
+        for _, r in cal_df.iterrows():
+            s = _to_pydate(r.get("start_date"))
+            e = _to_pydate(r.get("end_date")) or s
+            if s is None or e is None:
+                continue
+            kind = r.get("kind")
+            title = str(r.get("title") or "")
+            assignee = str(r.get("assignee") or "")
+            d = s
+            while d <= e:
+                if d.year == year and d.month == month:
+                    if kind == "event":
+                        events_by_day.setdefault(d, []).append(title)
+                    elif kind == "nonwork":
+                        label = (f"{assignee}: {title}"
+                                 if assignee and title
+                                 else (assignee or title))
+                        nonwork_by_day.setdefault(d, []).append(label)
+                d = d + timedelta(days=1)
+
+    holidays = {d: name for d, name in _jp_holidays_for_year(year)
+                if d.month == month}
+
+    plt = _mpl_plt()
+    fig_h = max(5.0, 1.0 + 1.4 * n_weeks)
+    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
+    from matplotlib.patches import Rectangle, Patch
+
+    cell_h = 1.0
+    cell_w = 1.0
+    for wi, week in enumerate(weeks):
+        for di, day in enumerate(week):
+            x = di * cell_w
+            y = (n_weeks - 1 - wi) * cell_h
+            if day == 0:
+                # Padding cell from the previous/next month
+                ax.add_patch(Rectangle((x, y), cell_w, cell_h,
+                                       facecolor="#f7f7f7",
+                                       edgecolor="#dcdcdc", linewidth=0.4))
+                continue
+            d = date(year, month, day)
+            is_weekend = d.weekday() >= 5
+            is_holiday = d in holidays
+            has_nonwork = d in nonwork_by_day
+            face = ("#ffe3d0"
+                    if is_weekend or is_holiday or has_nonwork
+                    else "white")
+            edge, lw = ("#f5b400", 1.8) if d == today_d else ("#cccccc", 0.5)
+            ax.add_patch(Rectangle((x, y), cell_w, cell_h,
+                                   facecolor=face, edgecolor=edge,
+                                   linewidth=lw))
+
+            # Day number — Sunday red, Saturday blue.
+            day_col = ("#c43030" if d.weekday() == 6
+                       else "#3a6fa8" if d.weekday() == 5
+                       else "#222")
+            ax.text(x + 0.06, y + cell_h - 0.08, str(day),
+                    fontsize=11, fontweight="bold",
+                    color=day_col, va="top", ha="left")
+
+            # Holiday name (top-right corner).
+            if is_holiday:
+                ax.text(x + cell_w - 0.06, y + cell_h - 0.08,
+                        holidays[d], fontsize=7, color="#c43030",
+                        va="top", ha="right")
+
+            # Events (show up to 2 lines; overflow rolls into "+N件").
+            evs = events_by_day.get(d, [])
+            for i, ev in enumerate(evs[:2]):
+                txt = ev if len(ev) <= 12 else ev[:11] + "…"
+                ax.text(x + 0.5 * cell_w, y + cell_h - 0.32 - i * 0.18,
+                        f"● {txt}", fontsize=7, color="#1f6fd9",
+                        ha="center", va="top")
+            extra_ev = len(evs) - 2
+            # Non-working markers (collapsed to count to keep the cell legible).
+            nw = nonwork_by_day.get(d, [])
+            if nw:
+                ax.text(x + cell_w - 0.06, y + 0.06,
+                        f"非稼働 {len(nw)}件",
+                        fontsize=7, color="#a55a00",
+                        ha="right", va="bottom")
+            if extra_ev > 0:
+                ax.text(x + 0.06, y + 0.06,
+                        f"イベント+{extra_ev}件",
+                        fontsize=7, color="#666",
+                        ha="left", va="bottom")
+
+    # Day-of-week header row (Sun-first, matching firstweekday=6).
+    dow_labels = ["日", "月", "火", "水", "木", "金", "土"]
+    header_y = n_weeks * cell_h + 0.10
+    for di, label in enumerate(dow_labels):
+        col = ("#c43030" if di == 0
+               else "#3a6fa8" if di == 6
+               else "#444")
+        ax.text(di * cell_w + 0.5, header_y, label,
+                fontsize=12, fontweight="bold", color=col,
+                ha="center", va="bottom")
+
+    ax.set_xlim(0, 7 * cell_w)
+    ax.set_ylim(0, n_weeks * cell_h + 0.6)
+    ax.set_aspect("auto")
+    ax.axis("off")
+    ax.set_title(f"{year}年 {month}月", fontsize=15, pad=22)
+
+    legend_handles = [
+        Patch(facecolor="#ffe3d0", edgecolor="#cccccc",
+              label="非稼働 / 週末 / 祝日"),
+        Patch(facecolor="white", edgecolor="#f5b400", linewidth=1.8,
+              label="今日"),
+    ]
+    ax.legend(handles=legend_handles, loc="lower center",
+              bbox_to_anchor=(0.5, -0.04), ncol=2,
+              fontsize=10, frameon=False)
+
+    fig.tight_layout()
+    return _mpl_save(fig)
+
+
 def _mpl_chart_defect_class(defects_df: Optional[pd.DataFrame]):
     if defects_df is None or defects_df.empty:
         return None
@@ -10268,14 +10410,40 @@ def _mpl_chart_defect_class(defects_df: Optional[pd.DataFrame]):
     if counts.empty:
         return None
     plt = _mpl_plt()
-    fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, 4.2), dpi=_MPL_DPI)
+    # Earlier version used figsize=(_MPL_WIDTH_IN, 4.2) and ax.set_aspect
+    # ("equal") — the equal aspect ratio + 14"-wide canvas blew the pie
+    # up to ~14"×14" while wedge labels piled into each other. New
+    # layout: a tighter square pie on the left, the legend (with counts
+    # + percentages) as a separate column on the right so labels never
+    # overlap regardless of slice count.
+    total = float(counts.sum()) or 1.0
     palette = (_DEFECT_CLASS_PALETTE
                * (1 + len(counts) // len(_DEFECT_CLASS_PALETTE)))[:len(counts)]
-    ax.pie(counts.values, labels=counts.index.tolist(), colors=palette,
-           autopct="%1.1f%%", startangle=90, counterclock=False,
-           wedgeprops=dict(width=0.45))
-    ax.set_aspect("equal")
-    fig.tight_layout()
+
+    fig = plt.figure(figsize=(10, 5.4), dpi=_MPL_DPI)
+    pie_ax = fig.add_axes([0.04, 0.05, 0.45, 0.9])
+    pie_ax.pie(
+        counts.values, colors=palette,
+        autopct="%1.1f%%", startangle=90, counterclock=False,
+        wedgeprops=dict(width=0.45, edgecolor="white", linewidth=1.2),
+        pctdistance=0.78,
+        textprops=dict(fontsize=10, color="#222"),
+    )
+    pie_ax.set_aspect("equal")
+
+    legend_ax = fig.add_axes([0.55, 0.05, 0.43, 0.9])
+    legend_ax.axis("off")
+    handles = [plt.Rectangle((0, 0), 1, 1, facecolor=palette[i],
+                              edgecolor="white", linewidth=1.0)
+               for i in range(len(counts))]
+    labels = [
+        f"{name}  ·  {int(v):,}件 ({(v/total)*100:.1f}%)"
+        for name, v in counts.items()
+    ]
+    legend_ax.legend(handles, labels,
+                     loc="center left", frameon=False, fontsize=10,
+                     handlelength=1.4, borderaxespad=0,
+                     labelspacing=0.7)
     return _mpl_save(fig)
 
 
@@ -10690,17 +10858,18 @@ PDF_TOTAL_STEPS = 11  # cover + 8 charts + gantt + assemble
 
 def _render_pdf_runner_html(step: int, total: int, msg: str,
                             done: bool = False) -> str:
-    """Inner runner content for the st.dialog popup — a velociraptor
-    sprinting START → FINISH along a track, advancing one cactus-jump per
-    completed PDF-build step. The sprite position reflects step/total; a
-    dust-puff keyframe plays on each mount so each update *reads* as the
-    dino dashing forward. Pure HTML/CSS — no JS timer needed — which is
-    important because Streamlit replaces the placeholder element on every
-    update. Dialog chrome (border/shadow/title/✕) is provided by st.dialog.
-    (T-Rex is reserved for the page header / favicon.)"""
+    """Inner runner content for the st.dialog popup — the title-bar
+    T-Rex sprinting START → FINISH along a track, advancing one cactus-
+    jump per completed PDF/Excel build step. Sprite was originally a
+    velociraptor; switched to T-Rex on user request so every "running
+    dino" matches the main logo. The sprite position reflects step/total;
+    a dust-puff keyframe plays on each mount so each update *reads* as
+    the dino dashing forward. Pure HTML/CSS — no JS timer needed — which
+    is important because Streamlit replaces the placeholder element on
+    every update."""
     pct = 100 if done else int(round(step / max(total, 1) * 100))
     color = "#4ec78a" if done else "#eeeeee"
-    runner_uri = dino_data_uri("raptor", color=color)
+    runner_uri = dino_data_uri("trex", color=color)
     cacti = "".join(
         f'<div class="d4dx-pdf-cactus" style="left:{(i/total)*100:.1f}%;"></div>'
         for i in range(1, total)
@@ -10764,7 +10933,7 @@ def _render_pdf_runner_html(step: int, total: int, msg: str,
   <div class="d4dx-pdf-bar"></div>
   <div class="d4dx-pdf-dust"><span></span><span></span><span></span></div>
   <img class="d4dx-pdf-dino {'done' if done else ''}" src="{runner_uri}"
-       alt="raptor" width="36" height="36"/>
+       alt="trex" width="36" height="36"/>
 </div>
 <div class="d4dx-pdf-caption">{sub}</div>
 '''
@@ -10973,14 +11142,24 @@ def generate_report_pdf(
 
     story.append(Paragraph(t("pdf_section_charts"), h2_style))
 
-    # Each section (title + definition + chart) is wrapped in a
-    # KeepInFrame sized to the page's usable height with mode='shrink',
-    # so a section that would otherwise spill a few lines onto the next
-    # page gets scaled down instead. Net result: one section = one page,
-    # with ReportLab handling the size adjustment automatically.
+    # Each section is laid out as:
+    #   [H2 title]                       — bare in story so afterFlowable
+    #                                      fires and the TOC gets the
+    #                                      page number registered.
+    #   [KeepInFrame(def + chart)]       — the rest fits inside one page
+    #                                      via mode='shrink' if the body
+    #                                      would otherwise spill.
+    #   [PageBreak]                      — one section = one page.
+    #
+    # Wrapping the title inside KeepInFrame (the previous design) ate
+    # the afterFlowable callback so TOC entries lost their page numbers
+    # — that regression is what this split fixes.
     page_h = page_size[1]
     section_max_h = page_h - 2 * (1.5 * cm) - 1.0 * cm  # margins + footer
-    max_chart_h = section_max_h - 4 * cm  # reserve room for title + def
+    title_band_h = 1.4 * cm                              # rough H2 height
+    body_max_h = section_max_h - title_band_h
+    # Title-band reserve plus def/help text → cap chart height too.
+    max_chart_h = body_max_h - 3 * cm
 
     def _build_chart_image(png: bytes, w_px: int, h_px: int) -> Image:
         aspect = h_px / w_px if w_px else 0.5
@@ -10991,9 +11170,12 @@ def generate_report_pdf(
             disp_w = disp_h / aspect
         return Image(io.BytesIO(png), width=disp_w, height=disp_h)
 
-    def _wrap_one_page(flowables: list) -> KeepInFrame:
+    def _wrap_body(flowables: list) -> KeepInFrame:
+        """Wrap the def + chart so it never spills to the next page.
+        The H2 title above must stay outside this wrapper so the TOC
+        notification (afterFlowable) actually fires for it."""
         return KeepInFrame(
-            maxWidth=inner_w, maxHeight=section_max_h,
+            maxWidth=inner_w, maxHeight=body_max_h,
             content=flowables, mode="shrink", mergeSpace=True,
         )
 
@@ -11018,53 +11200,52 @@ def generate_report_pdf(
             )
         return res
 
-    n_charts = len(chart_specs)
-    for i, (title_key, help_key, builder) in enumerate(chart_specs, start=1):
-        _progress(t("pdf_step_chart", i=i, n=n_charts, title=t(title_key)))
-        result = _safe_build(builder, title_key)
-        section: list = [
-            Paragraph(t(title_key), h2_style),
+    # `keepWithNext = 1` on the H2 tells ReportLab to keep the title on
+    # the same page as the next flowable (the wrapped body), so a tight
+    # page break doesn't orphan a heading at the bottom of the previous
+    # page. Combined with PageBreak after the body we get one full
+    # title+content section per page.
+    def _emit_section(title_key: str, help_key: str,
+                       result: Optional[tuple[bytes, int, int]]) -> None:
+        title = Paragraph(t(title_key), h2_style)
+        title.keepWithNext = 1
+        story.append(title)               # bare → afterFlowable fires for TOC
+        body: list = [
             Paragraph(t("pdf_chart_definition"), h3_style),
             Paragraph(_md_to_pdf(t(help_key)), body_style),
             Spacer(1, 6),
         ]
         if result is None:
-            section.append(Paragraph(t("pdf_no_chart"), caption_style))
+            body.append(Paragraph(t("pdf_no_chart"), caption_style))
         else:
             png_bytes, w_px, h_px = result
-            section.append(_build_chart_image(png_bytes, w_px, h_px))
-        story.append(_wrap_one_page(section))
+            body.append(_build_chart_image(png_bytes, w_px, h_px))
+        story.append(_wrap_body(body))
         story.append(PageBreak())
+
+    n_charts = len(chart_specs)
+    for i, (title_key, help_key, builder) in enumerate(chart_specs, start=1):
+        _progress(t("pdf_step_chart", i=i, n=n_charts, title=t(title_key)))
+        _emit_section(title_key, help_key,
+                      _safe_build(builder, title_key))
 
     # --- Schedule (Gantt) — its own one-page section ----------------------
     _progress(t("pdf_step_gantt"))
-    gantt_result = _safe_build(
-        lambda: _mpl_chart_gantt(kpi_df, today_d), "gantt_title")
-    gantt_section: list = [
-        Paragraph(t("pdf_section_schedule"), h2_style),
-        Paragraph(t("gantt_title"), h2_style),
-        Paragraph(t("pdf_chart_definition"), h3_style),
-        Paragraph(_md_to_pdf(t("help_gantt_title")), body_style),
-        Spacer(1, 6),
-    ]
-    if gantt_result is None:
-        gantt_section.append(Paragraph(t("pdf_no_chart"), caption_style))
-    else:
-        png_bytes, w_px, h_px = gantt_result
-        gantt_section.append(_build_chart_image(png_bytes, w_px, h_px))
-    story.append(_wrap_one_page(gantt_section))
-    story.append(PageBreak())
+    _emit_section(
+        "gantt_title", "help_gantt_title",
+        _safe_build(lambda: _mpl_chart_gantt(kpi_df, today_d),
+                    "gantt_title"),
+    )
 
-    # --- Calendar — separate one-page section -----------------------------
-    # The FullCalendar visual itself isn't exportable; the page just
-    # explains that the Gantt above plus the calendar's data definition
-    # cover the same underlying schedule rows.
-    cal_section = [
-        Paragraph(t("calendar_title"), h2_style),
-        Paragraph(t("pdf_chart_definition"), h3_style),
-        Paragraph(_md_to_pdf(t("help_calendar_title")), body_style),
-    ]
-    story.append(_wrap_one_page(cal_section))
+    # --- Calendar — current-month grid (events + non-working days) -------
+    # Old version was text-only; replaced with a matplotlib month grid
+    # focused on this month so it stays readable even with hundreds of
+    # Function IDs (the per-FID Gantt above already shows the long view).
+    _emit_section(
+        "calendar_title", "help_calendar_title",
+        _safe_build(lambda: _mpl_chart_calendar_current_month(today_d),
+                    "calendar_title"),
+    )
 
     _progress(t("pdf_step_assemble"))
     _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
