@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.1.10"
+APP_VERSION = "1.1.11"
 
 
 def log_error(category: str, summary: str, *,
@@ -1039,8 +1039,11 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
       - Within that range, rows whose col F is empty (e.g. section breaks) are
         **skipped**, not treated as terminators.
       - Strike-through cells are NOT excluded — the spec is explicit on this.
-      - A Function ID may legitimately appear with multiple distinct names;
-        every unique (Function ID, Function name) pair is kept.
+      - **Function ID is the unique key.** When the same ID appears more than
+        once (even with a different 機能名称 / 機能概要), only the LAST
+        occurrence in the sheet is kept. This avoids the silent
+        double-counting that the previous "keep every (ID, name) pair"
+        rule introduced into project_kpi_summary aggregates.
     """
     wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
     if MASTER_SHEET not in wb.sheetnames:
@@ -1082,9 +1085,12 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
         rows.append({"機能ID": fid, "機能名称": name, "機能概要": desc})
 
     df = pd.DataFrame(rows, columns=["機能ID", "機能名称", "機能概要"])
-    # Drop exact duplicates only — duplicate 機能ID with different names stays.
+    # 機能ID is unique. When the same ID appears multiple times, the LAST
+    # occurrence wins (so a corrected entry further down the sheet
+    # supersedes an earlier draft). Different 機能名称 for the same ID is
+    # treated the same way — single canonical row per ID downstream.
     df = df.drop_duplicates(
-        subset=["機能ID", "機能名称", "機能概要"]
+        subset=["機能ID"], keep="last"
     ).reset_index(drop=True)
     return df
 
@@ -2549,9 +2555,9 @@ def integrate(
 ) -> pd.DataFrame:
     """LEFT JOIN every supplied source onto the master on `機能ID`.
 
-    Per agreed approach (A): the master keeps every (機能ID, 機能名称) pair, so
-    when a Function ID has multiple names the joined sources are duplicated
-    onto each name row. Aggregations downstream account for this when needed.
+    The master is uniquified on 機能ID (last occurrence wins, see
+    load_function_master), so each downstream merge produces one row
+    per ID — no name-based row duplication, no aggregate inflation.
     """
     if master is None or master.empty:
         return pd.DataFrame(columns=["機能ID", "機能名称", "機能概要"])
