@@ -343,6 +343,20 @@ app.
 - **Cute B&W dinosaur icons** — each chart and the calendar gets its own
   pixel-art dinosaur (raptor, stego, trike, para, spino, diplo, anky, ptero,
   bronto, plesio); the page favicon and title are the T-Rex.
+- **🦖 Raptor runner during exports** — every long-running file build (the
+  full Charts-tab PDF, the all-Function-IDs drilldown PDF, and the
+  multi-sheet Excel workbook) is fronted by an inline progress animation:
+  a tiny pixel-art raptor sprints from `START` toward the 🏁 finish flag,
+  jumping over a row of cacti while a green progress bar fills behind it.
+  The runner advances one segment per build step (per chart for PDFs, per
+  sheet for Excel) so you can tell the build is alive even when a step
+  takes a few seconds, and a short caption underneath names the current
+  artefact (e.g. *"シート 'hero' を生成中… (2/15)"*). When the build
+  finishes the raptor cheers at the flag and the bar turns solid green —
+  that's your cue to click the download button that just appeared next to
+  the generate icon. If the build fails, the runner clears and a red
+  error banner takes its place with a traceback expander, so the failure
+  isn't silently eaten by a popover closing on rerun.
 
 ---
 

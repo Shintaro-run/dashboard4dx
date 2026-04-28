@@ -85,6 +85,13 @@ def _get_logger() -> logging.Logger:
     return logger
 
 
+# Single source of truth for the app version string. The header HTML in
+# the title bar reads this at render time, and PDF/Excel cache signatures
+# include it so a code update auto-invalidates any session-cached bytes
+# (otherwise a previously-generated file would keep being downloaded).
+APP_VERSION = "1.1.7"
+
+
 def log_error(category: str, summary: str, *,
               exc: Optional[BaseException] = None,
               context: Optional[dict] = None) -> str:
@@ -3255,7 +3262,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_low":    "low",
         "chart_label_opened": "opened",
         "chart_label_closed": "closed",
-        "chart_label_open_cum": "open (cumulative)",
+        "chart_label_opened_cum": "opened (cumulative)",
+        "chart_label_closed_cum": "closed (cumulative)",
+        "chart_label_open_cum": "unresolved (cumulative)",
+        "chart_label_open_band": (
+            "unresolved (gap = opened cum − closed cum)"
+        ),
         "chart_label_loc_total": "Total LoC",
         "chart_label_total_tests": "Total tests",
         "chart_label_executed": "Executed",
@@ -3410,10 +3422,35 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Function master file to populate this section."
         ),
         "drilldown_pdf_title":            "Function ID drill-down report",
+        "drilldown_pdf_all_title":        "All Function IDs drill-down report",
+        "drilldown_pdf_all_subtitle":     "{n} Function IDs",
         "drilldown_pdf_btn_help": (
             "Export this drill-down (description, schedule, tests, "
             "code/design, scores, defects) as a standalone PDF."
         ),
+        "drilldown_pdf_popover_title":    "Choose what to export",
+        "drilldown_pdf_opt_current":      "Current Function ID ({fid})",
+        "drilldown_pdf_opt_current_help": (
+            "Generate a PDF for the Function ID currently shown in this "
+            "drill-down panel."
+        ),
+        "drilldown_pdf_opt_all":          "All Function IDs ({n})",
+        "drilldown_pdf_opt_all_help": (
+            "Generate one PDF that contains every Function ID — cover, "
+            "table of contents, one drill-down per page, final bookend."
+        ),
+        "drilldown_pdf_all_progress":     "Building {fid} ({i}/{n})…",
+        "drilldown_pdf_all_spinner":      (
+            "Building all-Function-ID PDF ({n} features)… this can take a "
+            "while for large datasets."
+        ),
+        "drilldown_pdf_dl_help_current":  "Download the current-FID PDF",
+        "drilldown_pdf_dl_help_all":      "Download the all-FIDs PDF",
+        "drilldown_pdf_dl_ready_current": "Download PDF ({fid})",
+        "drilldown_pdf_dl_ready_all":     (
+            "Download All-Function-IDs PDF ({n} features)"
+        ),
+        "pdf_done_toast":                 "PDF ready — click Download.",
         "drilldown_section_wbs":     "Schedule (WBS)",
         "drilldown_to_deadline":     "To deadline",
         "drilldown_deadline_future": "{n} days remaining",
@@ -3910,6 +3947,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_btn_generate_short":  "Generate PDF",
         "pdf_btn_download_short":  "Download PDF",
         "pdf_generating":          "Generating PDF…",
+        # Excel export microcopy (Charts tab toolbar)
+        "xlsx_btn_help":      ("Export the Charts-tab data as a multi-"
+                                "sheet Excel workbook."),
+        "xlsx_btn_download":  "Download Excel",
+        "xlsx_generating":    "Building Excel workbook…",
+        "xlsx_step_label":    "Building sheet '{sheet}' ({i}/{n})",
+        "xlsx_done":          "Excel ready — click Download.",
+        "xlsx_error":         "Could not build the workbook: {err}",
         # Role analytics PDF-export labels
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -4067,9 +4112,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_assemble": "Assembling PDF…",
         "pdf_dialog_title":  "🦖 Generating PDF report",
         "pdf_dialog_subtitle": (
-            "Per-feature bar charts render only the selected features."
+            "Scope is taken from the sidebar's Function ID filter."
         ),
         "pdf_dialog_close":  "Close",
+        "pdf_scope_filter":  "sidebar filter · {n} Function IDs",
+        "pdf_scope_all":     "all Function IDs ({n})",
         "chart_truncated_note": "Showing worst {shown} of {total} features",
         "pdf_select_title":   "🦖 Select features for the PDF report",
         "pdf_select_caption": (
@@ -4496,7 +4543,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_low":    "低",
         "chart_label_opened": "発生",
         "chart_label_closed": "解決",
+        "chart_label_opened_cum": "発生累積",
+        "chart_label_closed_cum": "解決累積",
         "chart_label_open_cum": "未解決（累積）",
+        "chart_label_open_band": "未解決（発生累積 − 解決累積）",
         "chart_label_loc_total": "総LoC",
         "chart_label_total_tests": "総設定テスト数",
         "chart_label_executed": "実施済",
@@ -4647,10 +4697,33 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "ここに表示されます。"
         ),
         "drilldown_pdf_title":            "機能IDドリルダウン レポート",
+        "drilldown_pdf_all_title":        "全機能IDドリルダウン レポート",
+        "drilldown_pdf_all_subtitle":     "全 {n} 機能ID",
         "drilldown_pdf_btn_help": (
             "この機能IDのドリルダウン（機能の説明・スケジュール・テスト・"
             "コード/設計・合成スコア・不具合）を1枚のPDFとして出力します。"
         ),
+        "drilldown_pdf_popover_title":    "PDF出力モードを選択",
+        "drilldown_pdf_opt_current":      "この機能ID（{fid}）のドリルダウンをPDF出力",
+        "drilldown_pdf_opt_current_help": (
+            "現在ドリルダウン表示中の機能IDのみをPDFに出力します。"
+        ),
+        "drilldown_pdf_opt_all":          "全機能ID（{n}件）のドリルダウンをPDF出力",
+        "drilldown_pdf_opt_all_help": (
+            "全機能IDを1つのPDFにまとめて出力します。表紙・目次・各機能"
+            "1ページずつ・最終ページを含みます。"
+        ),
+        "drilldown_pdf_all_progress":     "{fid} を生成中… ({i}/{n})",
+        "drilldown_pdf_all_spinner":      (
+            "全機能ID（{n}件）のPDFを生成中…大量データの場合は時間がかかります。"
+        ),
+        "drilldown_pdf_dl_help_current":  "この機能IDのPDFをダウンロード",
+        "drilldown_pdf_dl_help_all":      "全機能IDのPDFをダウンロード",
+        "drilldown_pdf_dl_ready_current": "📥 PDFをダウンロード ({fid})",
+        "drilldown_pdf_dl_ready_all":     (
+            "📥 全機能IDドリルダウンPDFをダウンロード ({n}件)"
+        ),
+        "pdf_done_toast":                 "PDF生成完了 — ダウンロードボタンを押してください。",
         "drilldown_section_wbs":     "スケジュール (WBS)",
         "drilldown_to_deadline":     "終了予定まで",
         "drilldown_deadline_future": "残 {n} 日",
@@ -5117,6 +5190,14 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_btn_generate_short":  "PDFを生成",
         "pdf_btn_download_short":  "PDFをダウンロード",
         "pdf_generating":          "PDF を生成中…",
+        # Excel 出力のマイクロコピー（チャートタブ ツールバー）
+        "xlsx_btn_help":      ("チャートタブの内容をシート別 Excel として"
+                                "出力します。"),
+        "xlsx_btn_download":  "Excel をダウンロード",
+        "xlsx_generating":    "Excel ワークブックを生成中…",
+        "xlsx_step_label":    "シート '{sheet}' を生成中… ({i}/{n})",
+        "xlsx_done":          "Excel 生成完了 — ダウンロードボタンを押してください。",
+        "xlsx_error":         "Excel の生成に失敗しました: {err}",
         # 担当者×ロール分析 PDF出力
         "ra_pdf_btn_generate":       "📄 PDF",
         "ra_pdf_btn_generate_help":  (
@@ -5266,7 +5347,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "pdf_step_gantt":    "スケジュール (Gantt) を描画中…",
         "pdf_step_assemble": "PDF 組版中…",
         "pdf_dialog_title":  "🦖 PDFレポート生成中",
-        "pdf_dialog_subtitle": "選択された機能IDのみがレポートに含まれます",
+        "pdf_dialog_subtitle": "対象はサイドバーの機能IDフィルタに従います",
+        "pdf_scope_filter":   "サイドバー絞込 · 全 {n} 機能ID",
+        "pdf_scope_all":      "全機能ID（{n}件）",
         "pdf_dialog_close":  "閉じる",
         "chart_truncated_note": "ワースト {shown} 件 / 全 {total} 件を表示",
         "pdf_select_title":   "🦖 PDFレポートに含める機能IDを選択",
@@ -6650,9 +6733,12 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
     name_label = " / ".join(names) if names else ""
 
     with st.container(border=True):
-        # Header row + PDF + close button
-        title_col, pdf_gen_col, pdf_dl_col, close_col = st.columns(
-            [16, 1, 1, 1], gap="small", vertical_alignment="center",
+        # Header row: title + PDF popover trigger + close button.
+        # A wide "notification bar" below the header surfaces the freshly-
+        # built download and any generation error PERSISTENTLY (the popover
+        # itself collapses on rerun, taking its inline messages with it).
+        title_col, pdf_col, close_col = st.columns(
+            [16, 3, 1], gap="small", vertical_alignment="center",
         )
         with title_col:
             risk = row.get("risk_score")
@@ -6673,52 +6759,144 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
             if name_label:
                 st.caption(name_label)
 
-        # ---- PDF (generate) / Download / Close --------------------------
-        # Bytes are cached in session_state per (function_id, lang) so the
-        # second click reuses a fresh build instead of regenerating.
-        pdf_sig = (function_id, st.session_state.get("lang", "ja"))
-        pdf_bytes_key = f"drilldown_pdf_bytes::{function_id}"
-        pdf_sig_key = f"drilldown_pdf_sig::{function_id}"
-        have_fresh = bool(
-            st.session_state.get(pdf_bytes_key)
-            and st.session_state.get(pdf_sig_key) == pdf_sig
+        # ---- PDF popover (single FID + all FIDs) / Close ----------------
+        # Each export mode caches its bytes independently in session_state so
+        # the second click reuses a fresh build instead of regenerating, and
+        # the single-FID and all-FIDs caches don't clobber each other.
+        lang = st.session_state.get("lang", "ja")
+        all_fids = (
+            kpi_df[["機能ID"]]
+            .drop_duplicates()["機能ID"]
+            .dropna().astype(str).sort_values().tolist()
         )
-        with pdf_gen_col:
-            if st.button(
-                "", icon=":material/picture_as_pdf:",
-                key=f"drilldown_pdf_gen_{function_id}",
+
+        # APP_VERSION baked into every sig so a code update auto-
+        # invalidates session-cached bytes (otherwise users keep getting
+        # the previously-generated file even after we ship a fix).
+        single_sig = (function_id, lang, APP_VERSION)
+        single_bytes_key = f"drilldown_pdf_bytes::{function_id}"
+        single_sig_key = f"drilldown_pdf_sig::{function_id}"
+        have_single = bool(
+            st.session_state.get(single_bytes_key)
+            and st.session_state.get(single_sig_key) == single_sig
+        )
+
+        all_sig = (tuple(all_fids), lang, APP_VERSION)
+        all_bytes_key = "drilldown_pdf_all_bytes"
+        all_sig_key = "drilldown_pdf_all_sig"
+        have_all = bool(
+            st.session_state.get(all_bytes_key)
+            and st.session_state.get(all_sig_key) == all_sig
+        )
+
+        # Persistent error slots — populated by the click handlers below
+        # and consumed by the notification bar after the popover renders.
+        # Storing in session_state means a popover-close on rerun doesn't
+        # swallow the error.
+        single_err_key = f"drilldown_pdf_err::{function_id}"
+        all_err_key = "drilldown_pdf_err_all"
+
+        with pdf_col:
+            with st.popover(
+                "📄 PDF",
                 help=t("drilldown_pdf_btn_help"),
                 use_container_width=True,
-                disabled=have_fresh,
             ):
-                try:
-                    with st.spinner(t("pdf_generating")):
-                        pdf_bytes = generate_drilldown_pdf(
-                            kpi_df, function_id, defects_df=defects_df,
-                        )
-                    st.session_state[pdf_bytes_key] = pdf_bytes
-                    st.session_state[pdf_sig_key] = pdf_sig
-                    st.rerun()
-                except Exception as exc:
-                    _get_logger().exception(
-                        f"[drilldown_pdf:{function_id}] build failed: {exc}"
-                    )
-                    st.error(t("pdf_error", err=str(exc)))
-        with pdf_dl_col:
-            if have_fresh:
-                fname = (
-                    f"drilldown_{function_id}_"
-                    f"{date.today().strftime('%Y%m%d')}.pdf"
+                st.markdown(
+                    f"**{t('drilldown_pdf_popover_title')}**"
                 )
-                st.download_button(
-                    label="", icon=":material/download:",
-                    data=st.session_state[pdf_bytes_key],
-                    file_name=fname,
-                    mime="application/pdf",
-                    key=f"drilldown_pdf_dl_{function_id}",
-                    help=t("pdf_btn_download_short"),
+
+                # ---- Option 1: current Function ID --------------------
+                if st.button(
+                    t("drilldown_pdf_opt_current", fid=function_id),
+                    icon=":material/picture_as_pdf:",
+                    key=f"drilldown_pdf_gen_{function_id}",
+                    help=t("drilldown_pdf_opt_current_help"),
                     use_container_width=True,
-                )
+                    disabled=have_single,
+                ):
+                    try:
+                        with st.spinner(t("pdf_generating")):
+                            pdf_bytes = generate_drilldown_pdf(
+                                kpi_df, function_id, defects_df=defects_df,
+                            )
+                        st.session_state[single_bytes_key] = pdf_bytes
+                        st.session_state[single_sig_key] = single_sig
+                        st.session_state.pop(single_err_key, None)
+                        st.toast(t("pdf_done_toast"), icon="📄")
+                    except Exception as exc:
+                        _get_logger().exception(
+                            f"[drilldown_pdf:{function_id}] build failed: "
+                            f"{exc}"
+                        )
+                        st.session_state[single_err_key] = {
+                            "msg": str(exc),
+                            "trace": traceback.format_exc(),
+                        }
+
+                st.divider()
+
+                # ---- Option 2: all Function IDs -----------------------
+                if st.button(
+                    t("drilldown_pdf_opt_all", n=len(all_fids)),
+                    icon=":material/library_books:",
+                    key="drilldown_pdf_gen_all",
+                    help=t("drilldown_pdf_opt_all_help"),
+                    use_container_width=True,
+                    disabled=have_all or not all_fids,
+                ):
+                    runner_slot = st.empty()
+                    try:
+                        # Same TREX raptor runner used by the Charts-tab
+                        # PDF dialog — replaces the static st.spinner so
+                        # the user can see per-FID progress.
+                        n_total = len(all_fids)
+                        runner_slot.markdown(
+                            _render_pdf_runner_html(
+                                0, n_total,
+                                t("drilldown_pdf_all_spinner", n=n_total),
+                            ),
+                            unsafe_allow_html=True,
+                        )
+
+                        def _runner_cb(step, total, msg):
+                            runner_slot.markdown(
+                                _render_pdf_runner_html(
+                                    step, total,
+                                    t("drilldown_pdf_all_progress",
+                                      fid=msg, i=step, n=total),
+                                ),
+                                unsafe_allow_html=True,
+                            )
+
+                        pdf_bytes = generate_all_drilldowns_pdf(
+                            kpi_df, defects_df=defects_df,
+                            progress_cb=_runner_cb,
+                        )
+                        runner_slot.markdown(
+                            _render_pdf_runner_html(
+                                n_total, n_total,
+                                t("pdf_done"), done=True,
+                            ),
+                            unsafe_allow_html=True,
+                        )
+                        st.session_state[all_bytes_key] = pdf_bytes
+                        st.session_state[all_sig_key] = all_sig
+                        st.session_state.pop(all_err_key, None)
+                        st.toast(t("pdf_done_toast"), icon="📄")
+                    except Exception as exc:
+                        runner_slot.empty()
+                        _get_logger().exception(
+                            f"[drilldown_pdf_all] build failed: {exc}"
+                        )
+                        # Persist the failure outside the popover so the
+                        # auto-rerun (which closes the popover) can't
+                        # silently eat the message.
+                        st.session_state[all_err_key] = {
+                            "msg": str(exc),
+                            "trace": traceback.format_exc(),
+                        }
+
         with close_col:
             if st.button("✕", key="drilldown_close_btn",
                          help=t("drilldown_close"),
@@ -6728,6 +6906,68 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                 for k in _DRILLDOWN_TABLE_KEYS:
                     st.session_state.pop(k, None)
                 st.rerun()
+
+        # ---- Persistent notification bar (download chips + errors) ------
+        # The popover collapses on every rerun, taking its inline
+        # toast/error/download with it. This bar reads session_state
+        # AFTER the click handlers have stashed their results, so the
+        # outcome stays visible whether the user reopens the popover or
+        # not. Re-evaluate `have_all` here: the click handler may have
+        # set the bytes during the same Python pass, so the value above
+        # is stale.
+        have_single_now = bool(
+            st.session_state.get(single_bytes_key)
+            and st.session_state.get(single_sig_key) == single_sig
+        )
+        have_all_now = bool(
+            st.session_state.get(all_bytes_key)
+            and st.session_state.get(all_sig_key) == all_sig
+        )
+        single_err = st.session_state.get(single_err_key)
+        all_err    = st.session_state.get(all_err_key)
+
+        if have_single_now or have_all_now or single_err or all_err:
+            with st.container(border=False):
+                if have_single_now:
+                    fname = (
+                        f"drilldown_{function_id}_"
+                        f"{date.today().strftime('%Y%m%d')}.pdf"
+                    )
+                    st.download_button(
+                        label=t("drilldown_pdf_dl_ready_current",
+                                fid=function_id),
+                        icon=":material/download:",
+                        data=st.session_state[single_bytes_key],
+                        file_name=fname,
+                        mime="application/pdf",
+                        key=f"drilldown_pdf_dl_bar_{function_id}",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                if have_all_now:
+                    fname_all = (
+                        f"drilldown_all_"
+                        f"{date.today().strftime('%Y%m%d')}.pdf"
+                    )
+                    st.download_button(
+                        label=t("drilldown_pdf_dl_ready_all",
+                                n=len(all_fids)),
+                        icon=":material/library_books:",
+                        data=st.session_state[all_bytes_key],
+                        file_name=fname_all,
+                        mime="application/pdf",
+                        key="drilldown_pdf_dl_bar_all",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                if single_err:
+                    st.error(t("pdf_error", err=single_err["msg"]))
+                    with st.expander(t("log_show_detail"), expanded=True):
+                        st.code(single_err["trace"], language="text")
+                if all_err:
+                    st.error(t("pdf_error", err=all_err["msg"]))
+                    with st.expander(t("log_show_detail"), expanded=True):
+                        st.code(all_err["trace"], language="text")
 
         # ---- Per-source presence strip ----------------------------------
         render_drilldown_presence_strip(function_id)
@@ -9214,7 +9454,12 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
     idx = wk_opened.index.union(wk_closed.index)
     wk_opened = wk_opened.reindex(idx, fill_value=0)
     wk_closed = wk_closed.reindex(idx, fill_value=0)
-    cumulative_open = (wk_opened - wk_closed).cumsum().clip(lower=0)
+    # Cumulative running totals: opened-cum is the total bugs ever opened,
+    # closed-cum the total ever closed. The vertical gap between the two
+    # lines = unresolved at that point in time, which we shade so the
+    # reader can see "未解決" without a separate trace.
+    cumulative_opened = wk_opened.cumsum()
+    cumulative_closed = wk_closed.cumsum()
     opened_fid_text = _bug_trend_fid_breakdown(opened, "実開始日", idx)
     closed_fid_text = _bug_trend_fid_breakdown(closed, "実終了日", idx)
     hover_opened = (
@@ -9247,18 +9492,46 @@ def _chart_bug_trend(defects_df: Optional[pd.DataFrame]) -> Optional[go.Figure]:
                 cliponaxis=False,
                 customdata=np.array(closed_fid_text).reshape(-1, 1),
                 hovertemplate=hover_closed)
-    fig.add_scatter(name=t("chart_label_open_cum"), x=idx,
-                    y=cumulative_open, mode="lines+markers+text",
-                    text=[str(int(v)) for v in cumulative_open.values],
-                    textposition="top center",
-                    textfont=dict(color="#9a6b00", size=10),
-                    cliponaxis=False,
-                    line=dict(color="#f5b400", width=2), yaxis="y2")
+    # ---- Cumulative band (unresolved) -----------------------------------
+    # Plot the lower line (closed-cum) first with no fill, then the upper
+    # line (opened-cum) with `fill="tonexty"` so Plotly paints the gap
+    # between them. The fill trace itself carries the legend entry for
+    # the band so the legend reads opened-cum / closed-cum / 未解決(band).
+    unresolved = (cumulative_opened - cumulative_closed).clip(lower=0)
+    fig.add_scatter(
+        name=t("chart_label_closed_cum"), x=idx, y=cumulative_closed,
+        mode="lines+markers+text",
+        text=[str(int(v)) for v in cumulative_closed.values],
+        textposition="bottom center",
+        textfont=dict(color="#2f7f55", size=10),
+        cliponaxis=False,
+        line=dict(color="#2f9e62", width=2),
+        yaxis="y2",
+    )
+    fig.add_scatter(
+        name=t("chart_label_opened_cum"), x=idx, y=cumulative_opened,
+        mode="lines+markers+text",
+        text=[str(int(v)) for v in cumulative_opened.values],
+        textposition="top center",
+        textfont=dict(color="#a23030", size=10),
+        cliponaxis=False,
+        line=dict(color="#d23a3a", width=2),
+        fill="tonexty", fillcolor="rgba(245,180,0,0.18)",
+        yaxis="y2",
+        customdata=np.array([[int(v)] for v in unresolved.values]),
+        hovertemplate=(
+            "<b>%{x|%Y-%m-%d}</b><br>"
+            f"{t('chart_label_opened_cum')}: %{{y}}<br>"
+            f"{t('chart_label_open_cum')}: %{{customdata[0]}}"
+            "<extra></extra>"
+        ),
+    )
     fig.update_layout(barmode="group", height=380,
                       margin=_INLINE_MARGIN_DEFAULT,
                       yaxis=dict(title="weekly count", automargin=True),
-                      yaxis2=dict(title="open", overlaying="y", side="right",
-                                  automargin=True),
+                      yaxis2=dict(title="cumulative", overlaying="y",
+                                  side="right", automargin=True,
+                                  rangemode="tozero"),
                       legend_title_text="")
     fig.update_xaxes(automargin=True)
     return fig
@@ -9396,6 +9669,126 @@ def _chart_fid_trend(function_id: str) -> Optional[go.Figure]:
         legend_title_text="",
     )
     fig.update_xaxes(automargin=True)
+    return fig
+
+
+def _mpl_role_progress_figure(subtasks: pd.DataFrame):
+    """Matplotlib version of the on-screen role-progress mini-bars: one
+    horizontal stacked bar per role (dev / test_spec / test_exec) showing
+    completed / in_progress / not_started sub-task counts. Returns None
+    when no role has any sub-tasks."""
+    if subtasks is None or subtasks.empty:
+        return None
+    status_col = subtasks.apply(_subtask_progress_bucket, axis=1)
+    role_labels = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
+    rows = []
+    for role in ROLE_KEYWORDS:
+        sub_status = status_col[subtasks["role"] == role]
+        if sub_status.empty:
+            continue
+        cnt = sub_status.value_counts()
+        rows.append({
+            "label": role_labels.get(role, role),
+            "done":  int(cnt.get("completed", 0)),
+            "prog":  int(cnt.get("in_progress", 0)),
+            "idle":  int(cnt.get("not_started", 0)),
+        })
+    if not rows:
+        return None
+    plt = _mpl_plt()
+    n = len(rows)
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, max(1.6, 0.7 * n + 1.0)), dpi=_MPL_DPI,
+    )
+    y = np.arange(n)
+    done = np.array([r["done"] for r in rows])
+    prog = np.array([r["prog"] for r in rows])
+    idle = np.array([r["idle"] for r in rows])
+    totals = done + prog + idle
+
+    ax.barh(y, done, color="#4ec78a",
+            label=t("drilldown_status_completed"))
+    ax.barh(y, prog, left=done, color="#f5b400",
+            label=t("drilldown_status_in_progress"))
+    ax.barh(y, idle, left=done + prog, color="#c0c0c0",
+            label=t("drilldown_status_not_started"))
+
+    for i, r in enumerate(rows):
+        cursor = 0
+        for cnt, color in (
+            (r["done"], "#0a3d24"),
+            (r["prog"], "#5a3a00"),
+            (r["idle"], "#404040"),
+        ):
+            if cnt > 0:
+                ax.text(cursor + cnt / 2, i, str(cnt),
+                        ha="center", va="center", fontsize=10, color=color)
+                cursor += cnt
+        ax.text(totals[i] + max(totals.max() * 0.01, 0.2), i,
+                f"  計 {totals[i]}",
+                ha="left", va="center", fontsize=9, color="#666")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels([r["label"] for r in rows])
+    ax.invert_yaxis()
+    ax.set_xlim(0, max(int(totals.max() * 1.18), 1))
+    ax.tick_params(axis="x", labelsize=8)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.18),
+              ncol=3, fontsize=9, frameon=False)
+    fig.tight_layout()
+    return fig
+
+
+def _mpl_fid_trend_figure(history_df: pd.DataFrame):
+    """Matplotlib reproduction of `_chart_fid_trend` for PDF embedding:
+    NG / 実施済 / 総設定テスト数 on the left axis (counts) and LoC dotted
+    on the right axis. Returns None when fewer than two snapshots exist."""
+    if history_df is None or len(history_df) < 2:
+        return None
+    plt = _mpl_plt()
+    fig, ax = plt.subplots(
+        figsize=(_MPL_WIDTH_IN, 4.0), dpi=_MPL_DPI,
+    )
+    x = pd.to_datetime(history_df["date"])
+    handles: list = []
+    for col, color, label in (
+        ("NG",         "#f05050", "NG"),
+        ("実施済",     "#4ec78a", "実施済"),
+        ("総設定テスト数", "#7aaef0", "総設定テスト数"),
+    ):
+        if col in history_df.columns and history_df[col].notna().any():
+            (h,) = ax.plot(x, history_df[col], "o-", color=color,
+                           label=label, linewidth=1.4, markersize=4)
+            handles.append(h)
+    ax.set_ylabel("tests (count)")
+    ax.tick_params(axis="x", labelsize=8)
+    ax.tick_params(axis="y", labelsize=8)
+    for spine in ("top",):
+        ax.spines[spine].set_visible(False)
+
+    if "LoC" in history_df.columns and history_df["LoC"].notna().any():
+        ax2 = ax.twinx()
+        (h,) = ax2.plot(x, history_df["LoC"], "o:", color="#f5b400",
+                        label="LoC", linewidth=1.4, markersize=4)
+        ax2.set_ylabel("LoC")
+        ax2.tick_params(axis="y", labelsize=8)
+        for spine in ("top",):
+            ax2.spines[spine].set_visible(False)
+        handles.append(h)
+
+    if not handles:
+        plt.close(fig)
+        return None
+
+    ax.legend(handles=handles, loc="upper left", fontsize=9, frameon=False)
+    fig.autofmt_xdate()
+    fig.tight_layout()
     return fig
 
 
@@ -9906,7 +10299,9 @@ def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
     idx = pd.DatetimeIndex(wk_opened.index.union(wk_closed.index))
     wk_opened = wk_opened.reindex(idx, fill_value=0)
     wk_closed = wk_closed.reindex(idx, fill_value=0)
-    cumulative_open = (wk_opened - wk_closed).cumsum().clip(lower=0)
+    # Cumulative running totals + the band between them = 未解決.
+    cumulative_opened = wk_opened.cumsum()
+    cumulative_closed = wk_closed.cumsum()
     plt = _mpl_plt()
     fig, ax1 = plt.subplots(figsize=(_MPL_WIDTH_IN, 4.5), dpi=_MPL_DPI)
     # Bars as paired (opened / closed) per week — date2num accepts a
@@ -9920,13 +10315,27 @@ def _mpl_chart_bug_trend(defects_df: Optional[pd.DataFrame]):
             label=t("chart_label_closed"))
     ax1.set_ylabel("weekly count")
     ax2 = ax1.twinx()
-    ax2.plot(x_num, cumulative_open.values, marker="o", color="#f5b400",
-             linewidth=2, label=t("chart_label_open_cum"))
-    for xv, yv in zip(x_num, cumulative_open.values):
+    # Shade the gap (発生累積 − 解決累積 = 未解決) so the legend's "未解決"
+    # band reads as the visible amber area between the two lines.
+    ax2.fill_between(
+        x_num, cumulative_closed.values, cumulative_opened.values,
+        color="#f5b400", alpha=0.18,
+        label=t("chart_label_open_band"),
+    )
+    ax2.plot(x_num, cumulative_opened.values, marker="o", color="#d23a3a",
+             linewidth=2, label=t("chart_label_opened_cum"))
+    ax2.plot(x_num, cumulative_closed.values, marker="o", color="#2f9e62",
+             linewidth=2, label=t("chart_label_closed_cum"))
+    for xv, yv in zip(x_num, cumulative_opened.values):
         ax2.annotate(f"{int(yv)}", xy=(xv, yv),
                      xytext=(0, 6), textcoords="offset points",
-                     ha="center", fontsize=8, color="#9a6b00")
-    ax2.set_ylabel("open")
+                     ha="center", fontsize=8, color="#a23030")
+    for xv, yv in zip(x_num, cumulative_closed.values):
+        ax2.annotate(f"{int(yv)}", xy=(xv, yv),
+                     xytext=(0, -10), textcoords="offset points",
+                     ha="center", fontsize=8, color="#2f7f55")
+    ax2.set_ylabel("cumulative")
+    ax2.set_ylim(bottom=0)
     ax1.xaxis_date()
     l1, lbl1 = ax1.get_legend_handles_labels()
     l2, lbl2 = ax2.get_legend_handles_labels()
@@ -10397,8 +10806,8 @@ def generate_report_pdf(
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.platypus import (
-        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table,
-        TableStyle,
+        Image, KeepInFrame, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+        Table, TableStyle,
     )
     from reportlab.platypus.tableofcontents import TableOfContents
     logger.info(
@@ -10564,57 +10973,98 @@ def generate_report_pdf(
 
     story.append(Paragraph(t("pdf_section_charts"), h2_style))
 
-    max_chart_h = 22 * cm  # leaves room for section title + definition above
+    # Each section (title + definition + chart) is wrapped in a
+    # KeepInFrame sized to the page's usable height with mode='shrink',
+    # so a section that would otherwise spill a few lines onto the next
+    # page gets scaled down instead. Net result: one section = one page,
+    # with ReportLab handling the size adjustment automatically.
+    page_h = page_size[1]
+    section_max_h = page_h - 2 * (1.5 * cm) - 1.0 * cm  # margins + footer
+    max_chart_h = section_max_h - 4 * cm  # reserve room for title + def
 
-    def embed_chart(png: bytes, w_px: int, h_px: int, label: str = "") -> None:
-        t0 = time.time()
+    def _build_chart_image(png: bytes, w_px: int, h_px: int) -> Image:
         aspect = h_px / w_px if w_px else 0.5
         disp_w = inner_w
         disp_h = disp_w * aspect
         if disp_h > max_chart_h:
             disp_h = max_chart_h
             disp_w = disp_h / aspect
-        story.append(Image(io.BytesIO(png), width=disp_w, height=disp_h))
-        logger.info(
-            f"[pdf_export] chart embedded: {label or '?'} — "
-            f"intrinsic={w_px}x{h_px}px size={len(png)//1024}KB "
-            f"elapsed={time.time()-t0:.2f}s"
+        return Image(io.BytesIO(png), width=disp_w, height=disp_h)
+
+    def _wrap_one_page(flowables: list) -> KeepInFrame:
+        return KeepInFrame(
+            maxWidth=inner_w, maxHeight=section_max_h,
+            content=flowables, mode="shrink", mergeSpace=True,
         )
+
+    def _safe_build(builder, label: str):
+        """Run a chart builder and swallow exceptions so one bad chart
+        doesn't sink the whole report. Returns the (png, w, h) tuple or
+        None; logs the traceback so the underlying bug can be tracked."""
+        t0 = time.time()
+        try:
+            res = builder()
+        except Exception as exc:
+            logger.exception(
+                f"[pdf_export] chart builder failed: {label}: {exc}"
+            )
+            return None
+        if res is not None:
+            png_bytes, w_px, h_px = res
+            logger.info(
+                f"[pdf_export] chart built: {label} — "
+                f"intrinsic={w_px}x{h_px}px size={len(png_bytes)//1024}KB "
+                f"elapsed={time.time()-t0:.2f}s"
+            )
+        return res
 
     n_charts = len(chart_specs)
     for i, (title_key, help_key, builder) in enumerate(chart_specs, start=1):
         _progress(t("pdf_step_chart", i=i, n=n_charts, title=t(title_key)))
-        result = builder()
-        story.append(Paragraph(t(title_key), h2_style))
-        story.append(Paragraph(t("pdf_chart_definition"), h3_style))
-        story.append(Paragraph(_md_to_pdf(t(help_key)), body_style))
-        story.append(Spacer(1, 6))
+        result = _safe_build(builder, title_key)
+        section: list = [
+            Paragraph(t(title_key), h2_style),
+            Paragraph(t("pdf_chart_definition"), h3_style),
+            Paragraph(_md_to_pdf(t(help_key)), body_style),
+            Spacer(1, 6),
+        ]
         if result is None:
-            story.append(Paragraph(t("pdf_no_chart"), caption_style))
+            section.append(Paragraph(t("pdf_no_chart"), caption_style))
         else:
             png_bytes, w_px, h_px = result
-            embed_chart(png_bytes, w_px, h_px, label=title_key)
+            section.append(_build_chart_image(png_bytes, w_px, h_px))
+        story.append(_wrap_one_page(section))
         story.append(PageBreak())
 
-    # --- Schedule (Gantt) ---------------------------------------------------
+    # --- Schedule (Gantt) — its own one-page section ----------------------
     _progress(t("pdf_step_gantt"))
-    story.append(Paragraph(t("pdf_section_schedule"), h2_style))
-    story.append(Paragraph(t("gantt_title"), h2_style))
-    story.append(Paragraph(t("pdf_chart_definition"), h3_style))
-    story.append(Paragraph(_md_to_pdf(t("help_gantt_title")), body_style))
-    story.append(Spacer(1, 6))
-    result = _mpl_chart_gantt(kpi_df, today_d)
-    if result is None:
-        story.append(Paragraph(t("pdf_no_chart"), caption_style))
+    gantt_result = _safe_build(
+        lambda: _mpl_chart_gantt(kpi_df, today_d), "gantt_title")
+    gantt_section: list = [
+        Paragraph(t("pdf_section_schedule"), h2_style),
+        Paragraph(t("gantt_title"), h2_style),
+        Paragraph(t("pdf_chart_definition"), h3_style),
+        Paragraph(_md_to_pdf(t("help_gantt_title")), body_style),
+        Spacer(1, 6),
+    ]
+    if gantt_result is None:
+        gantt_section.append(Paragraph(t("pdf_no_chart"), caption_style))
     else:
-        png_bytes, w_px, h_px = result
-        embed_chart(png_bytes, w_px, h_px, label="gantt_title")
-    # Calendar visual itself is FullCalendar (not exportable); explain that the
-    # Gantt above + the calendar's data definition cover the same source data.
-    story.append(Spacer(1, 10))
-    story.append(Paragraph(t("calendar_title"), h2_style))
-    story.append(Paragraph(t("pdf_chart_definition"), h3_style))
-    story.append(Paragraph(_md_to_pdf(t("help_calendar_title")), body_style))
+        png_bytes, w_px, h_px = gantt_result
+        gantt_section.append(_build_chart_image(png_bytes, w_px, h_px))
+    story.append(_wrap_one_page(gantt_section))
+    story.append(PageBreak())
+
+    # --- Calendar — separate one-page section -----------------------------
+    # The FullCalendar visual itself isn't exportable; the page just
+    # explains that the Gantt above plus the calendar's data definition
+    # cover the same underlying schedule rows.
+    cal_section = [
+        Paragraph(t("calendar_title"), h2_style),
+        Paragraph(t("pdf_chart_definition"), h3_style),
+        Paragraph(_md_to_pdf(t("help_calendar_title")), body_style),
+    ]
+    story.append(_wrap_one_page(cal_section))
 
     _progress(t("pdf_step_assemble"))
     _footer_cb = _pdf_apply_chrome(story, styles, JP_FONT)
@@ -10809,34 +11259,57 @@ def generate_category_pdf(
     return pdf
 
 
-def generate_drilldown_pdf(
+def _build_drilldown_pdf(
     kpi_df: pd.DataFrame,
-    function_id: str,
+    function_ids: list[str],
     defects_df: Optional[pd.DataFrame] = None,
+    *,
+    multi_mode: bool = False,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+    history_by_fid: Optional[dict[str, pd.DataFrame]] = None,
 ) -> bytes:
-    """A4-portrait PDF for one Function ID — mirrors what the on-screen
-    drilldown panel shows: 機能の説明, schedule (WBS), tests, code/design,
-    composite scores, related defects.
+    """A4-portrait drilldown PDF builder used by both the single-FID and
+    all-FIDs export paths.
+
+    ``multi_mode=False`` (single FID): cover shows the FID + name; the TOC
+    lists each H2 section (機能の説明, WBS, Tests, Code, Scores, Defects).
+
+    ``multi_mode=True`` (all FIDs): cover shows the count; each FID gets an
+    H1 anchor (level-0 TOC entry, "<FID> · <name>") followed by its H2
+    sections (level-1 TOC entries) and a PageBreak between FIDs.
     """
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import A3, A4, landscape as _landscape
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import cm
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.platypus import (
-        Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
+        Image, KeepInFrame, PageBreak, Paragraph, SimpleDocTemplate, Spacer,
         Table, TableStyle,
     )
     from reportlab.platypus.tableofcontents import TableOfContents
 
+    if not function_ids:
+        raise ValueError("function_ids is empty")
+
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     JP_FONT = "HeiseiKakuGo-W5"
 
-    page_size = A4
-    page_w, _ = page_size
+    # Multi-FID mode: A3 landscape gives every FID a wide page so the
+    # role-progress + trend figures don't get squeezed, plus pairs well
+    # with KeepInFrame(mode='shrink') below to enforce 1-page-per-FID.
+    # Single-FID mode keeps A4 portrait — that's the legacy layout and
+    # there's no wraparound benefit when the report is only one feature.
+    if multi_mode:
+        page_size = _landscape(A3)
+    else:
+        page_size = A4
+    page_w, page_h = page_size
     margin = 1.5 * cm
     inner_w = page_w - 2 * margin
+    # Usable per-FID area (multi mode), minus a small footer band.
+    section_max_h = page_h - 2 * margin - 1.0 * cm
 
     styles = getSampleStyleSheet()
     cover_title_style = ParagraphStyle(
@@ -10858,9 +11331,19 @@ def generate_drilldown_pdf(
         fontSize=18, alignment=1, spaceAfter=18,
         textColor=colors.HexColor("#2d6b4f"),
     )
-    toc_entry_style = ParagraphStyle(
-        "DdTocEntry", fontName=JP_FONT, fontSize=11,
-        leftIndent=24, firstLineIndent=-12, spaceBefore=4, leading=18,
+    toc_entry_l0_style = ParagraphStyle(
+        "DdTocEntryL0", fontName=JP_FONT, fontSize=11,
+        leftIndent=24, firstLineIndent=-12, spaceBefore=6, leading=18,
+        textColor=colors.HexColor("#2d6b4f"),
+    )
+    toc_entry_l1_style = ParagraphStyle(
+        "DdTocEntryL1", fontName=JP_FONT, fontSize=10,
+        leftIndent=44, firstLineIndent=-12, spaceBefore=2, leading=15,
+    )
+    h1_style = ParagraphStyle(
+        "DdH1", parent=styles["Heading1"], fontName=JP_FONT,
+        fontSize=16, spaceAfter=6, spaceBefore=0,
+        textColor=colors.HexColor("#1f4f3a"),
     )
     h2_style = ParagraphStyle(
         "DdH2", parent=styles["Heading2"], fontName=JP_FONT,
@@ -10882,25 +11365,40 @@ def generate_drilldown_pdf(
         fontSize=9, textColor=colors.grey,
     )
 
-    rows = kpi_df[kpi_df["機能ID"] == function_id]
-    if rows.empty:
-        raise ValueError(f"function_id not in kpi_df: {function_id}")
-    row = rows.iloc[0]
-    names = sorted(rows["機能名称"].dropna().astype(str).unique())
-    name_label = " / ".join(names) if names else ""
+    # Resolve every requested FID up front so we can fail fast and reuse
+    # the (row, names) tuples in both the cover and per-FID body loops.
+    resolved: list[tuple[str, pd.Series, str]] = []
+    for fid in function_ids:
+        rows = kpi_df[kpi_df["機能ID"] == fid]
+        if rows.empty:
+            if multi_mode:
+                # Skip silently — a stale FID shouldn't blow up an "all" run.
+                continue
+            raise ValueError(f"function_id not in kpi_df: {fid}")
+        names = sorted(rows["機能名称"].dropna().astype(str).unique())
+        resolved.append((fid, rows.iloc[0], " / ".join(names)))
+    if not resolved:
+        raise ValueError("no resolvable function_ids in kpi_df")
 
     buf = io.BytesIO()
 
-    # SimpleDocTemplate subclass — auto-registers a TOC entry every time
-    # an H2 paragraph is rendered. Mirrors _PdfDoc / _TdDoc / _CatDoc.
     class _DdDoc(SimpleDocTemplate):
         def afterFlowable(self, flowable):  # type: ignore[override]
-            if (isinstance(flowable, Paragraph)
-                    and flowable.style.name == "DdH2"):
-                self.notify(
-                    "TOCEntry",
-                    (0, flowable.getPlainText(), self.page),
-                )
+            if not isinstance(flowable, Paragraph):
+                return
+            # Multi-FID: TOC lists only the FID heading (H1) so the index
+            # stays a one-line-per-feature roster. The H2 sub-sections
+            # (機能の説明 / WBS / Tests / …) are visible in the body but
+            # NOT in the TOC, by user request.
+            # Single-FID: H2 is the only TOC level since there's no H1.
+            if multi_mode:
+                if flowable.style.name == "DdH1":
+                    self.notify("TOCEntry",
+                                (0, flowable.getPlainText(), self.page))
+            else:
+                if flowable.style.name == "DdH2":
+                    self.notify("TOCEntry",
+                                (0, flowable.getPlainText(), self.page))
 
     doc = _DdDoc(
         buf, pagesize=page_size,
@@ -10918,10 +11416,19 @@ def generate_drilldown_pdf(
     story.append(Spacer(1, 130))
     story.append(cover_icon)
     story.append(Spacer(1, 24))
-    story.append(Paragraph(t("drilldown_pdf_title"), cover_title_style))
-    story.append(Paragraph(f"`{function_id}`", cover_subtitle_style))
-    if name_label:
-        story.append(Paragraph(name_label, cover_meta_style))
+    if multi_mode:
+        story.append(Paragraph(
+            t("drilldown_pdf_all_title"), cover_title_style))
+        story.append(Paragraph(
+            t("drilldown_pdf_all_subtitle", n=len(resolved)),
+            cover_subtitle_style,
+        ))
+    else:
+        fid0, _row0, name0 = resolved[0]
+        story.append(Paragraph(t("drilldown_pdf_title"), cover_title_style))
+        story.append(Paragraph(f"`{fid0}`", cover_subtitle_style))
+        if name0:
+            story.append(Paragraph(name0, cover_meta_style))
     story.append(Spacer(1, 12))
     story.append(Paragraph(
         f"{t('pdf_generated_at')}: "
@@ -10933,24 +11440,12 @@ def generate_drilldown_pdf(
     # --- Page 2: TOC -------------------------------------------------------
     story.append(Paragraph(t("pdf_toc_title"), toc_title_style))
     toc = TableOfContents()
-    toc.levelStyles = [toc_entry_style]
+    # Always single-level: in multi mode each FID is one entry, in single
+    # mode each section heading is one entry.
+    toc.levelStyles = [toc_entry_l0_style]
     story.append(toc)
     story.append(PageBreak())
 
-    # ----- 機能の説明 -----
-    desc_text = _drilldown_description_for(function_id)
-    story.append(Paragraph(t("drilldown_section_description"), h2_style))
-    if desc_text:
-        # Description was HTML-escaped by the helper; for the PDF we want
-        # the raw text instead, so re-decode entities and split paragraphs.
-        import html as _html
-        for para in _html.unescape(desc_text).split("\n\n"):
-            story.append(Paragraph(para.replace("\n", "<br/>"), desc_style))
-            story.append(Spacer(1, 4))
-    else:
-        story.append(Paragraph(t("drilldown_no_description"), caption_style))
-
-    # ----- Helpers -----
     def _f(v, fmt="{:.0f}"):
         if v is None or (isinstance(v, float) and pd.isna(v)):
             return "—"
@@ -10984,104 +11479,303 @@ def generate_drilldown_pdf(
         ]))
         return tbl
 
-    # ----- Schedule (WBS) -----
-    story.append(Paragraph(t("drilldown_section_wbs"), h2_style))
-    wbs_kv = [
-        [t("drilldown_planned_period"),
-         f"{_date(row.get('planned_start'))} → {_date(row.get('planned_end'))}"],
-        [t("drilldown_actual_period"),
-         f"{_date(row.get('actual_start'))} → {_date(row.get('actual_end'))}"],
-        [t("drilldown_planned_effort"),
-         _f(row.get("planned_effort"), "{:.1f}")],
-        [t("drilldown_actual_effort"),
-         _f(row.get("actual_effort"), "{:.1f}")],
-        [t("col_delay_days"), _f(row.get("delay_days"), "{:.0f}")],
-        [t("drilldown_planned_progress"),
-         _f(row.get("planned_progress"), "{:.0f}%")],
-        [t("drilldown_actual_progress"),
-         _f(row.get("actual_progress"), "{:.0f}%")],
-    ]
-    story.append(_kv_table(wbs_kv))
+    # WBS sub-tasks live in session_state — read once, the per-FID loop
+    # narrows down with `_subtasks_for_function`. Defensive .get() so the
+    # builder still runs from non-Streamlit smoke tests.
+    try:
+        wbs_df = st.session_state.get("dfs", {}).get("wbs")
+    except Exception:
+        wbs_df = None
 
-    # ----- Tests -----
-    story.append(Paragraph(t("drilldown_section_tests"), h2_style))
-    test_kv = [
-        ["総設定テスト数", _f(row.get("総設定テスト数"))],
-        ["実施済", _f(row.get("実施済"))],
-        ["OK", _f(row.get("OK"))],
-        [t("col_test_ng"), _f(row.get("NG"))],
-        ["未実施", _f(row.get("未実施"))],
-        [t("col_test_run_rate"), _pct(row.get("test_run_rate"))],
-        [t("col_test_pass_rate"), _pct(row.get("test_pass_rate"))],
-    ]
-    story.append(_kv_table(test_kv))
+    # Per-role icon used in the assignee roster table. Falls back to a
+    # generic "footprint" glyph for sub-tasks whose label matched no role.
+    role_dino = {
+        "dev":       "raptor",
+        "test_spec": "stego",
+        "test_exec": "trike",
+        "":          "footprint",
+    }
+    role_label = {
+        "dev":       t("role_dev"),
+        "test_spec": t("role_test_spec"),
+        "test_exec": t("role_test_exec"),
+    }
 
-    # ----- Code & Design -----
-    story.append(Paragraph(t("drilldown_section_code"), h2_style))
-    code_kv = [
-        ["LoC", _f(row.get("LoC"), "{:,.0f}")],
-        ["設計書ページ数", _f(row.get("設計書ページ数"))],
-        [t("col_complexity"), _f(row.get("complexity"), "{:.1f}")],
-        [t("col_test_density"), _f(row.get("test_density"), "{:.2f}")],
-        [t("col_bug_density"), _f(row.get("bug_density"), "{:.3f}")],
-    ]
-    story.append(_kv_table(code_kv))
+    def _assignee_icon(role: str) -> Image:
+        png = _pixel_icon_png(role_dino.get(role, "footprint"), scale=4)
+        img = Image(io.BytesIO(png), width=16, height=16)
+        img.hAlign = "LEFT"
+        return img
 
-    # ----- Composite scores -----
-    story.append(Paragraph(t("drilldown_section_scores"), h2_style))
-    score_kv = [
-        [t("col_health_score"), _f(row.get("health_score"), "{:.2f}")],
-        [t("col_risk_score"), _f(row.get("risk_score"), "{:.2f}")],
-    ]
-    story.append(_kv_table(score_kv))
+    # --- Per-FID body ------------------------------------------------------
+    # In multi_mode we collect each FID's flowables into a buffer, then
+    # wrap them in a KeepInFrame(mode='shrink') sized to one A3-landscape
+    # page so every FID is exactly one page (overflow is auto-scaled
+    # instead of spilling). Single mode appends directly to story as
+    # before — there's only one FID, no need to constrain.
+    total = len(resolved)
+    for idx, (function_id, row, name_label) in enumerate(resolved):
+        if progress_cb is not None:
+            try:
+                progress_cb(idx + 1, total, function_id)
+            except Exception:
+                pass
 
-    # ----- Defects -----
-    story.append(Paragraph(t("drilldown_section_defects"), h2_style))
-    def_kv = [
-        [t("col_defect_total"), _f(row.get("defect_total"))],
-        [t("col_defect_unresolved"), _f(row.get("defect_unresolved"))],
-        [t("col_defect_rate"), _pct(row.get("defect_rate"))],
-        [t("col_incident_rate"), _pct(row.get("incident_rate"))],
-    ]
-    story.append(_kv_table(def_kv))
+        # Per-FID buffer (multi mode) or direct alias (single mode).
+        target: list = [] if multi_mode else story
 
-    if defects_df is not None and not defects_df.empty:
-        related = defects_df[defects_df["機能ID"] == function_id].copy()
-        if not related.empty:
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(
-                f"<b>{t('drilldown_related_defects', n=len(related))}</b>",
-                body_style,
-            ))
-            cols = ["トラッカー", "ステータス", "担当者",
-                    "実開始日", "実終了日", "問題分類"]
-            cols = [c for c in cols if c in related.columns]
-            header = [Paragraph(c, body_style) for c in cols]
-            data = [header]
-            for _, dr in related.iterrows():
-                data.append([
-                    Paragraph("" if pd.isna(dr[c]) else str(dr[c]),
-                              body_style)
-                    for c in cols
-                ])
-            tbl = Table(data, repeatRows=1,
-                        colWidths=[inner_w / len(cols)] * len(cols))
-            tbl.setStyle(TableStyle([
-                ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f4f0")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING",   (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
-                ("TOPPADDING",    (0, 0), (-1, -1), 3),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-                ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
-            ]))
-            story.append(tbl)
+        def _emit(flowable) -> None:
+            target.append(flowable)
+
+        if multi_mode:
+            heading = f"{function_id}"
+            if name_label:
+                heading = f"{function_id} · {name_label}"
+            _emit(Paragraph(heading, h1_style))
+
+        # ----- 機能の説明 -----
+        desc_text = _drilldown_description_for(function_id)
+        target.append(Paragraph(t("drilldown_section_description"), h2_style))
+        if desc_text:
+            import html as _html
+            for para in _html.unescape(desc_text).split("\n\n"):
+                target.append(
+                    Paragraph(para.replace("\n", "<br/>"), desc_style))
+                target.append(Spacer(1, 4))
         else:
-            story.append(Paragraph(t("drilldown_no_defects"), caption_style))
-    else:
-        story.append(Paragraph(t("drilldown_no_defects"), caption_style))
+            target.append(
+                Paragraph(t("drilldown_no_description"), caption_style))
+
+        # ----- Schedule (WBS) -----
+        target.append(Paragraph(t("drilldown_section_wbs"), h2_style))
+        wbs_kv = [
+            [t("drilldown_planned_period"),
+             f"{_date(row.get('planned_start'))} → "
+             f"{_date(row.get('planned_end'))}"],
+            [t("drilldown_actual_period"),
+             f"{_date(row.get('actual_start'))} → "
+             f"{_date(row.get('actual_end'))}"],
+            [t("drilldown_planned_effort"),
+             _f(row.get("planned_effort"), "{:.1f}")],
+            [t("drilldown_actual_effort"),
+             _f(row.get("actual_effort"), "{:.1f}")],
+            [t("col_delay_days"), _f(row.get("delay_days"), "{:.0f}")],
+            [t("drilldown_planned_progress"),
+             _f(row.get("planned_progress"), "{:.0f}%")],
+            [t("drilldown_actual_progress"),
+             _f(row.get("actual_progress"), "{:.0f}%")],
+        ]
+        target.append(_kv_table(wbs_kv))
+
+        # ----- 担当者 (assignee roster) + ロール別進捗 (figure) ------------
+        # Both are powered by the WBS sub-task rows for this Function ID,
+        # so a single fetch feeds both. No-op when the FID has no
+        # sub-tasks (or WBS isn't loaded).
+        subtasks = _subtasks_for_function(wbs_df, function_id)
+        if subtasks is not None and not subtasks.empty:
+            # ---- Assignee roster: icon + name + role per (assignee, role)
+            target.append(Paragraph(
+                t("drilldown_assignees_label"), h2_style))
+            roster_pairs: list[tuple[str, str]] = []
+            seen_pairs: set[tuple[str, str]] = set()
+            for _, sr in subtasks.iterrows():
+                a = _normalize_assignee(sr.get("assignee"))
+                rl = sr.get("role") or ""
+                if not a:
+                    continue
+                key = (a, rl)
+                if key in seen_pairs:
+                    continue
+                seen_pairs.add(key)
+                roster_pairs.append(key)
+            if roster_pairs:
+                roster_cells: list[list] = []
+                row_buf: list = []
+                cols_per_row = 3
+                for a, rl in roster_pairs:
+                    rl_text = role_label.get(rl, "—")
+                    cell = [
+                        _assignee_icon(rl),
+                        Paragraph(
+                            f"{a} <font color='#777' size='8'>"
+                            f"({rl_text})</font>",
+                            body_style,
+                        ),
+                    ]
+                    row_buf.append(cell)
+                    if len(row_buf) == cols_per_row:
+                        roster_cells.append(row_buf)
+                        row_buf = []
+                if row_buf:
+                    # Pad with TWO-element cells so the [cell[0], cell[1]]
+                    # access below stays in bounds. A single-element
+                    # placeholder used to crash with IndexError when
+                    # roster_pairs % cols_per_row != 0.
+                    while len(row_buf) < cols_per_row:
+                        row_buf.append([
+                            Paragraph("", body_style),
+                            Paragraph("", body_style),
+                        ])
+                    roster_cells.append(row_buf)
+                # Each visible cell is itself a 2-col mini-table: icon | name
+                roster_rows = []
+                for r in roster_cells:
+                    flat = []
+                    for cell in r:
+                        flat.append(Table(
+                            [[cell[0], cell[1]]],
+                            colWidths=[20, (inner_w / cols_per_row) - 24],
+                        ))
+                    roster_rows.append(flat)
+                roster_tbl = Table(
+                    roster_rows,
+                    colWidths=[inner_w / cols_per_row] * cols_per_row,
+                )
+                roster_tbl.setStyle(TableStyle([
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 2),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 2),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 2),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+                ]))
+                target.append(roster_tbl)
+            else:
+                target.append(Paragraph(
+                    t("drilldown_assignees_none"), caption_style))
+
+            # ---- Role-progress figure (matplotlib stacked bar)
+            role_fig = _mpl_role_progress_figure(subtasks)
+            if role_fig is not None:
+                target.append(Paragraph(
+                    t("drilldown_role_progress_label"), h2_style))
+                target.append(Paragraph(
+                    t("drilldown_role_progress_caption"), caption_style))
+                target.append(Spacer(1, 4))
+                png, w_px, h_px = _mpl_save(role_fig)
+                disp_w = inner_w
+                disp_h = disp_w * (h_px / max(1, w_px))
+                target.append(Image(
+                    io.BytesIO(png), width=disp_w, height=disp_h))
+
+        # ----- Tests -----
+        target.append(Paragraph(t("drilldown_section_tests"), h2_style))
+        test_kv = [
+            ["総設定テスト数", _f(row.get("総設定テスト数"))],
+            ["実施済", _f(row.get("実施済"))],
+            ["OK", _f(row.get("OK"))],
+            [t("col_test_ng"), _f(row.get("NG"))],
+            ["未実施", _f(row.get("未実施"))],
+            [t("col_test_run_rate"), _pct(row.get("test_run_rate"))],
+            [t("col_test_pass_rate"), _pct(row.get("test_pass_rate"))],
+        ]
+        target.append(_kv_table(test_kv))
+
+        # ----- Code & Design -----
+        target.append(Paragraph(t("drilldown_section_code"), h2_style))
+        code_kv = [
+            ["LoC", _f(row.get("LoC"), "{:,.0f}")],
+            ["設計書ページ数", _f(row.get("設計書ページ数"))],
+            [t("col_complexity"), _f(row.get("complexity"), "{:.1f}")],
+            [t("col_test_density"), _f(row.get("test_density"), "{:.2f}")],
+            [t("col_bug_density"), _f(row.get("bug_density"), "{:.3f}")],
+        ]
+        target.append(_kv_table(code_kv))
+
+        # ----- Composite scores -----
+        target.append(Paragraph(t("drilldown_section_scores"), h2_style))
+        score_kv = [
+            [t("col_health_score"), _f(row.get("health_score"), "{:.2f}")],
+            [t("col_risk_score"), _f(row.get("risk_score"), "{:.2f}")],
+        ]
+        target.append(_kv_table(score_kv))
+
+        # ----- Defects -----
+        target.append(Paragraph(t("drilldown_section_defects"), h2_style))
+        def_kv = [
+            [t("col_defect_total"), _f(row.get("defect_total"))],
+            [t("col_defect_unresolved"), _f(row.get("defect_unresolved"))],
+            [t("col_defect_rate"), _pct(row.get("defect_rate"))],
+            [t("col_incident_rate"), _pct(row.get("incident_rate"))],
+        ]
+        target.append(_kv_table(def_kv))
+
+        if defects_df is not None and not defects_df.empty:
+            related = defects_df[defects_df["機能ID"] == function_id].copy()
+            if not related.empty:
+                target.append(Spacer(1, 6))
+                target.append(Paragraph(
+                    f"<b>{t('drilldown_related_defects', n=len(related))}</b>",
+                    body_style,
+                ))
+                cols = ["トラッカー", "ステータス", "担当者",
+                        "実開始日", "実終了日", "問題分類"]
+                cols = [c for c in cols if c in related.columns]
+                header = [Paragraph(c, body_style) for c in cols]
+                data = [header]
+                for _, dr in related.iterrows():
+                    data.append([
+                        Paragraph("" if pd.isna(dr[c]) else str(dr[c]),
+                                  body_style)
+                        for c in cols
+                    ])
+                tbl = Table(data, repeatRows=1,
+                            colWidths=[inner_w / len(cols)] * len(cols))
+                tbl.setStyle(TableStyle([
+                    ("FONTNAME", (0, 0), (-1, -1), JP_FONT),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("BACKGROUND", (0, 0), (-1, 0),
+                     colors.HexColor("#f0f4f0")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING",   (0, 0), (-1, -1), 4),
+                    ("RIGHTPADDING",  (0, 0), (-1, -1), 4),
+                    ("TOPPADDING",    (0, 0), (-1, -1), 3),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+                    ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+                ]))
+                target.append(tbl)
+            else:
+                target.append(
+                    Paragraph(t("drilldown_no_defects"), caption_style))
+        else:
+            target.append(Paragraph(t("drilldown_no_defects"), caption_style))
+
+        # ----- トレンド (snapshot history) -----
+        # _collect_fid_history walks every saved snapshot under input/ once
+        # per FID. For the all-FIDs build that is O(n_fids × n_snapshots)
+        # — devastating with 100s of features. Callers can pre-compute the
+        # walk once and pass `history_by_fid` to short-circuit it.
+        history: pd.DataFrame
+        if history_by_fid is not None:
+            history = history_by_fid.get(function_id, pd.DataFrame())
+        else:
+            try:
+                history = _collect_fid_history(function_id)
+            except Exception:
+                history = pd.DataFrame()
+        trend_fig = _mpl_fid_trend_figure(history)
+        if trend_fig is not None:
+            target.append(Paragraph(
+                t("drilldown_section_trend"), h2_style))
+            target.append(Paragraph(
+                t("drilldown_section_trend_caption"), caption_style))
+            target.append(Spacer(1, 4))
+            png, w_px, h_px = _mpl_save(trend_fig)
+            disp_w = inner_w
+            disp_h = disp_w * (h_px / max(1, w_px))
+            target.append(Image(io.BytesIO(png), width=disp_w, height=disp_h))
+
+        # ---- Multi-mode: wrap this FID's flowables into one page ---------
+        # KeepInFrame(mode='shrink') iteratively scales the wrapped content
+        # down until it fits the frame, so a verbose FID just renders a
+        # bit smaller — never spilling onto the next page. Single mode
+        # already wrote directly into `story`, so nothing to wrap.
+        if multi_mode:
+            story.append(KeepInFrame(
+                maxWidth=inner_w, maxHeight=section_max_h,
+                content=target, mode="shrink", mergeSpace=True,
+            ))
+            if idx < total - 1:
+                story.append(PageBreak())
 
     # multiBuild required so the TOC picks up real page numbers across
     # two layout passes. _pdf_apply_chrome appends the final TREX page.
@@ -11090,6 +11784,102 @@ def generate_drilldown_pdf(
     pdf = buf.getvalue()
     buf.close()
     return pdf
+
+
+def generate_drilldown_pdf(
+    kpi_df: pd.DataFrame,
+    function_id: str,
+    defects_df: Optional[pd.DataFrame] = None,
+) -> bytes:
+    """A4-portrait PDF for one Function ID — 機能の説明, WBS, tests,
+    code/design, composite scores, related defects."""
+    return _build_drilldown_pdf(
+        kpi_df, [function_id], defects_df=defects_df, multi_mode=False,
+    )
+
+
+def _collect_all_fids_history() -> dict[str, pd.DataFrame]:
+    """One-pass version of `_collect_fid_history`: walks every saved
+    tests/code snapshot under input/ exactly once and returns
+    {function_id → DataFrame[date, 総設定テスト数, 実施済, OK, NG, 未実施, LoC]}.
+    Each per-FID DataFrame is sorted by date so `_mpl_fid_trend_figure`
+    can consume it directly.
+
+    The all-FIDs drilldown PDF calls this up-front so the per-FID loop
+    looks up history in O(1) instead of re-walking every snapshot per FID.
+    """
+    rows_by_fid: dict[str, dict[date, dict]] = {}
+
+    for snap_date, _, df_snap in load_all_snapshots_for_slot(
+        "tests", load_test_counts
+    ):
+        if "機能ID" not in df_snap.columns:
+            continue
+        for _, r in df_snap.iterrows():
+            fid = r.get("機能ID")
+            if pd.isna(fid):
+                continue
+            fid_s = str(fid)
+            bucket = rows_by_fid.setdefault(fid_s, {}).setdefault(
+                snap_date, {})
+            for c in ("総設定テスト数", "実施済", "OK", "NG", "未実施"):
+                if c in df_snap.columns:
+                    v = r.get(c)
+                    bucket[c] = float(v) if pd.notna(v) else None
+
+    for snap_date, _, df_snap in load_all_snapshots_for_slot(
+        "code", load_code_counts
+    ):
+        if "機能ID" not in df_snap.columns or "LoC" not in df_snap.columns:
+            continue
+        for _, r in df_snap.iterrows():
+            fid = r.get("機能ID")
+            if pd.isna(fid):
+                continue
+            v = r.get("LoC")
+            if pd.isna(v):
+                continue
+            bucket = rows_by_fid.setdefault(str(fid), {}).setdefault(
+                snap_date, {})
+            bucket["LoC"] = float(v)
+
+    out: dict[str, pd.DataFrame] = {}
+    for fid_s, by_date in rows_by_fid.items():
+        if not by_date:
+            continue
+        df = pd.DataFrame(
+            [{"date": d, **vals} for d, vals in by_date.items()]
+        ).sort_values("date").reset_index(drop=True)
+        out[fid_s] = df
+    return out
+
+
+def generate_all_drilldowns_pdf(
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame] = None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+) -> bytes:
+    """Single PDF covering every Function ID in ``kpi_df`` — cover, TOC,
+    one section per FID (page break between), final TREX bookend."""
+    fids = (
+        kpi_df[["機能ID"]]
+        .drop_duplicates()["機能ID"]
+        .dropna().astype(str).sort_values().tolist()
+    )
+    # Pre-walk every snapshot exactly once so the per-FID loop in
+    # `_build_drilldown_pdf` doesn't repeat the I/O n_fids times.
+    try:
+        history_by_fid = _collect_all_fids_history()
+    except Exception as exc:
+        _get_logger().warning(
+            f"[drilldown_pdf_all] history pre-fetch failed; "
+            f"falling back to per-FID walk: {exc}"
+        )
+        history_by_fid = None
+    return _build_drilldown_pdf(
+        kpi_df, fids, defects_df=defects_df, multi_mode=True,
+        progress_cb=progress_cb, history_by_fid=history_by_fid,
+    )
 
 
 def generate_test_density_pdf(
@@ -12111,6 +12901,7 @@ def _render_role_analytics_header(
         int(len(wbs_df)) if wbs_df is not None else 0,
         int(len(defects_df)) if defects_df is not None else 0,
         int(len(kpi_df)),
+        APP_VERSION,
     )
     # `bool()` coerces the `and` short-circuit: when ra_pdf_bytes is None
     # (first run) the expression would otherwise be None, which is invalid
@@ -12183,76 +12974,833 @@ def _render_role_analytics_header(
                 )
 
 
+# =============================================================================
+# Excel report (.xlsx) — sibling of generate_report_pdf
+#
+# Mirrors the Charts-tab content as a multi-sheet workbook so the data behind
+# every chart is browsable in Excel. Sheet layout per the user spec:
+#   row 1 = sheet display title (merged, bold, header bg)
+#   row 2 = source-file annotation per column (e.g. "WBS", "test_counts", …)
+#   row 3 = column header
+#   row 4 = definition / formula
+#   row 5 = first data row; autofilter spans row 3 → end; column widths auto.
+# =============================================================================
+_XLSX_TITLE_FILL  = "FF2D6B4F"
+_XLSX_HEADER_FILL = "FFE6EFE6"
+_XLSX_SOURCE_FILL = "FFF0F4F0"
+
+# Source-file labels — the row-2 annotation that tells a reviewer which raw
+# input the column came from. "計算値" means it's derived in compute_kpis.
+_SRC_MASTER  = "function_master"
+_SRC_WBS     = "WBS"
+_SRC_TESTS   = "test_counts"
+_SRC_CODE    = "code_counts"
+_SRC_DESIGN  = "design_pages"
+_SRC_DEFECTS = "redmine defects"
+_SRC_DERIVED = "計算値"
+
+
+def _xlsx_write_sheet(
+    wb,
+    sheet_id: str,
+    display_title: str,
+    columns: list[tuple[str, str, str]],
+    data_rows: list[list],
+) -> None:
+    """Write one sheet with the standard 4-row header. `columns` is a list
+    of (header, source_file, definition) tuples; `data_rows` is one list
+    per row whose length matches columns. Adds autofilter (anchored at the
+    header row) and crude monospace-aware auto-width."""
+    from openpyxl.styles import (
+        Alignment, Border, Font, PatternFill, Side,
+    )
+    from openpyxl.utils import get_column_letter
+
+    ws = wb.create_sheet(title=sheet_id[:31])  # Excel sheet-name cap = 31
+    n_cols = max(1, len(columns))
+
+    # Row 1 — title -----------------------------------------------------
+    ws.cell(row=1, column=1, value=display_title)
+    if n_cols > 1:
+        ws.merge_cells(start_row=1, start_column=1,
+                       end_row=1, end_column=n_cols)
+    c = ws.cell(row=1, column=1)
+    c.font = Font(bold=True, size=14, color="FFFFFFFF")
+    c.fill = PatternFill("solid", fgColor=_XLSX_TITLE_FILL)
+    c.alignment = Alignment(vertical="center", horizontal="center")
+    ws.row_dimensions[1].height = 26
+
+    # Row 2 — per-column source file ------------------------------------
+    for i, (_h, src, _d) in enumerate(columns, start=1):
+        c = ws.cell(row=2, column=i, value=src)
+        c.font = Font(size=9, italic=True, color="FF555555")
+        c.fill = PatternFill("solid", fgColor=_XLSX_SOURCE_FILL)
+        c.alignment = Alignment(horizontal="center", wrap_text=True)
+    ws.row_dimensions[2].height = 18
+
+    # Row 3 — header ----------------------------------------------------
+    bottom_thick = Border(bottom=Side(style="medium",
+                                      color=_XLSX_TITLE_FILL))
+    for i, (h, _s, _d) in enumerate(columns, start=1):
+        c = ws.cell(row=3, column=i, value=h)
+        c.font = Font(bold=True, size=11)
+        c.fill = PatternFill("solid", fgColor=_XLSX_HEADER_FILL)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = bottom_thick
+
+    # Row 4 — definition / formula --------------------------------------
+    for i, (_h, _s, defn) in enumerate(columns, start=1):
+        c = ws.cell(row=4, column=i, value=defn)
+        c.font = Font(size=8, italic=True, color="FF777777")
+        c.alignment = Alignment(horizontal="center",
+                                vertical="center", wrap_text=True)
+    ws.row_dimensions[4].height = 28
+
+    # Row 5+ — data -----------------------------------------------------
+    # The cleaner below is essential: openpyxl rejects pd.NaT, np.nan,
+    # ±inf, and pd.Timestamp variants in ways that produce a workbook
+    # Excel flags as "unreadable content" on open. We normalise every
+    # value at the cell boundary so the resulting file opens cleanly.
+    import math, datetime as _dt
+    _XLSX_STR_LIMIT = 32_767  # Excel's hard cap on a cell-string length
+
+    def _clean(v):
+        if v is None:
+            return None
+        # pd.NaT, NaN, etc. — pd.isna handles all flavours
+        try:
+            if pd.isna(v):
+                return None
+        except (TypeError, ValueError):
+            pass
+        # Inf / -inf — Excel can't store these
+        if isinstance(v, float) and not math.isfinite(v):
+            return None
+        # pd.Timestamp → native datetime (openpyxl writes it as a date cell)
+        if isinstance(v, pd.Timestamp):
+            try:
+                return v.to_pydatetime()
+            except Exception:
+                return v.isoformat()
+        # numpy scalars → Python scalars
+        if hasattr(v, "item") and not isinstance(v, (str, bytes,
+                                                      _dt.datetime,
+                                                      _dt.date)):
+            try:
+                return v.item()
+            except Exception:
+                pass
+        # Strings exceeding Excel's per-cell limit need truncation
+        if isinstance(v, str) and len(v) > _XLSX_STR_LIMIT:
+            return v[:_XLSX_STR_LIMIT - 1] + "…"
+        return v
+
+    for r, row in enumerate(data_rows, start=5):
+        for i in range(n_cols):
+            v = row[i] if i < len(row) else None
+            ws.cell(row=r, column=i + 1, value=_clean(v))
+
+    # Freeze rows 1-4 (data rows scroll, headers stay).
+    ws.freeze_panes = "A5"
+
+    # Autofilter anchored at the header row.
+    if data_rows:
+        last_col = get_column_letter(n_cols)
+        last_row = 4 + len(data_rows)
+        ws.auto_filter.ref = f"A3:{last_col}{last_row}"
+
+    # Column auto-width — sample at most 200 data rows so this stays cheap
+    # for big sheets. CJK characters approximate to 1.7× monospace width.
+    def _vis_len(s: str) -> float:
+        if s is None:
+            return 0.0
+        s = str(s)
+        n = 0.0
+        for ch in s:
+            n += 1.7 if ord(ch) > 127 else 1.0
+        return n
+
+    for i, (h, src, defn) in enumerate(columns, start=1):
+        widest = max(
+            _vis_len(h), _vis_len(src), _vis_len(defn),
+            *[_vis_len(row[i - 1]) if i - 1 < len(row) else 0
+              for row in data_rows[:200]],
+            8.0,
+        )
+        ws.column_dimensions[get_column_letter(i)].width = min(widest + 2.0,
+                                                                42.0)
+
+
+def _problem_class_count_per_fid(
+    defects_df: Optional[pd.DataFrame],
+) -> dict[str, int]:
+    """Map each Function ID → count of distinct 問題分類 values in defects.
+    Empty when defects aren't loaded or the column is missing."""
+    if defects_df is None or defects_df.empty:
+        return {}
+    if "機能ID" not in defects_df.columns or "問題分類" not in defects_df.columns:
+        return {}
+    s = (defects_df.dropna(subset=["機能ID", "問題分類"])
+         .groupby(defects_df["機能ID"].astype(str))["問題分類"]
+         .nunique())
+    return {str(k): int(v) for k, v in s.items()}
+
+
+XLSX_TOTAL_STEPS = 15  # max possible sheet count (overview + 14 data sheets)
+
+
+def generate_excel_report(
+    kpi_df: pd.DataFrame,
+    defects_df: Optional[pd.DataFrame] = None,
+    progress_cb: Optional[Callable[[int, int, str], None]] = None,
+) -> bytes:
+    """Build a multi-sheet .xlsx mirroring the Charts-tab content.
+
+    Sheet roster (16):
+      overview, hero, progress_gap, test_coverage, test_density,
+      incident_rate, loc_vs_ng, design_impl_gap, risk_heatmap,
+      loc_trend, test_trend, bug_trend, defect_class, gantt, defects_raw.
+
+    `progress_cb`, when provided, is called with ``(step, total, msg)``
+    once per sheet so the caller can drive a progress UI (e.g. the
+    raptor runner). `total` is fixed at XLSX_TOTAL_STEPS — sheets that
+    are skipped (because their source data is missing) just leave the
+    bar short of the finish line, which the caller's "done" frame
+    overwrites at the end.
+    """
+    from openpyxl import Workbook
+    from openpyxl.drawing.image import Image as XLImage
+    from openpyxl.styles import Alignment, Font, PatternFill
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    # Workbook starts with a default "Sheet" — drop it; every sheet we
+    # care about is created by _xlsx_write_sheet.
+    default = wb.active
+    wb.remove(default)
+
+    if defects_df is None:
+        try:
+            defects_df = st.session_state.dfs.get("defects")
+        except Exception:
+            defects_df = None
+
+    _step_counter = {"n": 0}
+
+    def _step(label: str) -> None:
+        _step_counter["n"] += 1
+        if progress_cb is not None:
+            try:
+                progress_cb(min(_step_counter["n"], XLSX_TOTAL_STEPS),
+                            XLSX_TOTAL_STEPS, label)
+            except Exception:
+                pass
+
+    def _fid_name_pair(r) -> tuple[str, str]:
+        return (str(r.get("機能ID") or ""), str(r.get("機能名称") or ""))
+
+    # ----- 1) overview (special: TREX logo + index/links) -----------------
+    _step("overview")
+    ws_ov = wb.create_sheet(title="overview")
+    ws_ov.merge_cells("A1:F1")
+    c = ws_ov.cell(row=1, column=1, value="dashboard4dx — Excel Report")
+    c.font = Font(bold=True, size=18, color="FFFFFFFF")
+    c.fill = PatternFill("solid", fgColor=_XLSX_TITLE_FILL)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws_ov.row_dimensions[1].height = 32
+    ws_ov.merge_cells("A2:F2")
+    c = ws_ov.cell(
+        row=2, column=1,
+        value=f"{t('pdf_generated_at')}: "
+              f"{datetime.now().strftime('%Y-%m-%d %H:%M')}",
+    )
+    c.font = Font(size=10, italic=True, color="FF555555")
+    c.alignment = Alignment(horizontal="center")
+    # TREX logo — pixel icon → PNG → embedded image. Anchored to the
+    # right of the title block (column G area) so it doesn't overlap.
+    try:
+        png = _pixel_icon_png("trex", scale=10)
+        buf = io.BytesIO(png)
+        buf.seek(0)
+        img = XLImage(buf)
+        img.width, img.height = 96, 80
+        ws_ov.add_image(img, "G1")
+    except Exception:
+        pass
+
+    # Index table starts at row 4
+    ws_ov.cell(row=4, column=1, value="シート一覧").font = Font(
+        bold=True, size=12, color="FF2D6B4F",
+    )
+
+    index_columns = [
+        ("No.",     "—",     "通し番号"),
+        ("シート名", "—",    "ワークブック内シート名"),
+        ("内容",    "—",    "シートの説明"),
+        ("元ファイル", "—",  "主な出典"),
+        ("リンク",   "—",    "クリックでシートへ"),
+    ]
+    sheet_index: list[tuple[str, str, str]] = []  # (sheet_id, desc, source)
+    # Preliminary entries — actual list assembled below as each sheet is
+    # registered. We populate the overview table at the end.
+
+    # Helper: register a sheet for the index
+    def _register(sheet_id: str, desc: str, source: str) -> None:
+        sheet_index.append((sheet_id, desc, source))
+
+    # ----- 2) hero — every per-FID metric in one wide row ----------------
+    if kpi_df is not None and not kpi_df.empty:
+        # Column order: identity → schedule → tests → code → defects → scores.
+        kp = kpi_df.copy()
+        kp["機能ID"] = kp["機能ID"].astype(str)
+
+        # Per-category 問題分類 breakdown — one column per actual category
+        # value, value = bug-count for that (機能ID, 問題分類). Replaces
+        # the old "問題分類数" distinct-count column entirely; the per-
+        # category breakdown is what gets boss-spotlighted (highlighted
+        # in amber) below.
+        class_breakdown_cols: list[tuple[str, str, str, str]] = []
+        class_breakdown_headers: list[str] = []  # for the spotlight set
+        if (defects_df is not None and not defects_df.empty
+                and "機能ID" in defects_df.columns
+                and "問題分類" in defects_df.columns):
+            try:
+                breakdown = (
+                    defects_df.dropna(subset=["機能ID", "問題分類"])
+                    .assign(_fid=lambda d: d["機能ID"].astype(str),
+                            _cls=lambda d: d["問題分類"].astype(str))
+                    .groupby(["_fid", "_cls"]).size()
+                    .unstack(fill_value=0)
+                )
+            except Exception:
+                breakdown = pd.DataFrame()
+            for cls in sorted(breakdown.columns):
+                col_name = f"問題分類_{cls}"
+                kp[col_name] = (
+                    kp["機能ID"].map(breakdown[cls]).fillna(0).astype(int)
+                )
+                class_breakdown_cols.append((
+                    col_name, col_name, _SRC_DEFECTS,
+                    f"= defects[機能ID, 問題分類={cls}].count()",
+                ))
+                class_breakdown_headers.append(col_name)
+
+        hero_specs: list[tuple[str, str, str, str]] = [
+            # (column_in_df, header, source, definition)
+            ("機能ID",            "機能ID",            _SRC_MASTER,  "function_master 機能ID"),
+            ("機能名称",          "機能名称",          _SRC_MASTER,  "function_master 機能名称"),
+            ("planned_start",    "予定開始日",        _SRC_WBS,     "WBS 予定開始日"),
+            ("planned_end",      "予定終了日",        _SRC_WBS,     "WBS 予定終了日"),
+            ("actual_start",     "実績開始日",        _SRC_WBS,     "WBS 実績開始日"),
+            ("actual_end",       "実績終了日",        _SRC_WBS,     "WBS 実績終了日"),
+            ("planned_progress", "予定進捗率",        _SRC_WBS,     "WBS 予定進捗率 (0..100)"),
+            ("actual_progress",  "実績進捗率",        _SRC_WBS,     "WBS 実績進捗率 (0..100)"),
+            ("planned_effort",   "予定工数",          _SRC_WBS,     "WBS 予定工数"),
+            ("actual_effort",    "実績工数",          _SRC_WBS,     "WBS 実績工数"),
+            ("delay_days",       "遅延日数",          _SRC_DERIVED, "= max(0, today - planned_end) when not done"),
+            ("delay_rate",       "遅延率",            _SRC_DERIVED, "= delay_days / 計画期間 (cap 1.0)"),
+            ("LoC",              "LoC",              _SRC_CODE,    "code_counts LoC"),
+            ("設計書ページ数",   "設計書ページ数",    _SRC_DESIGN,  "design_pages 設計書ページ数"),
+            ("complexity",       "複雑度",            _SRC_DERIVED, "= LoC / 設計書ページ数"),
+            ("総設定テスト数",   "総設定テスト数",    _SRC_TESTS,   "test_counts 総設定テスト数"),
+            ("実施済",           "実施済",            _SRC_TESTS,   "test_counts 実施済"),
+            ("OK",               "OK",               _SRC_TESTS,   "test_counts OK"),
+            ("NG",               "NG",               _SRC_TESTS,   "test_counts NG"),
+            ("未実施",           "未実施",            _SRC_TESTS,   "test_counts 未実施"),
+            ("test_run_rate",    "テスト実施率",      _SRC_DERIVED, "= 実施済 / 総設定テスト数"),
+            ("test_pass_rate",   "テスト成功率",      _SRC_DERIVED, "= OK / 実施済"),
+            ("test_density",     "テスト密度",        _SRC_DERIVED, "= 総設定テスト数 / 設計書ページ数"),
+            ("bug_density",      "不具合密度",        _SRC_DERIVED, "= NG / LoC"),
+            ("defect_rate",      "不具合率",          _SRC_DERIVED, "= NG / 総設定テスト数"),
+            ("defect_total",     "障害件数",          _SRC_DEFECTS, "redmine defects 件数"),
+            ("defect_unresolved", "未解決障害",       _SRC_DEFECTS, "redmine 未解決件数"),
+            ("incident_rate",    "障害発生率",        _SRC_DERIVED, "= defect_total / 実施済"),
+            # ↓ per-category 問題分類_* breakdown columns inserted here ↓
+            ("health_score",     "健全性スコア",      _SRC_DERIVED, "= 実施率 - defect_rate - 遅延率"),
+            ("risk_score",       "リスクスコア",      _SRC_DERIVED, "0..1 加重平均 (compute_kpis)"),
+        ]
+        # Splice the per-category breakdown columns right after 障害発生率
+        # so the cluster of "defect category" columns sits together.
+        if class_breakdown_cols:
+            insert_at = next(
+                (i + 1 for i, s in enumerate(hero_specs)
+                 if s[0] == "incident_rate"),
+                len(hero_specs),
+            )
+            hero_specs = (hero_specs[:insert_at]
+                          + class_breakdown_cols
+                          + hero_specs[insert_at:])
+        # Filter to columns that actually exist in this kpi_df (so a partial
+        # data load doesn't crash with KeyError).
+        hero_specs = [s for s in hero_specs
+                      if s[0] in kp.columns or s[0] == "機能ID"]
+        cols = [(h, src, d) for (_c, h, src, d) in hero_specs]
+        rows = []
+        for _, r in kp.iterrows():
+            rows.append([r.get(c) for (c, _h, _s, _d) in hero_specs])
+        _step("hero")
+        _xlsx_write_sheet(wb, "hero",
+                          "Hero — 全機能ID 全メトリクス", cols, rows)
+
+        # ---- Spotlight columns (boss-requested 10) ----------------------
+        # Highlight only on the hero sheet — these are the columns the
+        # boss specifically asked to be visible at a glance. Header gets
+        # an amber fill, data cells get a soft pale-yellow tint so the
+        # column reads as a vertical band.
+        from openpyxl.styles import Font as _Font, PatternFill as _PF
+        from openpyxl.utils import get_column_letter as _gcl
+
+        hero_ws = wb["hero"]
+        # Boss spotlight: the fixed nine + every dynamic 問題分類_<cat>
+        # column (one per actual category in defects). Replaces the old
+        # 問題分類数 distinct-count slot — the per-category breakdown
+        # is what the boss wanted to see at a glance.
+        spotlight = {
+            "機能ID", "予定進捗率", "実績進捗率",
+            "設計書ページ数", "LoC",
+            "総設定テスト数", "実施済", "未実施",
+            "テスト密度",
+            *class_breakdown_headers,
+        }
+        head_fill = _PF("solid", fgColor="FFFFE08A")   # amber header
+        body_fill = _PF("solid", fgColor="FFFFF8E1")   # pale-yellow body
+        last_data_row = 4 + len(rows)
+        for ci, (h, _src, _d) in enumerate(cols, start=1):
+            if h not in spotlight:
+                continue
+            # Header row (row 3) — keep bold, swap fill to amber.
+            head_cell = hero_ws.cell(row=3, column=ci)
+            head_cell.fill = head_fill
+            # Data rows (5 → last_data_row).
+            for r in range(5, last_data_row + 1):
+                hero_ws.cell(row=r, column=ci).fill = body_fill
+
+        _register("hero",
+                  "全機能IDのKPI一覧（問題分類は分類ごとに列展開 / "
+                  "ボス指定列をハイライト）",
+                  "function_master + WBS + tests + code + defects")
+
+    # ----- 3) progress_gap ------------------------------------------------
+    if {"planned_progress", "actual_progress"}.issubset(kpi_df.columns):
+        df = kpi_df.copy()
+        df["gap"] = df["planned_progress"] - df["actual_progress"]
+        cols = [
+            ("機能ID",       _SRC_MASTER,  "function_master 機能ID"),
+            ("機能名称",     _SRC_MASTER,  "function_master 機能名称"),
+            ("予定進捗率",   _SRC_WBS,     "WBS 予定進捗率"),
+            ("実績進捗率",   _SRC_WBS,     "WBS 実績進捗率"),
+            ("ギャップ",     _SRC_DERIVED, "= 予定 - 実績"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("planned_progress"), r.get("actual_progress"),
+                 r.get("gap")] for _, r in df.iterrows()]
+        _step("progress_gap")
+        _xlsx_write_sheet(wb, "progress_gap",
+                          "進捗ギャップ (planned vs actual)", cols, rows)
+        _register("progress_gap",
+                  "予定と実績の進捗差分", "WBS")
+
+    # ----- 4) test_coverage ----------------------------------------------
+    if "総設定テスト数" in kpi_df.columns:
+        cols = [
+            ("機能ID",         _SRC_MASTER,  ""),
+            ("機能名称",       _SRC_MASTER,  ""),
+            ("総設定テスト数", _SRC_TESTS,   ""),
+            ("実施済",         _SRC_TESTS,   ""),
+            ("OK",             _SRC_TESTS,   ""),
+            ("NG",             _SRC_TESTS,   ""),
+            ("未実施",         _SRC_TESTS,   ""),
+            ("テスト実施率",   _SRC_DERIVED, "= 実施済 / 総設定テスト数"),
+            ("テスト成功率",   _SRC_DERIVED, "= OK / 実施済"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("総設定テスト数"), r.get("実施済"), r.get("OK"),
+                 r.get("NG"), r.get("未実施"),
+                 r.get("test_run_rate"), r.get("test_pass_rate")]
+                for _, r in kpi_df.iterrows()]
+        _step("test_coverage")
+        _xlsx_write_sheet(wb, "test_coverage",
+                          "テストカバレッジ", cols, rows)
+        _register("test_coverage",
+                  "機能IDごとのテスト件数と実施・成功率",
+                  "test_counts + 計算値")
+
+    # ----- 5) test_density -----------------------------------------------
+    if "test_density" in kpi_df.columns:
+        cols = [
+            ("機能ID",         _SRC_MASTER,  ""),
+            ("機能名称",       _SRC_MASTER,  ""),
+            ("LoC",            _SRC_CODE,    ""),
+            ("総設定テスト数", _SRC_TESTS,   ""),
+            ("テスト密度",     _SRC_DERIVED, "= 総設定テスト数 / 設計書ページ数"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("LoC"), r.get("総設定テスト数"),
+                 r.get("test_density")] for _, r in kpi_df.iterrows()]
+        _step("test_density")
+        _xlsx_write_sheet(wb, "test_density",
+                          "テスト密度", cols, rows)
+        _register("test_density",
+                  "1設計書ページあたりのテスト件数",
+                  "test_counts + design_pages")
+
+    # ----- 6) incident_rate ----------------------------------------------
+    if "incident_rate" in kpi_df.columns:
+        cols = [
+            ("機能ID",       _SRC_MASTER,  ""),
+            ("機能名称",     _SRC_MASTER,  ""),
+            ("障害件数",     _SRC_DEFECTS, "redmine 障害件数"),
+            ("実施済",       _SRC_TESTS,   "test_counts 実施済"),
+            ("障害発生率",   _SRC_DERIVED, "= 障害件数 / 実施済"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("defect_total"), r.get("実施済"),
+                 r.get("incident_rate")] for _, r in kpi_df.iterrows()]
+        _step("incident_rate")
+        _xlsx_write_sheet(wb, "incident_rate",
+                          "障害発生率 (Redmine)", cols, rows)
+        _register("incident_rate",
+                  "実施済テスト数あたりの障害件数",
+                  "redmine + test_counts")
+
+    # ----- 7) loc_vs_ng --------------------------------------------------
+    if {"LoC", "NG"}.issubset(kpi_df.columns):
+        cols = [
+            ("機能ID",   _SRC_MASTER,  ""),
+            ("機能名称", _SRC_MASTER,  ""),
+            ("LoC",      _SRC_CODE,    ""),
+            ("NG",       _SRC_TESTS,   "test_counts NG"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("LoC"), r.get("NG")] for _, r in kpi_df.iterrows()]
+        _step("loc_vs_ng")
+        _xlsx_write_sheet(wb, "loc_vs_ng", "LoC vs NG", cols, rows)
+        _register("loc_vs_ng", "コード規模と不具合件数の関係",
+                  "code_counts + test_counts")
+
+    # ----- 8) design_impl_gap --------------------------------------------
+    if {"設計書ページ数", "LoC"}.issubset(kpi_df.columns):
+        cols = [
+            ("機能ID",         _SRC_MASTER,  ""),
+            ("機能名称",       _SRC_MASTER,  ""),
+            ("設計書ページ数", _SRC_DESIGN,  ""),
+            ("LoC",            _SRC_CODE,    ""),
+            ("複雑度",         _SRC_DERIVED, "= LoC / 設計書ページ数"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("設計書ページ数"), r.get("LoC"),
+                 r.get("complexity")] for _, r in kpi_df.iterrows()]
+        _step("design_impl_gap")
+        _xlsx_write_sheet(wb, "design_impl_gap",
+                          "設計と実装のギャップ", cols, rows)
+        _register("design_impl_gap",
+                  "設計書ページ数とLoCの比較", "design_pages + code_counts")
+
+    # ----- 9) risk_heatmap -----------------------------------------------
+    if "risk_score" in kpi_df.columns:
+        cols = [
+            ("機能ID",       _SRC_MASTER,  ""),
+            ("機能名称",     _SRC_MASTER,  ""),
+            ("不具合密度",   _SRC_DERIVED, "= NG / LoC"),
+            ("障害発生率",   _SRC_DERIVED, "= 障害件数 / 実施済"),
+            ("遅延日数",     _SRC_DERIVED, ""),
+            ("未実施",       _SRC_TESTS,   ""),
+            ("リスクスコア", _SRC_DERIVED, "compute_kpis 加重平均"),
+        ]
+        rows = [[str(r["機能ID"]), r.get("機能名称"),
+                 r.get("bug_density"), r.get("incident_rate"),
+                 r.get("delay_days"), r.get("未実施"),
+                 r.get("risk_score")] for _, r in kpi_df.iterrows()]
+        _step("risk_heatmap")
+        _xlsx_write_sheet(wb, "risk_heatmap",
+                          "リスクヒートマップ 元データ", cols, rows)
+        _register("risk_heatmap",
+                  "リスクスコア構成要素", "計算値")
+
+    # ----- 10) loc_trend (wide: 機能ID × snapshot date columns) ----------
+    code_snaps = load_all_snapshots_for_slot("code", load_code_counts)
+    if code_snaps:
+        # Build wide pivot by walking each snapshot once
+        per_fid: dict[str, dict] = {}
+        names: dict[str, str] = {}
+        snap_dates: list[date] = []
+        for snap_date, _src, df_snap in code_snaps:
+            snap_dates.append(snap_date)
+            for _, r in df_snap.iterrows():
+                fid = str(r.get("機能ID") or "")
+                if not fid:
+                    continue
+                bucket = per_fid.setdefault(fid, {})
+                v = r.get("LoC")
+                bucket[snap_date] = (
+                    int(v) if pd.notna(v) else None)
+                # Pull a name from kpi_df if available later
+        snap_dates = sorted(set(snap_dates))
+        # Resolve names from kpi_df master
+        for _, r in kpi_df.iterrows():
+            names[str(r["機能ID"])] = str(r.get("機能名称") or "")
+        cols = [
+            ("機能ID",   _SRC_MASTER, ""),
+            ("機能名称", _SRC_MASTER, ""),
+        ] + [
+            (d.isoformat(), _SRC_CODE, "snapshot LoC")
+            for d in snap_dates
+        ]
+        rows = []
+        for fid in sorted(per_fid):
+            row = [fid, names.get(fid, "")]
+            for d in snap_dates:
+                row.append(per_fid[fid].get(d))
+            rows.append(row)
+        _step("loc_trend")
+        _xlsx_write_sheet(wb, "loc_trend",
+                          "LoC トレンド（横持ち）", cols, rows)
+        _register("loc_trend",
+                  "機能ID × スナップショット日付（LoC）",
+                  "code_counts スナップショット")
+
+    # ----- 11) test_trend (wide: 機能ID × snapshot date columns) ---------
+    test_snaps = load_all_snapshots_for_slot("tests", load_test_counts)
+    if test_snaps:
+        per_fid = {}
+        names = {}
+        snap_dates = []
+        for snap_date, _src, df_snap in test_snaps:
+            snap_dates.append(snap_date)
+            for _, r in df_snap.iterrows():
+                fid = str(r.get("機能ID") or "")
+                if not fid:
+                    continue
+                bucket = per_fid.setdefault(fid, {})
+                v = r.get("総設定テスト数")
+                bucket[snap_date] = int(v) if pd.notna(v) else None
+        snap_dates = sorted(set(snap_dates))
+        for _, r in kpi_df.iterrows():
+            names[str(r["機能ID"])] = str(r.get("機能名称") or "")
+        cols = [
+            ("機能ID",   _SRC_MASTER, ""),
+            ("機能名称", _SRC_MASTER, ""),
+        ] + [
+            (d.isoformat(), _SRC_TESTS, "snapshot 総設定テスト数")
+            for d in snap_dates
+        ]
+        rows = []
+        for fid in sorted(per_fid):
+            row = [fid, names.get(fid, "")]
+            for d in snap_dates:
+                row.append(per_fid[fid].get(d))
+            rows.append(row)
+        _step("test_trend")
+        _xlsx_write_sheet(wb, "test_trend",
+                          "総設定テスト数 トレンド（横持ち）", cols, rows)
+        _register("test_trend",
+                  "機能ID × スナップショット日付（総設定テスト数）",
+                  "test_counts スナップショット")
+
+    # ----- 12) bug_trend (wide weekly: opened/closed/cumulative) --------
+    if defects_df is not None and not defects_df.empty \
+            and "実開始日" in defects_df.columns:
+        df = defects_df.copy()
+        df["実開始日"] = pd.to_datetime(df["実開始日"], errors="coerce")
+        df["実終了日"] = pd.to_datetime(df["実終了日"], errors="coerce")
+        opened = df.dropna(subset=["実開始日"])
+        if not opened.empty:
+            wk_op = opened.set_index("実開始日").resample("W").size()
+            wk_cl = (df.dropna(subset=["実終了日"])
+                     .set_index("実終了日").resample("W").size()
+                     if df["実終了日"].notna().any()
+                     else pd.Series(dtype=int))
+            idx = pd.DatetimeIndex(wk_op.index.union(wk_cl.index))
+            wk_op = wk_op.reindex(idx, fill_value=0)
+            wk_cl = wk_cl.reindex(idx, fill_value=0)
+            cum_op = wk_op.cumsum()
+            cum_cl = wk_cl.cumsum()
+            unresolved = (cum_op - cum_cl).clip(lower=0)
+            cols = [("メトリクス", _SRC_DERIVED, "週次集計")] + [
+                (d.strftime("%Y-%m-%d"), _SRC_DEFECTS,
+                 "週末日 (resample W)")
+                for d in idx
+            ]
+            rows = [
+                ["発生（週）",   *wk_op.tolist()],
+                ["解決（週）",   *wk_cl.tolist()],
+                ["発生累積",     *cum_op.tolist()],
+                ["解決累積",     *cum_cl.tolist()],
+                ["未解決（差分）", *unresolved.tolist()],
+            ]
+            _step("bug_trend")
+            _xlsx_write_sheet(wb, "bug_trend",
+                              "不具合トレンド（週次・横持ち）", cols, rows)
+            _register("bug_trend",
+                      "週次の発生・解決と累積（未解決＝差分）",
+                      "redmine defects")
+
+    # ----- 13) defect_class -----------------------------------------------
+    if defects_df is not None and not defects_df.empty \
+            and "問題分類" in defects_df.columns:
+        try:
+            counts = _defect_class_counts(defects_df)
+        except Exception:
+            counts = pd.Series(dtype=int)
+        if not counts.empty:
+            total = int(counts.sum())
+            cols = [
+                ("問題分類", _SRC_DEFECTS, "redmine 問題分類"),
+                ("件数",     _SRC_DEFECTS, "件数"),
+                ("割合",     _SRC_DERIVED, "= 件数 / 合計"),
+            ]
+            rows = [[k, int(v), float(v) / total if total else 0.0]
+                    for k, v in counts.items()]
+            _step("defect_class")
+            _xlsx_write_sheet(wb, "defect_class",
+                              "問題分類 集計", cols, rows)
+            _register("defect_class",
+                      "問題分類別の件数と割合", "redmine defects")
+
+    # ----- 14) gantt -----------------------------------------------------
+    if {"planned_start", "planned_end"}.issubset(kpi_df.columns):
+        cols = [
+            ("機能ID",     _SRC_MASTER, ""),
+            ("機能名称",   _SRC_MASTER, ""),
+            ("予定開始日", _SRC_WBS,    ""),
+            ("予定終了日", _SRC_WBS,    ""),
+            ("実績開始日", _SRC_WBS,    ""),
+            ("実績終了日", _SRC_WBS,    ""),
+            ("遅延日数",   _SRC_DERIVED, ""),
+        ]
+        rows = []
+        for _, r in kpi_df.iterrows():
+            ps = _to_pydate(r.get("planned_start"))
+            pe = _to_pydate(r.get("planned_end"))
+            asd = _to_pydate(r.get("actual_start"))
+            aed = _to_pydate(r.get("actual_end"))
+            rows.append([
+                str(r["機能ID"]), r.get("機能名称"),
+                ps.isoformat() if ps else None,
+                pe.isoformat() if pe else None,
+                asd.isoformat() if asd else None,
+                aed.isoformat() if aed else None,
+                r.get("delay_days"),
+            ])
+        _step("gantt")
+        _xlsx_write_sheet(wb, "gantt", "ガントチャート 元データ",
+                          cols, rows)
+        _register("gantt",
+                  "WBS スケジュール一覧 (予定/実績)", "WBS")
+
+    # ----- 15) defects_raw -----------------------------------------------
+    if defects_df is not None and not defects_df.empty:
+        keep_cols = [c for c in defects_df.columns
+                     if c not in ("unresolved",)]
+        cols = [(c, _SRC_DEFECTS, "redmine 生データ") for c in keep_cols]
+        rows = []
+        for _, r in defects_df.iterrows():
+            row_vals = []
+            for c in keep_cols:
+                v = r.get(c)
+                if hasattr(v, "isoformat"):
+                    try:
+                        v = v.isoformat() if pd.notna(v) else None
+                    except Exception:
+                        pass
+                row_vals.append(v)
+            rows.append(row_vals)
+        _step("defects_raw")
+        _xlsx_write_sheet(wb, "defects_raw",
+                          "Redmine 不具合 生データ", cols, rows)
+        _register("defects_raw",
+                  "Redmineから取り込んだ不具合の全行", "redmine defects")
+
+    # ----- Populate the overview index now that every sheet is registered.
+    # Header row at 5, data from row 6.
+    from openpyxl.styles import Border, Font, PatternFill, Side, Alignment
+    bottom_thick = Border(bottom=Side(style="medium",
+                                      color=_XLSX_TITLE_FILL))
+    headers = ["No.", "シート名", "内容", "元ファイル", "リンク"]
+    for i, h in enumerate(headers, start=1):
+        c = ws_ov.cell(row=5, column=i, value=h)
+        c.font = Font(bold=True, size=11)
+        c.fill = PatternFill("solid", fgColor=_XLSX_HEADER_FILL)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.border = bottom_thick
+    from openpyxl.worksheet.hyperlink import Hyperlink as _Hyperlink
+    for n, (sid, desc, src) in enumerate(sheet_index, start=1):
+        ws_ov.cell(row=5 + n, column=1, value=n).alignment = Alignment(
+            horizontal="center")
+        ws_ov.cell(row=5 + n, column=2, value=sid).font = Font(bold=True)
+        ws_ov.cell(row=5 + n, column=3, value=desc)
+        ws_ov.cell(row=5 + n, column=4, value=src).font = Font(
+            italic=True, color="FF555555")
+        link_cell = ws_ov.cell(row=5 + n, column=5,
+                               value=f"→ {sid}")
+        # Internal-sheet hyperlinks need the explicit Hyperlink object so
+        # they survive serialisation; a bare "#sheet!A1" string assignment
+        # gets dropped by openpyxl on save.
+        link_cell.hyperlink = _Hyperlink(
+            ref=link_cell.coordinate,
+            location=f"{sid}!A1",
+            display=f"→ {sid}",
+        )
+        link_cell.font = Font(color="FF1F6FD9", underline="single")
+    # Width tuning for the overview index
+    widths = {1: 6, 2: 22, 3: 42, 4: 28, 5: 14}
+    for col, w in widths.items():
+        ws_ov.column_dimensions[get_column_letter(col)].width = w
+    # Move overview to the front (it was created first, but in case)
+    wb.move_sheet("overview", offset=-wb.sheetnames.index("overview"))
+
+    # ----- Serialise --------------------------------------------------------
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
+
+
 @st.dialog(" ")  # title set via inner markdown so we can include the emoji
 def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
-    """Two-stage modal for PDF export, implemented without st.rerun()
-    because calling rerun from inside an @st.dialog body triggers the
-    'Could not find fragment with id ...' error in Streamlit 1.39.
+    """Modal for PDF export. The scope is taken from the sidebar's global
+    Function ID filter — no per-export picker, since the user already
+    narrowed scope (or didn't, in which case the whole dataset is in
+    scope). A3-landscape with vertical pagination handles large counts.
 
-    Flow: render stage 1 (selection) inside an st.empty() container.
-    When the user clicks Start generation AND has a non-empty selection,
-    clear the slot and render stage 2 (runner + download) in its place,
-    all inside the same Python run. No rerun, no fragment id issues."""
-    # Build the picker options once.
-    opts_df = (kpi_df[["機能ID", "機能名称"]]
-               .drop_duplicates(subset=["機能ID"])
-               .fillna({"機能名称": ""}))
-    label_to_fid: dict[str, str] = {}
-    labels: list[str] = []
-    for _, r in opts_df.iterrows():
-        lab = _label_id_name(r)
-        label_to_fid[lab] = str(r["機能ID"])
-        labels.append(lab)
-
-    body = st.empty()
-
-    # --- Stage 1: selection -------------------------------------------------
-    with body.container():
-        st.markdown(
-            f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
-            f"{t('pdf_select_title')}</div>"
-            f"<div style='font-size:12px;color:#aaa;margin:0 0 14px;'>"
-            f"{t('pdf_select_caption')}</div>",
-            unsafe_allow_html=True,
+    Implemented without st.rerun() because calling rerun from inside an
+    @st.dialog body triggers the 'Could not find fragment with id ...'
+    error in Streamlit 1.39 — everything happens in one Python run.
+    """
+    # Resolve scope from the sidebar filter; empty filter means "all".
+    sidebar_fids = _get_global_fids()
+    if sidebar_fids:
+        selected_fids = [fid for fid in sidebar_fids
+                         if fid in set(kpi_df["機能ID"].astype(str))]
+        scope_label = t("pdf_scope_filter", n=len(selected_fids))
+    else:
+        selected_fids = (
+            kpi_df["機能ID"].dropna().astype(str).unique().tolist()
         )
-        chosen = st.multiselect(
-            t("pdf_select_label"),
-            options=labels,
-            key="pdf_fid_multiselect",
-        )
-        st.caption(t("pdf_select_count", n=len(chosen)))
-        err_slot = st.empty()
-        proceed = st.button(
-            t("pdf_btn_confirm"), type="primary",
-            key="pdf_confirm_generate", use_container_width=True,
-        )
+        scope_label = t("pdf_scope_all", n=len(selected_fids))
 
-    if not proceed:
-        return
-    if not chosen:
-        err_slot.error(t("pdf_select_error_empty"))
+    if not selected_fids:
+        st.error(t("pdf_select_error_empty"))
         return
 
-    # --- Stage 2: generate (replaces stage 1 in `body`) ---------------------
-    selected_fids = [label_to_fid[c] for c in chosen]
     # Filter kpi_df + defects_df so every chart sees only the chosen rows.
-    kdf = kpi_df[kpi_df["機能ID"].isin(selected_fids)].copy()
+    kdf = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
     defects_src = st.session_state.dfs.get("defects")
-    ddf = (defects_src[defects_src["機能ID"].isin(selected_fids)].copy()
+    ddf = (defects_src[defects_src["機能ID"].astype(str)
+                       .isin(selected_fids)].copy()
            if defects_src is not None else None)
     _get_logger().info(
-        f"[pdf_export] stage-2 enter: {len(selected_fids)} fids selected, "
+        f"[pdf_export] sidebar-driven: {len(selected_fids)} fids "
+        f"({'filter' if sidebar_fids else 'all'}), "
         f"kpi_rows={len(kdf)} defect_rows={0 if ddf is None else len(ddf)}"
     )
 
-    body.empty()
+    body = st.empty()
     with body.container():
         st.markdown(
             f"<div style='font-weight:700;font-size:16px;margin:-4px 0 2px;'>"
             f"{t('pdf_dialog_title')}</div>"
             f"<div style='font-size:12px;color:#aaa;margin:0 0 10px;'>"
-            f"{t('pdf_dialog_subtitle')}"
-            f" · {t('pdf_select_count', n=len(selected_fids))}</div>",
+            f"{t('pdf_dialog_subtitle')} · {scope_label}</div>",
             unsafe_allow_html=True,
         )
         slot = st.empty()
@@ -12303,7 +13851,10 @@ def _open_pdf_dialog(kpi_df: pd.DataFrame) -> None:
             )
             with result_slot.container():
                 st.error(t("pdf_error", err=exc))
-                with st.expander(t("log_show_detail"), expanded=False):
+                # Open by default — the user has been seeing the short
+                # error message and not realising the full traceback was
+                # one click away inside the expander.
+                with st.expander(t("log_show_detail"), expanded=True):
                     st.code(detail, language="text")
 
 
@@ -12747,6 +14298,7 @@ def _render_category_pdf_section_header(
         # uploaded defects must rebuild once they appear.
         int(len(defects_df) if defects_df is not None else 0),
         st.session_state.get("lang", "ja"),
+        APP_VERSION,
     )
     state_bytes_key = f"cat_pdf_bytes::{category_key}"
     state_sig_key = f"cat_pdf_sig::{category_key}"
@@ -12827,6 +14379,7 @@ def _render_test_density_section_header(kpi_df: pd.DataFrame) -> None:
         (float(kpi_df["test_density"].fillna(0).sum())
          if "test_density" in kpi_df.columns else 0.0),
         st.session_state.get("lang", "ja"),
+        APP_VERSION,
     )
     # See note in _render_role_analytics_header — bool() coerces the
     # `and` short-circuit so disabled= stays a real bool on first render.
@@ -12906,12 +14459,15 @@ def render_charts_tab() -> None:
         st.info(t("charts_needs_master"))
         return
 
-    # ----- PDF export controls (top of tab, right-aligned) ----------------
+    # ----- Export controls (PDF + Excel, top of tab, right-aligned) -------
     # Unified pattern across every PDF surface: icon-only 📄 button opens
     # the feature picker + progress dialog; once bytes are in session
-    # state, a second ⬇ icon appears next to it for download. Both icons
-    # live in a small column at the right edge of the toolbar.
-    _, pdf_gen_col, pdf_dl_col = st.columns([11, 1, 1], gap="small")
+    # state, a second ⬇ icon appears next to it for download. The Excel
+    # button (📊) follows the same gen/download pair, scope is taken from
+    # the sidebar's global FID filter (empty filter ⇒ all features).
+    _, pdf_gen_col, pdf_dl_col, xlsx_gen_col, xlsx_dl_col = st.columns(
+        [9, 1, 1, 1, 1], gap="small",
+    )
     with pdf_gen_col:
         if st.button(
             "", icon=":material/picture_as_pdf:",
@@ -12935,6 +14491,102 @@ def render_charts_tab() -> None:
                 mime="application/pdf",
                 key="pdf_download",
                 help=t("pdf_btn_download_short"),
+                use_container_width=True,
+            )
+
+    # ---- Excel report (📊) ------------------------------------------------
+    # Cache key: kpi rows + defects rows + sidebar filter signature so the
+    # bytes are reused across reruns until something material changes.
+    sidebar_fids = _get_global_fids()
+    defects_for_xlsx = st.session_state.dfs.get("defects")
+    xlsx_sig: tuple = (
+        int(len(kpi_df)),
+        int(len(defects_for_xlsx) if defects_for_xlsx is not None else 0),
+        tuple(sidebar_fids),
+        st.session_state.get("lang", "ja"),
+        APP_VERSION,
+    )
+    have_xlsx = bool(
+        st.session_state.get("report_xlsx_bytes")
+        and st.session_state.get("report_xlsx_sig") == xlsx_sig
+    )
+    # Runner slot lives ABOVE the toolbar so the user actually sees it
+    # — Streamlit lays this out at the top once Python reaches it. The
+    # slot is only populated during a click handler; on the next rerun
+    # it renders empty (the download button two cols over is the
+    # persistent confirmation that the build succeeded).
+    xlsx_runner_slot = st.empty()
+    with xlsx_gen_col:
+        if st.button(
+            "", icon=":material/table_view:",
+            key="xlsx_generate",
+            help=t("xlsx_btn_help"),
+            use_container_width=True,
+            disabled=have_xlsx,
+        ):
+            try:
+                # Apply the sidebar's FID filter before building, so the
+                # workbook respects the user's narrowed scope. `or` would
+                # trigger pandas' DataFrame truthiness ambiguity error,
+                # so the fallback uses an explicit None check instead.
+                kdf_x = _apply_global_fid_filter(kpi_df)
+                if kdf_x is None:
+                    kdf_x = kpi_df
+                ddf_x = (_apply_global_fid_filter(defects_for_xlsx)
+                         if defects_for_xlsx is not None else None)
+                # Initial frame so the user sees the runner immediately,
+                # then a per-sheet update via progress_cb, then the
+                # finishline frame after generate_excel_report returns.
+                xlsx_runner_slot.markdown(
+                    _render_pdf_runner_html(
+                        0, XLSX_TOTAL_STEPS, t("xlsx_generating")),
+                    unsafe_allow_html=True,
+                )
+
+                def _xlsx_runner_cb(step, total, msg):
+                    xlsx_runner_slot.markdown(
+                        _render_pdf_runner_html(
+                            step, total,
+                            t("xlsx_step_label", sheet=msg, i=step,
+                              n=total),
+                        ),
+                        unsafe_allow_html=True,
+                    )
+
+                xlsx_bytes = generate_excel_report(
+                    kdf_x, defects_df=ddf_x,
+                    progress_cb=_xlsx_runner_cb,
+                )
+                xlsx_runner_slot.markdown(
+                    _render_pdf_runner_html(
+                        XLSX_TOTAL_STEPS, XLSX_TOTAL_STEPS,
+                        t("xlsx_done"), done=True,
+                    ),
+                    unsafe_allow_html=True,
+                )
+                st.session_state["report_xlsx_bytes"] = xlsx_bytes
+                st.session_state["report_xlsx_sig"] = xlsx_sig
+                st.toast(t("xlsx_done"), icon="📊")
+            except Exception as exc:
+                xlsx_runner_slot.empty()
+                _get_logger().exception(
+                    f"[xlsx_export] build failed: {exc}"
+                )
+                st.error(t("xlsx_error", err=str(exc)))
+    with xlsx_dl_col:
+        if have_xlsx:
+            fname_xlsx = (
+                f"dashboard4dx_report_"
+                f"{date.today().strftime('%Y%m%d')}.xlsx"
+            )
+            st.download_button(
+                label="", icon=":material/download:",
+                data=st.session_state["report_xlsx_bytes"],
+                file_name=fname_xlsx,
+                mime=("application/vnd.openxmlformats-"
+                      "officedocument.spreadsheetml.sheet"),
+                key="xlsx_download",
+                help=t("xlsx_btn_download"),
                 use_container_width=True,
             )
 
@@ -14178,7 +15830,7 @@ def main() -> None:
   <h1 class="d4dx-title-h1">dashboard4dx</h1>
   <div class="d4dx-trex-bubble">
     <strong>開発者：Shin＆Shiobara</strong>
-    <span class="ver">Ver1.0.93</span>
+    <span class="ver">Ver{APP_VERSION}</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
