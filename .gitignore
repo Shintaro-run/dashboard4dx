@@ -11,6 +11,13 @@ build/
 __pycache__/
 *.egg-info/
 
+# Frontend custom-component bundle is checked in (so users don't need Node).
+# Only node_modules and Vite's local cache are excluded.
+!frontend/dist/
+!frontend/dist/**
+frontend/node_modules/
+frontend/.vite/
+
 # Personal/Private
 .data/
 gitignore/

@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.1.12"
+APP_VERSION = "1.2.0"
 
 
 def log_error(category: str, summary: str, *,
@@ -3068,6 +3068,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "main_tab_delivery": "🏁 Delivery",
         "main_tab_backlog": "📋 Backlog",
         "main_tab_design": "📐 Design pages",
+        "main_tab_architecture": "🏗️ Architecture",
         "main_tab_settings": "⚙️ Settings",
         "delivery_needs_data": (
             "Upload a Function master and WBS to see team delivery "
@@ -4359,6 +4360,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "main_tab_delivery": "🏁 パフォーマンス",
         "main_tab_backlog": "📋 Backlog",
         "main_tab_design": "📐 設計書ページ数",
+        "main_tab_architecture": "🏗️ アーキテクチャ",
         "main_tab_settings": "⚙️ 設定",
         "delivery_needs_data": (
             "機能マスタと WBS を取り込むとチームパフォーマンスが表示されます。"
@@ -6743,7 +6745,11 @@ def _drilldown_description_for(function_id: str) -> str:
 
 def render_drilldown_panel(kpi_df: pd.DataFrame,
                            defects_df: Optional[pd.DataFrame],
-                           function_id: str) -> None:
+                           function_id: str,
+                           *,
+                           close_label: Optional[str] = None,
+                           close_help: Optional[str] = None,
+                           on_close=None) -> None:
     """All-in-one detail view for a single Function ID. Aggregates duplicate-
     name rows so the metrics are shown once even if the master holds the same
     ID with multiple names."""
@@ -6924,13 +6930,15 @@ def render_drilldown_panel(kpi_df: pd.DataFrame,
                         }
 
         with close_col:
-            if st.button("✕", key="drilldown_close_btn",
-                         help=t("drilldown_close"),
+            if st.button(close_label or "✕", key="drilldown_close_btn",
+                         help=close_help or t("drilldown_close"),
                          use_container_width=True):
-                st.session_state.pop("drilldown_id", None)
-                # Clear all per-table selection state so a fresh click works.
-                for k in _DRILLDOWN_TABLE_KEYS:
-                    st.session_state.pop(k, None)
+                if on_close is not None:
+                    on_close()
+                else:
+                    st.session_state.pop("drilldown_id", None)
+                    for k in _DRILLDOWN_TABLE_KEYS:
+                        st.session_state.pop(k, None)
                 st.rerun()
 
         # ---- Persistent notification bar (download chips + errors) ------
@@ -15924,7 +15932,7 @@ def main() -> None:
         page_title="dashboard4dx",
         page_icon=str(favicon_path),
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="collapsed",
     )
     _inject_styles()
 
@@ -16062,7 +16070,7 @@ def main() -> None:
 
     # --- Top-level tabs ------------------------------------------------------
     (tab_dashboard, tab_charts, tab_calendar, tab_alert, tab_delivery,
-     tab_backlog, tab_design, tab_settings) = st.tabs([
+     tab_backlog, tab_design, tab_arch, tab_settings) = st.tabs([
         t("main_tab_dashboard"),
         t("main_tab_charts"),
         t("main_tab_calendar"),
@@ -16070,6 +16078,7 @@ def main() -> None:
         t("main_tab_delivery"),
         t("main_tab_backlog"),
         t("main_tab_design"),
+        t("main_tab_architecture"),
         t("main_tab_settings"),
     ])
     with tab_dashboard:
@@ -16086,6 +16095,9 @@ def main() -> None:
         render_backlog_tab()
     with tab_design:
         render_design_pages_tab()
+    with tab_arch:
+        import arch
+        arch.render_architecture_tab()
     with tab_settings:
         render_settings_tab()
 
