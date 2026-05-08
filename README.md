@@ -5,7 +5,7 @@ via a single **Function ID** key. Every byte of data stays on the machine runnin
 the app — no outbound network calls beyond `pip install`.
 
 - **Developer:** Shin & Shiobara
-- **Version:** 1.0.80
+- **Version:** 1.3.0
 - **License:** MIT
 
 ---
@@ -21,7 +21,7 @@ A3-landscape PDF report.
 | 1 | Function ID master / 機能ID一覧 | xlsx | sheet `機能一覧`, **col F** = Function ID, **col G** = Function name, **col L** = 機能概要 (free-form description, optional — surfaced as the "機能の説明" section in the drilldown panel and the drilldown PDF). Scan range = row 2 .. last row where col B is filled. Rows whose F cell is empty (section headers, totals) are skipped. Strike-through cells are kept. |
 | 2 | WBS / WBS | xlsm | sheet `メイン`, data from row 16. Function ID extracted from cells `機能ID：XXXX` / `機能ID:XXXX` / bare `XXXX` in cols **E–I**. Schedule columns: **N** assignee (担当者 on sub-task rows), **P** planned effort, **Q** planned start, **R** planned end, **S** actual start, **T** actual end, **U** actual effort, **V** actual progress %, **AA** planned progress %. Sub-task rows (marked with ● in col L) carry the role keyword (開発/テスト仕様書作成/テスト実施) that drives the 担当者×ロール analytics. |
 | 3 | Redmine defect list / Redmine不具合一覧 | csv | columns: トラッカー, ステータス, 担当者, 実開始日, 実終了日, 機能ID, 問題分類. Filter applied: tracker = `不具合管理`. Dates parsed as `MM/DD/YYYY`. |
-| 4 | Test counts per spec / 仕様書別テスト集計 | csv | positional columns — A = Function ID, C = 総設定テスト数 (planned total = 実施済 + 未実施), D = 実施済, E = OK, F = NG. |
+| 4 | Test counts per spec / 仕様書別テスト集計 | csv | positional columns — A = Function ID, C = 総設定テスト数 (planned total = 実施済 + 未実施), D = 実施済, E = OK, F = NG. A Function ID may legitimately appear on multiple rows (one per test spec, e.g. 旧仕様/新仕様); the loader keeps every row and the integration step sums 総設定テスト数 / 実施済 / OK / NG / 未実施 per Function ID before joining onto the master, so every per-FID metric and chart sees the per-Function-ID totals rather than a single spec slice. The 仕様書ごとの内訳 is still surfaced in the test-coverage chart's hover. |
 | 5 | LoC per Function ID / 機能ID別コード行数 | xlsx | sheet `機能ID別サマリ`, A = Function ID, B = LoC. |
 | 6 | Design page counts / 設計書ページ数 | manual form | entered inside the **Design pages** tab; auto-saved to `input/design_pages.json`. |
 | 7 | Calendar / カレンダー | xlsx | optional. Two sheets: `行事` (global events, cols: date / title / description) and `個人非稼働日` (per-assignee non-working days, cols: assignee / start / end / reason). Powers the calendar tab's event layers. |
@@ -334,9 +334,11 @@ app.
   list of related defects). Click ✕ to close.
 - **🦖 hidden bubble** — clicking the T-Rex icon in the title pops a small
   card with developer/version info; clicking again hides it.
-- **Global Function ID filter** — a sidebar multiselect that narrows
-  every tab to just the selected IDs. Alerts, DORA metrics, role
-  analytics, and the integrated tables all honour it.
+- **Global Function ID filter** — a sidebar checkbox list (one row per
+  Function ID, scrollable, with 全選択 / クリア buttons above) that
+  narrows every tab to just the ticked IDs. With nothing ticked, every
+  Function ID is in scope. Alerts, DORA metrics, role analytics, and
+  the integrated tables all honour it.
 - **Hover help** — every column header, every metric, every chart heading,
   the Gantt heading and the calendar heading carry a “?” icon with a
   formatted definition / source / how-to-read tooltip.

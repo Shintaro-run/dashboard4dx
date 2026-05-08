@@ -89,7 +89,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 
 
 def log_error(category: str, summary: str, *,
@@ -2592,10 +2592,19 @@ def integrate(
         df = df.merge(agg, on="機能ID", how="left")
 
     if tests is not None and not tests.empty:
-        df = df.merge(
-            tests[["機能ID", "総設定テスト数", "実施済", "OK", "NG", "未実施"]],
-            on="機能ID", how="left",
+        # Multi-spec FIDs (旧仕様/新仕様) put more than one row per
+        # Function ID in test_counts. Sum here so kpi_df is strictly 1
+        # row per Function ID downstream — every per-row metric in
+        # compute_kpis (incident_rate, test_density, test_run_rate, …)
+        # then operates on per-FID totals instead of per-spec slices.
+        tests_agg = tests.groupby("機能ID", as_index=False).agg(
+            総設定テスト数=("総設定テスト数", "sum"),
+            実施済=("実施済", "sum"),
+            OK=("OK", "sum"),
+            NG=("NG", "sum"),
+            未実施=("未実施", "sum"),
         )
+        df = df.merge(tests_agg, on="機能ID", how="left")
 
     if code is not None and not code.empty:
         df = df.merge(code[["機能ID", "LoC"]], on="機能ID", how="left")
@@ -3269,10 +3278,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_defect_class_col_share": "Share",
         "global_fid_filter_title": "Function ID filter",
         "global_fid_filter_label": "Function IDs",
-        "global_fid_filter_help": "Empty = every Function ID. Applied to Overview compare, Calendar, and Charts (Redmine 問題分類).",
+        "global_fid_filter_help": "Tick = in scope. Nothing ticked = every Function ID. Applied to Overview compare, Calendar, and Charts (Redmine 問題分類).",
         "global_fid_filter_scope_all": "Scope: all Function IDs",
         "global_fid_filter_scope_n": "Scope: {n} Function ID(s)",
         "global_fid_filter_upload_hint": "Upload the Function ID master to unlock the filter.",
+        "global_fid_filter_select_all": "Select all",
+        "global_fid_filter_clear": "Clear",
         "kpi_missing_header": "**Cannot compute — missing inputs:**",
         "source_label_tests":   "Test counts CSV",
         "source_label_code":    "Code (LoC) XLSX",
@@ -3299,6 +3310,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_executed": "Executed",
         "chart_label_total": "Total",
         "chart_label_coverage": "Coverage",
+        "chart_label_breakdown": "Breakdown",
+        "chart_label_specs_suffix": "test specs",
         "calendar_needs_master": "Upload **Function master** in the Dashboard tab to unlock the calendar.",
         "calendar_title": "Project calendar",
         "calendar_caption": (
@@ -4551,10 +4564,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_defect_class_col_share": "割合",
         "global_fid_filter_title": "機能IDフィルタ",
         "global_fid_filter_label": "機能ID",
-        "global_fid_filter_help": "未選択で全機能ID。Overview比較 / カレンダー / Charts（Redmine 問題分類）に適用されます。",
+        "global_fid_filter_help": "チェックON＝対象。何もチェックがなければ全機能ID。Overview比較 / カレンダー / Charts（Redmine 問題分類）に適用されます。",
         "global_fid_filter_scope_all": "対象: 全機能ID",
         "global_fid_filter_scope_n": "対象: {n} 件の機能ID",
         "global_fid_filter_upload_hint": "機能IDマスタを取り込むとフィルタが使えます。",
+        "global_fid_filter_select_all": "全選択",
+        "global_fid_filter_clear": "クリア",
         "kpi_missing_header": "**計算不可 — 未入力:**",
         "source_label_tests":   "テスト集計CSV",
         "source_label_code":    "コード行数XLSX",
@@ -4579,6 +4594,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_executed": "実施済",
         "chart_label_total": "合計",
         "chart_label_coverage": "カバレッジ",
+        "chart_label_breakdown": "内訳",
+        "chart_label_specs_suffix": "件のテスト仕様書",
         "calendar_needs_master": "Dashboardタブで **機能マスタ** を取り込むとカレンダーが利用できます。",
         "calendar_title": "プロジェクトカレンダー",
         "calendar_caption": (
@@ -8506,8 +8523,41 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     with np.errstate(divide="ignore", invalid="ignore"):
         cov_pct = np.where(total_vals > 0,
                            ok_vals / total_vals * 100, 0.0)
-    customdata = np.column_stack([ok_vals, ng_vals, nr_vals,
-                                  total_vals, cov_pct])
+
+    # Hover breakdown for multi-spec FIDs. kpi_df is now strictly 1 row
+    # per Function ID (integrate_master sums across specs), so to recover
+    # the per-spec counts we read the raw test_counts frame from
+    # session_state and group it ourselves.
+    raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+    breakdown_by_fid: dict[str, str] = {}
+    if (raw_tests is not None and not raw_tests.empty
+            and {"機能ID", "OK", "NG", "未実施"}.issubset(raw_tests.columns)):
+        for fid, sub in raw_tests.groupby("機能ID"):
+            if len(sub) <= 1:
+                continue
+            ok_list = [int(v) for v in sub["OK"].fillna(0)]
+            ng_list = [int(v) for v in sub["NG"].fillna(0)]
+            nr_list = [int(v) for v in sub["未実施"].fillna(0)]
+            breakdown_by_fid[str(fid)] = (
+                f"<br>{t('chart_label_breakdown')} "
+                f"({len(sub)} {t('chart_label_specs_suffix')}): "
+                f"{t('chart_label_ok')} "
+                f"{' + '.join(map(str, ok_list))} / "
+                f"{t('chart_label_ng')} "
+                f"{' + '.join(map(str, ng_list))} / "
+                f"{t('chart_label_notrun')} "
+                f"{' + '.join(map(str, nr_list))}"
+            )
+    breakdowns = [breakdown_by_fid.get(str(fid), "")
+                  for fid in df["機能ID"].astype(str)]
+
+    customdata = np.empty((len(df), 6), dtype=object)
+    customdata[:, 0] = ok_vals.values
+    customdata[:, 1] = ng_vals.values
+    customdata[:, 2] = nr_vals.values
+    customdata[:, 3] = total_vals.values
+    customdata[:, 4] = cov_pct
+    customdata[:, 5] = breakdowns
     hover_tmpl = (
         "<b>%{y}</b><br>"
         f"{t('chart_label_ok')}: %{{customdata[0]}}  "
@@ -8515,6 +8565,7 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         f"{t('chart_label_notrun')}: %{{customdata[2]}}<br>"
         f"{t('chart_label_total')}: %{{customdata[3]}}  "
         f"{t('chart_label_coverage')}: %{{customdata[4]:.1f}}%"
+        "%{customdata[5]}"
         "<extra></extra>"
     )
     def _seg_text(values):
@@ -10098,6 +10149,16 @@ def _mpl_chart_test_coverage(kpi_df: pd.DataFrame):
     df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
     if df.empty:
         return None
+    # Sum duplicate-FID rows (multi-spec test counts) so each bar is one row.
+    has_name = "機能名称" in df.columns
+    agg_kw: dict[str, tuple] = {
+        "OK":   ("OK", "sum"),
+        "NG":   ("NG", "sum"),
+        "未実施": ("未実施", "sum"),
+    }
+    if has_name:
+        agg_kw["機能名称"] = ("機能名称", "first")
+    df = df.groupby("機能ID", as_index=False).agg(**agg_kw)
     df["display"] = _feature_display_series(df).map(_clip_label)
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
@@ -15875,14 +15936,28 @@ def _compose_missing_help(base_help: str,
     return block
 
 
+_FID_CB_KEY_PREFIX = "_fid_cb_"
+
+
+def _fid_options_from_master() -> list[str]:
+    """Sorted unique Function IDs from the loaded master, or [] if absent.
+    Used both by the sidebar filter widget and by `_get_global_fids` so
+    callers running BEFORE the sidebar renders see a consistent answer."""
+    master = (st.session_state.get("dfs") or {}).get("master")
+    if master is None or master.empty or "機能ID" not in master.columns:
+        return []
+    return sorted(str(x) for x in master["機能ID"].dropna().unique())
+
+
 def _get_global_fids() -> list[str]:
     """Return the session-wide Function ID filter selection, as strings.
-    Empty list means "no filter" (every Function ID is in scope)."""
-    try:
-        return [str(x) for x in
-                st.session_state.get("global_fid_filter", [])]
-    except Exception:
-        return []
+    Empty list means "no filter" (every Function ID is in scope).
+
+    Sourced directly from the per-FID sidebar checkbox state so callers
+    see fresh values on the same rerun the user toggles a checkbox, even
+    though `_render_global_fid_filter` runs late in main()."""
+    return [fid for fid in _fid_options_from_master()
+            if st.session_state.get(f"{_FID_CB_KEY_PREFIX}{fid}", False)]
 
 
 def _apply_global_fid_filter(df: Optional[pd.DataFrame]
@@ -15905,20 +15980,38 @@ def _render_global_fid_filter() -> None:
     Rendered LAST in main() so that tabs have already populated
     `st.session_state.dfs` via auto-load; on the next rerun the widget
     sees the freshly loaded master and offers every ID as a choice.
+
+    Each Function ID gets its own checkbox under a scrollable container,
+    plus a 全選択 / クリア pair of buttons. The public selection is
+    derived on demand by `_get_global_fids` reading the checkbox state,
+    so tabs that run earlier in the rerun still see the up-to-date set.
     """
     with st.sidebar:
         st.subheader(t("global_fid_filter_title"))
-        master = st.session_state.dfs.get("master")
-        if master is None or master.empty:
+        options = _fid_options_from_master()
+        if not options:
             st.caption(t("global_fid_filter_upload_hint"))
             return
-        options = sorted(str(x) for x in master["機能ID"].dropna().unique())
-        st.multiselect(
-            t("global_fid_filter_label"),
-            options=options, default=[],
-            key="global_fid_filter",
-            help=t("global_fid_filter_help"),
-        )
+        st.caption(t("global_fid_filter_help"))
+
+        c1, c2 = st.columns(2)
+        if c1.button(t("global_fid_filter_select_all"),
+                     use_container_width=True,
+                     key="_fid_cb_select_all"):
+            for fid in options:
+                st.session_state[f"{_FID_CB_KEY_PREFIX}{fid}"] = True
+            st.rerun()
+        if c2.button(t("global_fid_filter_clear"),
+                     use_container_width=True,
+                     key="_fid_cb_clear"):
+            for fid in options:
+                st.session_state[f"{_FID_CB_KEY_PREFIX}{fid}"] = False
+            st.rerun()
+
+        with st.container(height=320, border=True):
+            for fid in options:
+                st.checkbox(fid, key=f"{_FID_CB_KEY_PREFIX}{fid}")
+
         n = len(_get_global_fids())
         if n == 0:
             st.caption(t("global_fid_filter_scope_all"))

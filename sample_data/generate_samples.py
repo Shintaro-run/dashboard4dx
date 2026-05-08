@@ -463,28 +463,55 @@ def make_defects() -> Path:
 
 
 # ----- 4. Test counts CSV -----------------------------------------------------
+# A few 機能IDs intentionally show up in multiple rows here, mirroring the
+# real-world case where one function has several test-spec sheets (e.g.
+# 旧仕様 / 新仕様). Unlike the master, the test-counts sheet does NOT
+# deduplicate — every spec row is real and contributes to the per-FID
+# totals. The dashboard must aggregate these at the chart layer (sum
+# 総設定テスト数 / 実施済 / OK / NG / 未実施 by 機能ID).
+MULTI_SPEC_FIDS = {"USER010", "SEARCH01", "PAY001"}
+
+
 def make_test_counts() -> Path:
-    """A=機能ID, C=総テスト, D=実施済, E=OK, F=NG (B intentionally blank)."""
+    """A=機能ID, C=総テスト, D=実施済, E=OK, F=NG (B intentionally blank).
+
+    Some FIDs deliberately appear in 2–3 rows so the dashboard's per-FID
+    aggregation path is exercised end-to-end. USER010 also gets a third,
+    non-adjacent spec row appended at the end so aggregation isn't only
+    tested on adjacent duplicates."""
     out = OUT_DIR / "test_counts_20260420090000.csv"
+
+    def _make_row(fid: str) -> list:
+        total = random.randint(20, 120)
+        # NO_EXEC_FIDS: planned but never executed → 実施済 = 0 so
+        # incident_rate for that feature is NaN (divide-by-zero). Any
+        # WBS assignee whose sub-tasks land only on these features
+        # therefore ends up with avg_incident_rate = NaN, which is
+        # the second rendering edge case the bubble map now handles.
+        if fid in NO_EXEC_FIDS:
+            executed = 0
+            ok = 0
+            ng = 0
+        else:
+            executed = random.randint(int(total * 0.4), total)
+            ok = random.randint(int(executed * 0.6), executed)
+            ng = executed - ok
+        return [fid, "", total, executed, ok, ng]
+
+    rows: list[list] = []
+    for fid in UNIQUE_IDS:
+        rows.append(_make_row(fid))
+        if fid in MULTI_SPEC_FIDS:
+            # Second spec sheet (e.g. 新仕様) for this Function ID.
+            rows.append(_make_row(fid))
+    # Non-adjacent third spec row for USER010 — exercises the
+    # "duplicates aren't necessarily contiguous" path.
+    rows.append(_make_row("USER010"))
+
     with out.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
         writer.writerow(["機能ID", "", "総テスト", "実施済", "OK", "NG"])
-        for fid in UNIQUE_IDS:
-            total = random.randint(20, 120)
-            # NO_EXEC_FIDS: planned but never executed → 実施済 = 0 so
-            # incident_rate for that feature is NaN (divide-by-zero). Any
-            # WBS assignee whose sub-tasks land only on these features
-            # therefore ends up with avg_incident_rate = NaN, which is
-            # the second rendering edge case the bubble map now handles.
-            if fid in NO_EXEC_FIDS:
-                executed = 0
-                ok = 0
-                ng = 0
-            else:
-                executed = random.randint(int(total * 0.4), total)
-                ok = random.randint(int(executed * 0.6), executed)
-                ng = executed - ok
-            writer.writerow([fid, "", total, executed, ok, ng])
+        writer.writerows(rows)
     return out
 
 
