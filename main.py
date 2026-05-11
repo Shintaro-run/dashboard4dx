@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.0"
+APP_VERSION = "1.8.1"
 
 
 def log_error(category: str, summary: str, *,
@@ -8439,6 +8439,30 @@ def _clip_label(s: str) -> str:
     return s if len(s) <= _BAR_LABEL_MAX_CHARS else s[: _BAR_LABEL_MAX_CHARS - 1] + "…"
 
 
+def _disambiguate_bar_labels(df: pd.DataFrame, col: str = "display") -> pd.DataFrame:
+    """Make every value in ``df[col]`` unique by appending ``" #N"`` to
+    colliding rows within each duplicate group.
+
+    Per-spec coverage / density charts produce one bar per raw
+    test_counts row. If the customer's CSV has multiple rows with the
+    same Function ID *and* the same column-B spec name (a real-world
+    occurrence: column B left at a generic default or filename clipped
+    to the same prefix by ``_clip_label``), the two rows render to
+    identical y-axis labels and plotly silently stacks them onto a
+    single bar — making the chart look like the toggle had no effect.
+    This safety net guarantees one y-tick per row."""
+    dup_mask = df[col].duplicated(keep=False)
+    if not dup_mask.any():
+        return df
+    seq = df.loc[dup_mask].groupby(col).cumcount() + 1
+    df = df.copy()
+    df.loc[dup_mask, col] = (
+        df.loc[dup_mask, col].astype(str)
+        + seq.map(lambda i: f" #{int(i)}")
+    )
+    return df
+
+
 def _truncate_note_annotation(shown: int, total: int) -> dict:
     """Small top-right annotation used when a per-feature bar chart has
     been trimmed to the worst N entries for legibility."""
@@ -8772,6 +8796,7 @@ def _chart_test_density(
             return f"{head} 〔{spec}〕"
 
         df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["test_density"]).copy()
         if df.empty:
@@ -9011,6 +9036,8 @@ def _chart_test_coverage(
             return f"{head} 〔{spec}〕"
 
         df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        # Guarantee uniqueness so plotly doesn't collapse colliding rows.
+        df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
         if df.empty:
@@ -10684,6 +10711,7 @@ def _mpl_chart_test_density(
             return f"{head} 〔{spec}〕"
 
         df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["test_density"]).copy()
         if df.empty:
@@ -10797,6 +10825,7 @@ def _mpl_chart_test_coverage(
             return f"{head} 〔{spec}〕"
 
         df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
         if df.empty:
