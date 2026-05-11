@@ -473,15 +473,20 @@ MULTI_SPEC_FIDS = {"USER010", "SEARCH01", "PAY001"}
 
 
 def make_test_counts() -> Path:
-    """A=機能ID, C=総テスト, D=実施済, E=OK, F=NG (B intentionally blank).
+    """A=機能ID, B=仕様書ファイル名, C=総テスト, D=実施済, E=OK, F=NG.
 
-    Some FIDs deliberately appear in 2–3 rows so the dashboard's per-FID
-    aggregation path is exercised end-to-end. USER010 also gets a third,
-    non-adjacent spec row appended at the end so aggregation isn't only
-    tested on adjacent duplicates."""
+    Real-world files carry the test-spec file name in column B, and the
+    same 機能ID can appear in more than one row when its tests are split
+    across multiple spec sheets (旧仕様 / 新仕様, normal / abnormal, …).
+    The dashboard's per-FID aggregation sums those rows; the chart's
+    `テスト仕様書別` toggle shows them individually using col B as the
+    bar label.
+
+    USER010 also gets a third, non-adjacent spec row appended at the end
+    so aggregation isn't only tested on adjacent duplicates."""
     out = OUT_DIR / "test_counts_20260420090000.csv"
 
-    def _make_row(fid: str) -> list:
+    def _make_row(fid: str, spec_name: str = "") -> list:
         total = random.randint(20, 120)
         # NO_EXEC_FIDS: planned but never executed → 実施済 = 0 so
         # incident_rate for that feature is NaN (divide-by-zero). Any
@@ -496,21 +501,44 @@ def make_test_counts() -> Path:
             executed = random.randint(int(total * 0.4), total)
             ok = random.randint(int(executed * 0.6), executed)
             ng = executed - ok
-        return [fid, "", total, executed, ok, ng]
+        return [fid, spec_name, total, executed, ok, ng]
+
+    # Spec-name templates for multi-spec FIDs — picked to be visually
+    # distinct on the per-spec chart so anyone scanning the sample can
+    # see what column B is doing.
+    multi_spec_names: dict[str, list[str]] = {
+        "USER010":  ["旧仕様_プロフィール編集.xlsx",
+                     "新仕様_プロフィール編集.xlsx"],
+        "SEARCH01": ["Search_Basic_テスト仕様書.xlsx",
+                     "Search_Advanced_テスト仕様書.xlsx"],
+        "PAY001":   ["Payment_CreditCard_テスト仕様書.xlsx",
+                     "Payment_BankTransfer_テスト仕様書.xlsx"],
+    }
+    # Default spec name for single-spec FIDs — keep it generic but
+    # filename-shaped so it looks like the column came from a real CSV.
+    def _default_spec(fid: str) -> str:
+        return f"{fid}_テスト仕様書.xlsx"
 
     rows: list[list] = []
     for fid in UNIQUE_IDS:
-        rows.append(_make_row(fid))
         if fid in MULTI_SPEC_FIDS:
-            # Second spec sheet (e.g. 新仕様) for this Function ID.
-            rows.append(_make_row(fid))
+            names = multi_spec_names.get(fid, [
+                f"{fid}_旧仕様.xlsx", f"{fid}_新仕様.xlsx",
+            ])
+            rows.append(_make_row(fid, names[0]))
+            rows.append(_make_row(fid, names[1]))
+        else:
+            rows.append(_make_row(fid, _default_spec(fid)))
     # Non-adjacent third spec row for USER010 — exercises the
     # "duplicates aren't necessarily contiguous" path.
-    rows.append(_make_row("USER010"))
+    rows.append(_make_row("USER010", "保守_プロフィール編集_差分.xlsx"))
 
     with out.open("w", newline="", encoding="utf-8-sig") as f:
         writer = csv.writer(f)
-        writer.writerow(["機能ID", "", "総テスト", "実施済", "OK", "NG"])
+        writer.writerow(
+            ["機能ID", "仕様書ファイル名", "総テスト",
+             "実施済", "OK", "NG"]
+        )
         writer.writerows(rows)
     return out
 

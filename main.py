@@ -11,6 +11,8 @@ import io
 import json
 import logging
 import math
+import os
+import platform
 import re
 import time
 import traceback
@@ -89,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.7.1"
 
 
 def log_error(category: str, summary: str, *,
@@ -207,7 +209,40 @@ def find_latest_for_slot(slot: str) -> Optional[Path]:
 # Stored at the root of input/ (next to the daily snapshot folders) since it's
 # a single piece of slowly-changing user state, not a dated snapshot.
 DESIGN_PAGES_FILE = INPUT_DIR / "design_pages.json"
-USER_SETTINGS_FILE = INPUT_DIR / "user_settings.json"
+
+
+# User-level settings (chart thresholds, language, etc.) belong OUTSIDE the
+# app folder. Earlier versions wrote them next to main.py — fine on a dev
+# machine, but on customer deployments where the install path is read-only
+# (e.g. Program Files / /Applications / a roaming profile snapshot) the
+# write silently failed and every PC restart fell back to defaults. The
+# OS-standard config dir is per-user and always writable.
+_USER_CONFIG_APP_NAME = "dashboard4dx"
+
+
+def _user_config_dir() -> Path:
+    """OS-standard per-user config directory for this app.
+
+    macOS  → ~/Library/Application Support/dashboard4dx
+    Linux  → $XDG_CONFIG_HOME/dashboard4dx (or ~/.config/dashboard4dx)
+    Windows → %APPDATA%\\dashboard4dx (or ~/AppData/Roaming/dashboard4dx)
+    """
+    system = platform.system()
+    if system == "Darwin":
+        base = Path.home() / "Library" / "Application Support"
+    elif system == "Windows":
+        env_dir = os.environ.get("APPDATA")
+        base = Path(env_dir) if env_dir else Path.home() / "AppData" / "Roaming"
+    else:
+        env_dir = os.environ.get("XDG_CONFIG_HOME")
+        base = Path(env_dir) if env_dir else Path.home() / ".config"
+    return base / _USER_CONFIG_APP_NAME
+
+
+# New canonical location. The legacy path (next to main.py) is kept only for
+# one-shot migration on first load — see `load_user_settings`.
+USER_SETTINGS_FILE = _user_config_dir() / "user_settings.json"
+_LEGACY_USER_SETTINGS_FILE = INPUT_DIR / "user_settings.json"
 
 # Keys in session_state whose value is user-facing and should survive
 # an app restart. Everything else (dfs cache, signatures, error state,
@@ -220,9 +255,34 @@ _PERSISTENT_SETTING_KEYS: tuple[str, ...] = (
 )
 
 
+def _migrate_legacy_user_settings() -> None:
+    """One-shot copy of the legacy in-app settings file to the OS config dir.
+
+    No-op when (a) the new file already exists or (b) the legacy file is
+    missing. Failures are logged but do not raise — defaults will simply
+    take over, which matches the pre-fix behaviour."""
+    if USER_SETTINGS_FILE.exists():
+        return
+    if not _LEGACY_USER_SETTINGS_FILE.exists():
+        return
+    try:
+        USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        USER_SETTINGS_FILE.write_bytes(
+            _LEGACY_USER_SETTINGS_FILE.read_bytes()
+        )
+    except Exception as exc:
+        _get_logger().warning(
+            f"[user_settings] legacy migration failed: {exc}"
+        )
+
+
 def load_user_settings() -> dict:
     """Best-effort read of the persisted user-settings JSON. Returns ``{}``
-    on missing/invalid file so a fresh install still boots with defaults."""
+    on missing/invalid file so a fresh install still boots with defaults.
+
+    Auto-migrates a legacy ``input/user_settings.json`` left over from
+    versions ≤ 1.7.0 that wrote settings next to main.py."""
+    _migrate_legacy_user_settings()
     if not USER_SETTINGS_FILE.exists():
         return {}
     try:
@@ -230,26 +290,35 @@ def load_user_settings() -> dict:
             data = json.load(f)
         if isinstance(data, dict):
             return data
-    except Exception:
-        pass
+    except Exception as exc:
+        _get_logger().warning(
+            f"[user_settings] failed to parse {USER_SETTINGS_FILE}: {exc}"
+        )
     return {}
 
 
 def save_user_settings() -> None:
-    """Persist the currently-set user-facing settings to disk. Called by
-    widget ``on_change`` callbacks so each adjustment is durable; silent
-    on IO errors since settings persistence is best-effort."""
+    """Persist the currently-set user-facing settings to disk.
+
+    Called by widget ``on_change`` callbacks so each adjustment is
+    durable. Writes to the per-user OS config dir (not the app folder),
+    so deploys into read-only install paths still keep their settings.
+    IO failures are logged — earlier versions swallowed them silently,
+    which is what hid the "thresholds reset on PC restart" bug at the
+    customer site."""
     try:
         payload = {
             k: st.session_state[k]
             for k in _PERSISTENT_SETTING_KEYS
             if k in st.session_state
         }
-        _ensure_input_dir()
+        USER_SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
         with USER_SETTINGS_FILE.open("w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+    except Exception as exc:
+        _get_logger().warning(
+            f"[user_settings] failed to save to {USER_SETTINGS_FILE}: {exc}"
+        )
 
 
 def load_design_pages() -> dict[str, int]:
@@ -306,6 +375,85 @@ def save_design_pages(
     with DESIGN_PAGES_FILE.open("w", encoding="utf-8") as f:
         json.dump(existing, f, indent=2, ensure_ascii=False, sort_keys=True)
     return DESIGN_PAGES_FILE
+
+
+DESIGN_PAGES_SHEET = "設計書ページ数"
+DESIGN_PAGES_COLS_ORDER = ["機能ID", "機能名称", "設計書ページ数"]
+
+
+def generate_design_pages_xlsx(
+    unique_fids: list[str],
+    pages: dict[str, int],
+    name_map: dict[str, str],
+) -> bytes:
+    """Build an .xlsx mirroring the on-screen 設計書ページ数 editor.
+
+    Columns match `DESIGN_PAGES_COLS_ORDER`. Cells in the 設計書ページ数
+    column are left blank when the FID has no recorded value — so the file
+    round-trips cleanly through `load_design_pages_xlsx` (blank stays blank;
+    importing does not delete on-disk values).
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = DESIGN_PAGES_SHEET
+    for col_idx, h in enumerate(DESIGN_PAGES_COLS_ORDER, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = Font(bold=True)
+    for i, fid in enumerate(unique_fids, start=2):
+        ws.cell(row=i, column=1, value=fid)
+        ws.cell(row=i, column=2, value=name_map.get(fid, ""))
+        v = pages.get(fid)
+        if v is not None:
+            ws.cell(row=i, column=3, value=int(v))
+    for col_idx, width in enumerate([18, 30, 14], start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx)
+                              .column_letter].width = width
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def load_design_pages_xlsx(file_bytes: bytes) -> dict[str, int]:
+    """Parse an .xlsx in the shape produced by `generate_design_pages_xlsx`.
+
+    Returns `{fid: int}`. Rows with blank / non-numeric 設計書ページ数 are
+    silently skipped so the import flow can't accidentally wipe values just
+    because the user left cells empty — deletes still happen through the
+    editor. FIDs are routed through `_normalize_fid` for the same case
+    folding the master loader uses.
+    """
+    wb = load_workbook(io.BytesIO(file_bytes), data_only=True, read_only=True)
+    ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return {}
+    header = [str(c or "").strip() for c in rows[0]]
+    try:
+        fid_col = header.index("機能ID")
+    except ValueError:
+        raise ValueError("「機能ID」列が見つかりませんでした")
+    try:
+        page_col = header.index("設計書ページ数")
+    except ValueError:
+        raise ValueError("「設計書ページ数」列が見つかりませんでした")
+    out: dict[str, int] = {}
+    for r in rows[1:]:
+        if r is None:
+            continue
+        fid_raw = r[fid_col] if len(r) > fid_col else None
+        if fid_raw is None or str(fid_raw).strip() == "":
+            continue
+        fid = _normalize_fid(fid_raw) or str(fid_raw).strip()
+        if len(r) <= page_col:
+            continue
+        v = r[page_col]
+        if v is None or (isinstance(v, str) and v.strip() == ""):
+            continue
+        try:
+            out[fid] = int(round(float(v)))
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def list_history_for_slot(slot: str) -> list[Path]:
@@ -1038,7 +1186,9 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
         formatting-only rows. Bounding by col B avoids both pitfalls.)
       - Within that range, rows whose col F is empty (e.g. section breaks) are
         **skipped**, not treated as terminators.
-      - Strike-through cells are NOT excluded — the spec is explicit on this.
+      - Rows whose col F (機能ID) cell is **strikethrough-formatted** are
+        treated as retired and excluded. The font attribute is read via
+        `iter_rows(values_only=False)` since the value alone can't tell us.
       - **Function ID is the unique key.** When the same ID appears more than
         once (even with a different 機能名称 / 機能概要), only the LAST
         occurrence in the sheet is kept. This avoids the silent
@@ -1055,14 +1205,21 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
     desc_idx = _col_to_idx(MASTER_DESC_COL)
     b_idx = _col_to_idx("B")
 
-    # Buffer rows so we can identify the last B-filled row in a single pass.
-    buffered: list[tuple] = list(ws.iter_rows(min_row=2, values_only=True))
+    # Read cell objects (not just values) so we can inspect font.strike on the
+    # 機能ID column. ReadOnlyCell supports `.font` even with read_only=True.
+    buffered: list[tuple] = list(ws.iter_rows(min_row=2, values_only=False))
+
+    def _cell_value(row, idx):
+        if len(row) < idx:
+            return None
+        c = row[idx - 1]
+        return getattr(c, "value", None) if c is not None else None
 
     last_b_offset = -1  # offset within buffered (0 = sheet row 2)
     for i, row in enumerate(buffered):
         if row is None:
             continue
-        b_val = row[b_idx - 1] if len(row) >= b_idx else None
+        b_val = _cell_value(row, b_idx)
         if b_val not in (None, ""):
             last_b_offset = i
 
@@ -1073,9 +1230,17 @@ def load_function_master(file_bytes: bytes) -> pd.DataFrame:
     for row in buffered[: last_b_offset + 1]:
         if row is None:
             continue
-        raw_fid = row[fid_idx - 1] if len(row) >= fid_idx else None
-        raw_name = row[name_idx - 1] if len(row) >= name_idx else None
-        raw_desc = row[desc_idx - 1] if len(row) >= desc_idx else None
+        fid_cell = row[fid_idx - 1] if len(row) >= fid_idx else None
+        if fid_cell is None:
+            continue
+        # Skip rows whose 機能ID is struck through — they're flagged as
+        # retired by the user and shouldn't feed any analytics downstream.
+        font = getattr(fid_cell, "font", None)
+        if font is not None and getattr(font, "strike", None):
+            continue
+        raw_fid = getattr(fid_cell, "value", None)
+        raw_name = _cell_value(row, name_idx)
+        raw_desc = _cell_value(row, desc_idx)
         fid = _normalize_fid(raw_fid)
         if fid is None:
             # F empty (or non-ID-shaped) — skip row, keep going.
@@ -1494,8 +1659,13 @@ def load_backlog(file_bytes: bytes) -> pd.DataFrame:
 # =============================================================================
 def load_test_counts(file_bytes: bytes) -> pd.DataFrame:
     """Parse test counts CSV. Accepts UTF-8 or CP932. Column layout is positional
-    (A=機能ID, C=総設定テスト数, D=実施済, E=OK, F=NG; B intentionally unused).
-    Derives 未実施 = 総設定テスト数 - 実施済."""
+    (A=機能ID, B=仕様書名 (optional), C=総設定テスト数, D=実施済, E=OK, F=NG).
+    Derives 未実施 = 総設定テスト数 - 実施済.
+
+    Column B carries an optional test-spec sheet name — preserved as
+    `仕様書名` so the per-spec view of the coverage chart can label each
+    bar. Blank B cells fall through to a sequential `(仕様 n)` label at
+    render time, so files that leave it empty still work."""
     text = _decode_csv_bytes(file_bytes)
     raw = pd.read_csv(io.StringIO(text), header=0, dtype=str).fillna("")
     if raw.shape[1] < 6:
@@ -1503,6 +1673,7 @@ def load_test_counts(file_bytes: bytes) -> pd.DataFrame:
 
     df = pd.DataFrame({
         "機能ID": raw.iloc[:, 0].map(_normalize_fid),
+        "仕様書名": raw.iloc[:, 1].astype(str).str.strip(),
         "総設定テスト数": pd.to_numeric(raw.iloc[:, 2], errors="coerce"),
         "実施済": pd.to_numeric(raw.iloc[:, 3], errors="coerce"),
         "OK": pd.to_numeric(raw.iloc[:, 4], errors="coerce"),
@@ -1982,13 +2153,22 @@ def _preflight_master(data: bytes) -> list[StepResult]:
     ws = wb[MASTER_SHEET]
     fid_idx = _col_to_idx(MASTER_FID_COL)
     b_idx = _col_to_idx("B")
-    buffered = list(ws.iter_rows(min_row=2, values_only=True))
+    # values_only=False so the strike-through check below can read
+    # cell.font on the FID column. Slightly slower than the previous
+    # values-only iteration but the master is small.
+    buffered = list(ws.iter_rows(min_row=2, values_only=False))
+
+    def _val(row, idx):
+        if len(row) < idx:
+            return None
+        c = row[idx - 1]
+        return getattr(c, "value", None) if c is not None else None
 
     last_b = -1
     for i, row in enumerate(buffered):
         if row is None:
             continue
-        v = row[b_idx - 1] if len(row) >= b_idx else None
+        v = _val(row, b_idx)
         if v not in (None, ""):
             last_b = i
     if last_b < 0:
@@ -1998,20 +2178,49 @@ def _preflight_master(data: bytes) -> list[StepResult]:
     _step(steps, "step_master_b_col", "ok",
           detail=f"last B-filled row = {last_b + 2}")
 
+    # Track strike-through rows alongside the FID extraction so we can
+    # report skip counts in the dinosaur checklist. The loader applies
+    # the same rule (see load_function_master).
     fids: list[str] = []
+    struck_fids: list[str] = []
     for row in buffered[: last_b + 1]:
         if row is None:
             continue
-        raw = row[fid_idx - 1] if len(row) >= fid_idx else None
+        cell = row[fid_idx - 1] if len(row) >= fid_idx else None
+        if cell is None:
+            continue
+        raw = getattr(cell, "value", None)
         fid = _normalize_fid(raw)
-        if fid:
-            fids.append(fid)
+        if not fid:
+            continue
+        font = getattr(cell, "font", None)
+        if font is not None and getattr(font, "strike", None):
+            struck_fids.append(fid)
+            continue
+        fids.append(fid)
     if not fids:
         _step(steps, "step_master_fid", "error",
               f"No valid Function IDs in column {MASTER_FID_COL}")
         return steps
     _step(steps, "step_master_fid", "ok",
           detail=f"{len(fids)} ID rows · {len(set(fids))} unique IDs")
+
+    # Strike-through skip count — informational. "warn" status when any
+    # row was struck so the row stands out in the checklist, otherwise
+    # "ok" with a "0 件" detail so the user can confirm the rule ran.
+    if struck_fids:
+        n = len(struck_fids)
+        sample = sorted(set(struck_fids))
+        head = ", ".join(sample[:8])
+        tail = f" …+{len(sample) - 8}" if len(sample) > 8 else ""
+        _step(
+            steps, "step_master_strike", "warn",
+            message=f"取消線スキップ: {head}{tail}",
+            detail=f"{n} rows skipped (機能IDに取り消し線)",
+        )
+    else:
+        _step(steps, "step_master_strike", "ok",
+              detail="0 rows with strikethrough on 機能ID")
 
     # Surface the duplicate-FID picture as a warn-level checklist entry
     # (never blocks the upload). With the "last occurrence wins" policy
@@ -3237,7 +3446,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_actual_over": "actual (over plan)",
         "chart_progress_over_marker": "⚠ over",
         "chart_test_coverage": "Test coverage (OK / NG / not run)",
+        "chart_test_coverage_per_spec": "Test coverage — per test spec",
         "chart_test_density": "Test density per Function ID (test count sufficiency)",
+        "chart_test_density_per_spec": "Test density — per test spec",
+        "chart_test_density_view_label": "View",
+        "chart_test_density_view_aggregated": "Per Function ID (aggregated)",
+        "chart_test_density_view_per_spec": "Per test spec",
         "chart_test_density_threshold_label": "threshold",
         "chart_test_density_below_marker": "⚠ low",
         "chart_incident_rate": "Fault rate per Function ID (Redmine, defects/Executed)",
@@ -3312,6 +3526,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_coverage": "Coverage",
         "chart_label_breakdown": "Breakdown",
         "chart_label_specs_suffix": "test specs",
+        "chart_label_spec_default": "spec ",
+        "chart_test_coverage_view_label": "View",
+        "chart_test_coverage_view_aggregated": "Per Function ID (aggregated)",
+        "chart_test_coverage_view_per_spec": "Per test spec",
         "calendar_needs_master": "Upload **Function master** in the Dashboard tab to unlock the calendar.",
         "calendar_title": "Project calendar",
         "calendar_caption": (
@@ -3416,6 +3634,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_sheet":    "Find sheet '機能一覧'",
         "step_master_b_col":    "Find last B-column row",
         "step_master_fid":      "Extract Function IDs from F column",
+        "step_master_strike":   "Skip rows with strikethrough on 機能ID",
         "step_master_dups":     "Check for duplicate Function IDs (last wins)",
         "step_wbs_sheet":       "Find sheet 'メイン'",
         "step_wbs_phase_dates": "Parse phase anchors J6 / N6 (年/月/日)",
@@ -3567,6 +3786,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "design_last_saved": "Last saved: {ts}",
         "design_no_save_yet": "Not saved yet — edit any cell to create the file.",
+        "dp_export_label": "📤 Export to Excel",
+        "dp_export_help": "Download the current 設計書ページ数 table as .xlsx.",
+        "dp_export_filename": "design_pages_{ts}.xlsx",
+        "dp_import_label": "📥 Import from Excel",
+        "dp_import_help": (
+            "Bulk-update page counts from an .xlsx with "
+            "「機能ID」 and 「設計書ページ数」 columns. "
+            "Blank cells are skipped — delete values through the editor."
+        ),
+        "dp_import_picker_label": "Choose an .xlsx file",
+        "dp_import_apply_btn": "Apply import",
+        "dp_import_success": (
+            "Imported {applied} value(s)."
+            "{skipped_suffix}"
+        ),
+        "dp_import_skipped_suffix": " Skipped {skipped} FID(s) not in the current master.",
+        "dp_import_no_rows": "No numeric 設計書ページ数 rows found in the file.",
+        "dp_import_error": "Could not read the file: {err}",
         "sec3_title": "2. Integrated table",
         "sec3_caption": (
             "{n} rows · {u} unique Function IDs · split into focused tabs so "
@@ -3811,6 +4048,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 Test coverage**\n\n"
             "Stacked bars: OK / NG / not run per Function ID.\n\n"
             "📂 Source: Test counts per spec (E / F / C−D)."
+        ),
+        "help_chart_test_coverage_per_spec": (
+            "**🦕 Test coverage — per test spec**\n\n"
+            "Same OK / NG / not run stack as the aggregated view, but one bar "
+            "per raw test_counts row (= per test-spec file) so multi-spec "
+            "Function IDs split into separate bars.\n\n"
+            "Bar label = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`. "
+            "When the CSV's column B is empty, a sequential `仕様 N` "
+            "fallback is used.\n\n"
+            "📂 Source: Test counts (raw rows, before per-FID aggregation)."
+        ),
+        "help_chart_test_density_per_spec": (
+            "**🦕 Test density — per test spec**\n\n"
+            "🧮 Per row: `(this spec's 総設定テスト数) ÷ "
+            "(機能IDの設計書ページ数)`. The denominator is FID-level "
+            "(共有), so the sum of per-spec densities for a given FID "
+            "equals the aggregated density on the main chart.\n\n"
+            "Bar label = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`.\n\n"
+            "📂 Source: Test counts (raw rows) + design pages."
         ),
         "help_chart_test_density": (
             "**🦕 Test density (test count sufficiency)**\n\n"
@@ -4524,6 +4780,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_progress_actual_over": "実績（計画超過）",
         "chart_progress_over_marker": "⚠ 超過",
         "chart_test_coverage": "テストカバレッジ (OK / NG / 未実施)",
+        "chart_test_coverage_per_spec": "テストカバレッジ — テスト仕様書別",
+        "chart_test_density_per_spec": "テスト密度 — テスト仕様書別",
+        "chart_test_density_view_label": "表示切替",
+        "chart_test_density_view_aggregated": "機能ID別（集計）",
+        "chart_test_density_view_per_spec": "テスト仕様書別",
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
         "chart_test_density_below_marker": "⚠ 不足",
@@ -4596,6 +4857,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_label_coverage": "カバレッジ",
         "chart_label_breakdown": "内訳",
         "chart_label_specs_suffix": "件のテスト仕様書",
+        "chart_label_spec_default": "仕様",
+        "chart_test_coverage_view_label": "表示切替",
+        "chart_test_coverage_view_aggregated": "機能ID別（集計）",
+        "chart_test_coverage_view_per_spec": "テスト仕様書別",
         "calendar_needs_master": "Dashboardタブで **機能マスタ** を取り込むとカレンダーが利用できます。",
         "calendar_title": "プロジェクトカレンダー",
         "calendar_caption": (
@@ -4696,6 +4961,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "step_master_sheet":    "シート '機能一覧' を確認",
         "step_master_b_col":    "B列の最終行を特定",
         "step_master_fid":      "F列から機能IDを抽出",
+        "step_master_strike":   "機能IDの取り消し線を確認（取消線の行は除外）",
         "step_master_dups":     "機能IDの重複を確認（重複時は後者採用）",
         "step_wbs_sheet":       "シート 'メイン' を確認",
         "step_wbs_phase_dates": "フェーズ期間 J6 / N6 を解析（年/月/日）",
@@ -4843,6 +5109,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         ),
         "design_last_saved": "最終保存: {ts}",
         "design_no_save_yet": "未保存です — 任意のセルを編集するとファイルが作成されます。",
+        "dp_export_label": "📤 Excel書き出し",
+        "dp_export_help": "現在の設計書ページ数テーブルを .xlsx でダウンロードします。",
+        "dp_export_filename": "design_pages_{ts}.xlsx",
+        "dp_import_label": "📥 Excel取り込み",
+        "dp_import_help": (
+            "「機能ID」と「設計書ページ数」列を持つ .xlsx で値を一括更新します。"
+            "空欄セルはスキップされます — 値の削除はエディタで行ってください。"
+        ),
+        "dp_import_picker_label": ".xlsx ファイルを選択",
+        "dp_import_apply_btn": "取り込みを実行",
+        "dp_import_success": (
+            "{applied}件の値を取り込みました。"
+            "{skipped_suffix}"
+        ),
+        "dp_import_skipped_suffix": " マスタにない機能IDが {skipped} 件あったためスキップしました。",
+        "dp_import_no_rows": "取り込み可能な「設計書ページ数」行が見つかりませんでした。",
+        "dp_import_error": "ファイルを読み込めませんでした: {err}",
         "sec3_title": "2. 統合テーブル",
         "sec3_caption": (
             "{n}行 · 機能ID {u}件 · 横スクロール不要のタブに分割表示"
@@ -5068,6 +5351,25 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "**🦕 テストカバレッジ**\n\n"
             "機能ID別に OK / NG / 未実施 件数を積み上げ表示。\n\n"
             "📂 出典: 仕様書別テスト集計（E / F / C-D）。"
+        ),
+        "help_chart_test_coverage_per_spec": (
+            "**🦕 テストカバレッジ — テスト仕様書別**\n\n"
+            "集計版と同じ OK / NG / 未実施 の積み上げを、test_counts CSV "
+            "の1行＝1バーで表示。同じ機能IDが複数のテスト仕様書に分かれて"
+            "いる場合、各仕様書を別々のバーで比較できます。\n\n"
+            "バーラベル = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`。"
+            "CSVのB列が空のときは `仕様N` で代替します。\n\n"
+            "📂 出典: 仕様書別テスト集計（機能ID別の合算前の生データ）。"
+        ),
+        "help_chart_test_density_per_spec": (
+            "**🦕 テスト密度 — テスト仕様書別**\n\n"
+            "🧮 各バー: `(その仕様書の総設定テスト数) ÷ "
+            "(機能IDの設計書ページ数)`。**分母は機能ID単位の値を共通利用** "
+            "するため、同じ機能IDに属する仕様書バーの密度を合計すると、"
+            "集計版の密度と一致します。\n\n"
+            "バーラベル = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`。"
+            "閾値線（既定 10 tests/page）は集計版と同じです。\n\n"
+            "📂 出典: 仕様書別テスト集計（生データ） + 設計書ページ数。"
         ),
         "help_chart_test_density": (
             "**🦕 テスト密度（テスト件数に関する充足率）**\n\n"
@@ -8363,13 +8665,76 @@ def _incident_rate_threshold() -> float:
                            INCIDENT_RATE_THRESHOLD_DEFAULT)
 
 
-def _chart_test_density(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
-    if not {"test_density", "総設定テスト数", "設計書ページ数"}.issubset(kpi_df.columns):
+def _chart_test_density(
+    kpi_df: pd.DataFrame, *, per_spec: bool = False,
+) -> Optional[go.Figure]:
+    """Horizontal bars of 総設定テスト数 ÷ 設計書ページ数 per Function ID.
+
+    `per_spec=False` (default) → one bar per FID, density computed from
+    the aggregated 総設定テスト数 against the FID's 設計書ページ数.
+    `per_spec=True` → one bar per raw test_counts row (= per test-spec
+    sheet); each spec uses the *same* FID-level 設計書ページ数 as the
+    denominator, so the sum of per-spec densities equals the aggregated
+    density. Threshold line is unchanged."""
+    if not {"test_density", "総設定テスト数", "設計書ページ数"}.issubset(
+            kpi_df.columns):
         return None
-    df = kpi_df.dropna(subset=["test_density"]).copy()
-    if df.empty:
-        return None
-    df["display"] = _feature_display_series(df).map(_clip_label)
+
+    if per_spec:
+        # Source rows from the raw test_counts frame so each test-spec
+        # file gets its own bar. Denominator is per-FID; we look it up
+        # via kpi_df since the raw frame doesn't carry 設計書ページ数.
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        if (raw_tests is None or raw_tests.empty
+                or "機能ID" not in raw_tests.columns
+                or "総設定テスト数" not in raw_tests.columns):
+            return None
+        pages_map = (
+            kpi_df.dropna(subset=["設計書ページ数"])
+                  .drop_duplicates(subset=["機能ID"])
+                  .set_index("機能ID")["設計書ページ数"]
+                  .astype(float).to_dict()
+        )
+        name_map: dict[str, str] = {}
+        if "機能名称" in kpi_df.columns:
+            name_map = (
+                kpi_df.dropna(subset=["機能名称"])
+                      .drop_duplicates(subset=["機能ID"])
+                      .set_index("機能ID")["機能名称"]
+                      .astype(str).to_dict()
+            )
+        df = raw_tests.copy()
+        df["機能ID"] = df["機能ID"].astype(str)
+        df = df[df["機能ID"].isin(pages_map.keys())]
+        df = df.dropna(subset=["総設定テスト数"])
+        if df.empty:
+            return None
+        df["設計書ページ数"] = df["機能ID"].map(pages_map)
+        df["test_density"] = _safe_div(df["総設定テスト数"],
+                                        df["設計書ページ数"])
+        df = df.dropna(subset=["test_density"])
+        if df.empty:
+            return None
+        df = df.reset_index(drop=True)
+        df["_seq"] = df.groupby("機能ID").cumcount() + 1
+        spec_prefix = t("chart_label_spec_default")
+
+        def _row_label(row):
+            fid = str(row["機能ID"])
+            nm = name_map.get(fid, "")
+            spec = str(row.get("仕様書名", "") or "").strip()
+            if not spec:
+                spec = f"{spec_prefix}{int(row['_seq'])}"
+            head = f"{fid}：{nm}" if nm else fid
+            return f"{head} 〔{spec}〕"
+
+        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+    else:
+        df = kpi_df.dropna(subset=["test_density"]).copy()
+        if df.empty:
+            return None
+        df["display"] = _feature_display_series(df).map(_clip_label)
+
     # Sort ascending so the lowest (under-tested) sit at the top of the bar
     # chart after the iloc reverse below — matches the convention used by
     # the other "attention list" charts in this file.
@@ -8502,13 +8867,69 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
-def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
+def _chart_test_coverage(
+    kpi_df: pd.DataFrame,
+    *,
+    per_spec: bool = False,
+) -> Optional[go.Figure]:
+    """Stacked OK / NG / 未実施 horizontal bars.
+
+    `per_spec=False` (default) → one bar per Function ID using the
+    aggregated kpi_df totals. `per_spec=True` → one bar per raw
+    test_counts row (i.e. per test-spec sheet) so multi-spec FIDs are
+    visible as their separate contributions instead of a single sum.
+    """
     if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
         return None
-    df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
-    if df.empty:
-        return None
-    df["display"] = _feature_display_series(df).map(_clip_label)
+
+    if per_spec:
+        # Per-spec view sources the rows from the raw test_counts frame —
+        # one row per test-spec sheet rather than per Function ID. Limit
+        # to FIDs that survive into kpi_df so retired masters / orphans
+        # don't pollute the chart.
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        if (raw_tests is None or raw_tests.empty
+                or not {"機能ID", "OK", "NG", "未実施"}.issubset(
+                    raw_tests.columns)):
+            return None
+        master_fids = set(kpi_df["機能ID"].astype(str))
+        df = raw_tests[
+            raw_tests["機能ID"].astype(str).isin(master_fids)
+        ].copy()
+        df = df.dropna(subset=["OK", "NG", "未実施"], how="all")
+        if df.empty:
+            return None
+        # FID → 機能名称 lookup pulled from the (already-merged) kpi_df.
+        name_map = {}
+        if "機能名称" in kpi_df.columns:
+            name_map = (
+                kpi_df.dropna(subset=["機能名称"])
+                      .drop_duplicates(subset=["機能ID"])
+                      .set_index("機能ID")["機能名称"]
+                      .astype(str).to_dict()
+            )
+        df = df.reset_index(drop=True)
+        # Sequential 1-based occurrence index per FID for fallback labels
+        # when 仕様書名 (CSV column B) is empty.
+        df["_seq"] = df.groupby("機能ID").cumcount() + 1
+        spec_prefix = t("chart_label_spec_default")
+
+        def _row_label(row):
+            fid = str(row["機能ID"])
+            nm = name_map.get(fid, "")
+            spec = str(row.get("仕様書名", "") or "").strip()
+            if not spec:
+                spec = f"{spec_prefix}{int(row['_seq'])}"
+            head = f"{fid}：{nm}" if nm else fid
+            return f"{head} 〔{spec}〕"
+
+        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+    else:
+        df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
+        if df.empty:
+            return None
+        df["display"] = _feature_display_series(df).map(_clip_label)
+
     # Worst-first by NG then 未実施 so head(N) is the attention list.
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
@@ -8524,32 +8945,36 @@ def _chart_test_coverage(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
         cov_pct = np.where(total_vals > 0,
                            ok_vals / total_vals * 100, 0.0)
 
-    # Hover breakdown for multi-spec FIDs. kpi_df is now strictly 1 row
-    # per Function ID (integrate_master sums across specs), so to recover
-    # the per-spec counts we read the raw test_counts frame from
-    # session_state and group it ourselves.
-    raw_tests = (st.session_state.get("dfs") or {}).get("tests")
-    breakdown_by_fid: dict[str, str] = {}
-    if (raw_tests is not None and not raw_tests.empty
-            and {"機能ID", "OK", "NG", "未実施"}.issubset(raw_tests.columns)):
-        for fid, sub in raw_tests.groupby("機能ID"):
-            if len(sub) <= 1:
-                continue
-            ok_list = [int(v) for v in sub["OK"].fillna(0)]
-            ng_list = [int(v) for v in sub["NG"].fillna(0)]
-            nr_list = [int(v) for v in sub["未実施"].fillna(0)]
-            breakdown_by_fid[str(fid)] = (
-                f"<br>{t('chart_label_breakdown')} "
-                f"({len(sub)} {t('chart_label_specs_suffix')}): "
-                f"{t('chart_label_ok')} "
-                f"{' + '.join(map(str, ok_list))} / "
-                f"{t('chart_label_ng')} "
-                f"{' + '.join(map(str, ng_list))} / "
-                f"{t('chart_label_notrun')} "
-                f"{' + '.join(map(str, nr_list))}"
-            )
-    breakdowns = [breakdown_by_fid.get(str(fid), "")
-                  for fid in df["機能ID"].astype(str)]
+    if per_spec:
+        # Each bar already represents a single spec — breakdown overlay
+        # would be redundant.
+        breakdowns = [""] * len(df)
+    else:
+        # Aggregated view: surface the per-spec breakdown in hover for
+        # FIDs that contributed more than one source row.
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        breakdown_by_fid: dict[str, str] = {}
+        if (raw_tests is not None and not raw_tests.empty
+                and {"機能ID", "OK", "NG", "未実施"}.issubset(
+                    raw_tests.columns)):
+            for fid, sub in raw_tests.groupby("機能ID"):
+                if len(sub) <= 1:
+                    continue
+                ok_list = [int(v) for v in sub["OK"].fillna(0)]
+                ng_list = [int(v) for v in sub["NG"].fillna(0)]
+                nr_list = [int(v) for v in sub["未実施"].fillna(0)]
+                breakdown_by_fid[str(fid)] = (
+                    f"<br>{t('chart_label_breakdown')} "
+                    f"({len(sub)} {t('chart_label_specs_suffix')}): "
+                    f"{t('chart_label_ok')} "
+                    f"{' + '.join(map(str, ok_list))} / "
+                    f"{t('chart_label_ng')} "
+                    f"{' + '.join(map(str, ng_list))} / "
+                    f"{t('chart_label_notrun')} "
+                    f"{' + '.join(map(str, nr_list))}"
+                )
+        breakdowns = [breakdown_by_fid.get(str(fid), "")
+                      for fid in df["機能ID"].astype(str)]
 
     customdata = np.empty((len(df), 6), dtype=object)
     customdata[:, 0] = ok_vals.values
@@ -10075,13 +10500,72 @@ def _mpl_chart_progress_gap(kpi_df: pd.DataFrame):
     return _mpl_save(fig)
 
 
-def _mpl_chart_test_density(kpi_df: pd.DataFrame):
+def _mpl_chart_test_density(
+    kpi_df: pd.DataFrame, *, per_spec: bool = False,
+):
+    """Matplotlib horizontal-bar test density chart.
+
+    Mirrors the on-screen `_chart_test_density` builder. With
+    `per_spec=True`, each test-spec file becomes its own bar; the
+    denominator stays FID-level (kpi_df['設計書ページ数']) so the
+    per-spec densities decompose the aggregated density."""
     if not {"test_density"}.issubset(kpi_df.columns):
         return None
-    df = kpi_df.dropna(subset=["test_density"]).copy()
-    if df.empty:
-        return None
-    df["display"] = _feature_display_series(df).map(_clip_label)
+
+    if per_spec:
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        if (raw_tests is None or raw_tests.empty
+                or "機能ID" not in raw_tests.columns
+                or "総設定テスト数" not in raw_tests.columns):
+            return None
+        if "設計書ページ数" not in kpi_df.columns:
+            return None
+        pages_map = (
+            kpi_df.dropna(subset=["設計書ページ数"])
+                  .drop_duplicates(subset=["機能ID"])
+                  .set_index("機能ID")["設計書ページ数"]
+                  .astype(float).to_dict()
+        )
+        name_map: dict[str, str] = {}
+        if "機能名称" in kpi_df.columns:
+            name_map = (
+                kpi_df.dropna(subset=["機能名称"])
+                      .drop_duplicates(subset=["機能ID"])
+                      .set_index("機能ID")["機能名称"]
+                      .astype(str).to_dict()
+            )
+        df = raw_tests.copy()
+        df["機能ID"] = df["機能ID"].astype(str)
+        df = df[df["機能ID"].isin(pages_map.keys())]
+        df = df.dropna(subset=["総設定テスト数"])
+        if df.empty:
+            return None
+        df["設計書ページ数"] = df["機能ID"].map(pages_map)
+        df["test_density"] = _safe_div(df["総設定テスト数"],
+                                        df["設計書ページ数"])
+        df = df.dropna(subset=["test_density"])
+        if df.empty:
+            return None
+        df = df.reset_index(drop=True)
+        df["_seq"] = df.groupby("機能ID").cumcount() + 1
+        spec_prefix = t("chart_label_spec_default")
+
+        def _row_label(row):
+            fid = str(row["機能ID"])
+            nm = name_map.get(fid, "")
+            spec = str(row.get("仕様書名", "") or "").strip()
+            if not spec:
+                spec = f"{spec_prefix}{int(row['_seq'])}"
+            head = f"{fid}：{nm}" if nm else fid
+            return f"{head} 〔{spec}〕"
+
+        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+    else:
+        df = kpi_df.dropna(subset=["test_density"]).copy()
+        if df.empty:
+            return None
+        df["display"] = _feature_display_series(df).map(_clip_label)
+
     df = df.sort_values("test_density", ascending=True)
     total = len(df)
     if total > _BAR_CHART_MAX_ROWS:
@@ -10143,23 +10627,69 @@ def _mpl_chart_incident_rate(kpi_df: pd.DataFrame):
     return _mpl_save(fig)
 
 
-def _mpl_chart_test_coverage(kpi_df: pd.DataFrame):
+def _mpl_chart_test_coverage(
+    kpi_df: pd.DataFrame, *, per_spec: bool = False,
+):
+    """Matplotlib stacked-bar test coverage chart.
+
+    Mirrors the on-screen `_chart_test_coverage` plotly builder, including
+    the `per_spec` switch — `False` aggregates to one bar per 機能ID,
+    `True` plots one bar per raw test_counts row (per test-spec file)."""
     if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
         return None
-    df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
-    if df.empty:
-        return None
-    # Sum duplicate-FID rows (multi-spec test counts) so each bar is one row.
-    has_name = "機能名称" in df.columns
-    agg_kw: dict[str, tuple] = {
-        "OK":   ("OK", "sum"),
-        "NG":   ("NG", "sum"),
-        "未実施": ("未実施", "sum"),
-    }
-    if has_name:
-        agg_kw["機能名称"] = ("機能名称", "first")
-    df = df.groupby("機能ID", as_index=False).agg(**agg_kw)
-    df["display"] = _feature_display_series(df).map(_clip_label)
+
+    if per_spec:
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        if (raw_tests is None or raw_tests.empty
+                or not {"機能ID", "OK", "NG", "未実施"}.issubset(
+                    raw_tests.columns)):
+            return None
+        master_fids = set(kpi_df["機能ID"].astype(str))
+        df = raw_tests[
+            raw_tests["機能ID"].astype(str).isin(master_fids)
+        ].copy()
+        df = df.dropna(subset=["OK", "NG", "未実施"], how="all")
+        if df.empty:
+            return None
+        name_map = {}
+        if "機能名称" in kpi_df.columns:
+            name_map = (
+                kpi_df.dropna(subset=["機能名称"])
+                      .drop_duplicates(subset=["機能ID"])
+                      .set_index("機能ID")["機能名称"]
+                      .astype(str).to_dict()
+            )
+        df = df.reset_index(drop=True)
+        df["_seq"] = df.groupby("機能ID").cumcount() + 1
+        spec_prefix = t("chart_label_spec_default")
+
+        def _row_label(row):
+            fid = str(row["機能ID"])
+            nm = name_map.get(fid, "")
+            spec = str(row.get("仕様書名", "") or "").strip()
+            if not spec:
+                spec = f"{spec_prefix}{int(row['_seq'])}"
+            head = f"{fid}：{nm}" if nm else fid
+            return f"{head} 〔{spec}〕"
+
+        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+    else:
+        df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
+        if df.empty:
+            return None
+        # Sum duplicate-FID rows (multi-spec test counts) so each bar is
+        # one row — defensive even though integrate() pre-aggregates.
+        has_name = "機能名称" in df.columns
+        agg_kw: dict[str, tuple] = {
+            "OK":   ("OK", "sum"),
+            "NG":   ("NG", "sum"),
+            "未実施": ("未実施", "sum"),
+        }
+        if has_name:
+            agg_kw["機能名称"] = ("機能名称", "first")
+        df = df.groupby("機能ID", as_index=False).agg(**agg_kw)
+        df["display"] = _feature_display_series(df).map(_clip_label)
+
     df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
     df = df.sort_values("_bad", ascending=False)
     total = len(df)
@@ -11216,8 +11746,34 @@ def generate_report_pdf(
          lambda: _mpl_chart_progress_gap(kpi_df)),
         ("chart_test_coverage",   "help_chart_test_coverage",
          lambda: _mpl_chart_test_coverage(kpi_df)),
+    ]
+    # Add per-test-spec coverage view as a separate section only when
+    # the raw test_counts frame actually has multi-row FIDs — otherwise
+    # the section would just duplicate the aggregated chart.
+    _raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+    if (_raw_tests is not None and not _raw_tests.empty
+            and "機能ID" in _raw_tests.columns
+            and bool(_raw_tests["機能ID"].duplicated().any())):
+        chart_specs.append(
+            ("chart_test_coverage_per_spec",
+             "help_chart_test_coverage_per_spec",
+             lambda: _mpl_chart_test_coverage(kpi_df, per_spec=True))
+        )
+    chart_specs.extend([
         ("chart_test_density",    "help_chart_test_density",
          lambda: _mpl_chart_test_density(kpi_df)),
+    ])
+    # Per-test-spec density mirrors the coverage gating: only emit when
+    # raw test_counts actually has multi-row FIDs.
+    if (_raw_tests is not None and not _raw_tests.empty
+            and "機能ID" in _raw_tests.columns
+            and bool(_raw_tests["機能ID"].duplicated().any())):
+        chart_specs.append(
+            ("chart_test_density_per_spec",
+             "help_chart_test_density_per_spec",
+             lambda: _mpl_chart_test_density(kpi_df, per_spec=True))
+        )
+    chart_specs.extend([
         ("chart_incident_rate",   "help_chart_incident_rate",
          lambda: _mpl_chart_incident_rate(kpi_df)),
         ("chart_loc_vs_ng",       "help_chart_loc_vs_ng",
@@ -11232,7 +11788,7 @@ def generate_report_pdf(
          lambda: _mpl_chart_bug_trend(defects_df)),
         ("chart_defect_class",    "help_chart_defect_class",
          lambda: _mpl_chart_defect_class(defects_df)),
-    ]
+    ])
 
     story.append(Paragraph(t("pdf_section_charts"), h2_style))
 
@@ -11411,6 +11967,42 @@ def generate_category_pdf(
     # Render the chart up-front so we can size the page to fit it.
     result = builder()
 
+    # Optional second content page for the per-test-spec view of either
+    # the test_coverage or test_density category. Only emit when (a) the
+    # category supports it and (b) the raw test_counts frame has more
+    # than one row for at least one Function ID — otherwise the page
+    # would just duplicate the aggregated chart.
+    extra_result = None
+    extra_help_key = None
+    extra_title_key = None
+    _per_spec_categories = {
+        "chart_test_coverage": (
+            "chart_test_coverage_per_spec",
+            "help_chart_test_coverage_per_spec",
+            lambda: _mpl_chart_test_coverage(kpi_df, per_spec=True),
+        ),
+        "chart_test_density": (
+            "chart_test_density_per_spec",
+            "help_chart_test_density_per_spec",
+            lambda: _mpl_chart_test_density(kpi_df, per_spec=True),
+        ),
+    }
+    if category_key in _per_spec_categories:
+        _raw_tests_cat = (st.session_state.get("dfs") or {}).get("tests")
+        if (_raw_tests_cat is not None and not _raw_tests_cat.empty
+                and "機能ID" in _raw_tests_cat.columns
+                and bool(_raw_tests_cat["機能ID"].duplicated().any())):
+            extra_title_key, extra_help_key, _extra_builder = (
+                _per_spec_categories[category_key]
+            )
+            try:
+                extra_result = _extra_builder()
+            except Exception:
+                extra_result = None
+            if extra_result is None:
+                extra_title_key = None
+                extra_help_key = None
+
     base_w, base_h = landscape(A3)
     margin = 1.5 * cm
     inner_w = base_w - 2 * margin
@@ -11419,16 +12011,31 @@ def generate_category_pdf(
     # paragraph + footer chrome. Generous to keep the chart from clipping.
     header_budget = 7 * cm
 
+    def _aspect_of(res):
+        if res is None:
+            return 0.0
+        _png, w, h = res
+        return (h / w) if w else 0.5
+
+    # Page height must fit BOTH charts (each on its own page), so size to
+    # the taller aspect.
+    max_aspect = max(_aspect_of(result), _aspect_of(extra_result))
+    if max_aspect > 0:
+        disp_h_max = inner_w * max_aspect
+        page_h = max(base_h, disp_h_max + header_budget + 2 * margin)
+    else:
+        page_h = base_h
+
+    # Precompute display dimensions for the primary chart (kept for the
+    # downstream content block).
     if result is not None:
         png_bytes, w_px, h_px = result
         aspect = (h_px / w_px) if w_px else 0.5
         disp_w = inner_w
         disp_h = disp_w * aspect
-        page_h = max(base_h, disp_h + header_budget + 2 * margin)
     else:
         png_bytes = None
         disp_w = disp_h = 0
-        page_h = base_h
 
     page_size = (base_w, page_h)
 
@@ -11523,6 +12130,20 @@ def generate_category_pdf(
     else:
         story.append(Image(io.BytesIO(png_bytes),
                            width=disp_w, height=disp_h))
+
+    # --- Page 4 (optional): per-test-spec coverage ------------------------
+    if extra_result is not None:
+        story.append(PageBreak())
+        story.append(Paragraph(t(extra_title_key), h2_style))
+        story.append(Paragraph(t("pdf_chart_definition"), h3_style))
+        story.append(Paragraph(_md_to_pdf(t(extra_help_key)), body_style))
+        story.append(Spacer(1, 8))
+        e_png, e_w, e_h = extra_result
+        e_aspect = (e_h / e_w) if e_w else 0.5
+        e_disp_w = inner_w
+        e_disp_h = e_disp_w * e_aspect
+        story.append(Image(io.BytesIO(e_png),
+                           width=e_disp_w, height=e_disp_h))
 
     # _pdf_apply_chrome appends the final TREX signature page and returns
     # the per-page footer callback. multiBuild is required so the TOC
@@ -12489,6 +13110,34 @@ def generate_test_density_pdf(
             disp_w = disp_h / aspect
         story.append(Image(io.BytesIO(png), width=disp_w, height=disp_h))
 
+    # --- Optional: per-test-spec chart --------------------------------------
+    # Only when the raw test_counts frame actually has multi-row FIDs —
+    # otherwise this view is identical to the chart above.
+    _raw_tests_td = (st.session_state.get("dfs") or {}).get("tests")
+    if (_raw_tests_td is not None and not _raw_tests_td.empty
+            and "機能ID" in _raw_tests_td.columns
+            and bool(_raw_tests_td["機能ID"].duplicated().any())):
+        ps_result = _mpl_chart_test_density(kpi_df, per_spec=True)
+        if ps_result is not None:
+            story.append(PageBreak())
+            _section_heading(
+                story, "palm", t("chart_test_density_per_spec"),
+            )
+            story.append(Paragraph(
+                _md_to_pdf(t("help_chart_test_density_per_spec")),
+                body_style,
+            ))
+            story.append(Spacer(1, 6))
+            ps_png, ps_w, ps_h = ps_result
+            ps_aspect = ps_h / ps_w if ps_w else 0.5
+            ps_disp_w = inner_w
+            ps_disp_h = ps_disp_w * ps_aspect
+            if ps_disp_h > max_h:
+                ps_disp_h = max_h
+                ps_disp_w = ps_disp_h / ps_aspect
+            story.append(Image(io.BytesIO(ps_png),
+                               width=ps_disp_w, height=ps_disp_h))
+
     # --- Below-threshold list ----------------------------------------------
     below_df = (
         df[below_mask][["機能ID", "機能名称", "総設定テスト数",
@@ -13421,7 +14070,7 @@ def _problem_class_count_per_fid(
     return {str(k): int(v) for k, v in s.items()}
 
 
-XLSX_TOTAL_STEPS = 15  # max possible sheet count (overview + 14 data sheets)
+XLSX_TOTAL_STEPS = 17  # max possible sheet count (overview + 16 data sheets)
 
 
 def generate_excel_report(
@@ -13700,6 +14349,61 @@ def generate_excel_report(
                   "機能IDごとのテスト件数と実施・成功率",
                   "test_counts + 計算値")
 
+        # 4b) Per-test-spec view — emits a second sheet when the raw
+        # test_counts frame actually has multi-row FIDs. Each row in
+        # this sheet is one test-spec file (column B in the CSV).
+        # Read via .get() to mirror the chart code path and to keep this
+        # callable from non-Streamlit smoke tests.
+        raw_tests_for_xlsx = (
+            (st.session_state.get("dfs") or {}).get("tests")
+        )
+        if (raw_tests_for_xlsx is not None
+                and not raw_tests_for_xlsx.empty
+                and "機能ID" in raw_tests_for_xlsx.columns
+                and bool(raw_tests_for_xlsx["機能ID"].duplicated().any())):
+            ps_cols = [
+                ("機能ID",       _SRC_MASTER, ""),
+                ("機能名称",     _SRC_MASTER, ""),
+                ("仕様書名",     _SRC_TESTS,  "test_counts B列"),
+                ("総設定テスト数", _SRC_TESTS, ""),
+                ("実施済",       _SRC_TESTS,  ""),
+                ("OK",           _SRC_TESTS,  ""),
+                ("NG",           _SRC_TESTS,  ""),
+                ("未実施",       _SRC_TESTS,  ""),
+            ]
+            # Pull 機能名称 from kpi_df so each spec row carries the
+            # feature label even though the raw test_counts frame
+            # doesn't have it.
+            name_map = {}
+            if "機能名称" in kpi_df.columns:
+                name_map = (
+                    kpi_df.dropna(subset=["機能名称"])
+                          .drop_duplicates(subset=["機能ID"])
+                          .set_index("機能ID")["機能名称"]
+                          .astype(str).to_dict()
+                )
+            master_fids_x = set(kpi_df["機能ID"].astype(str))
+            ps_rows = []
+            for _, r in raw_tests_for_xlsx.iterrows():
+                fid = str(r.get("機能ID") or "")
+                if fid not in master_fids_x:
+                    continue
+                ps_rows.append([
+                    fid, name_map.get(fid, ""),
+                    r.get("仕様書名", ""),
+                    r.get("総設定テスト数"), r.get("実施済"),
+                    r.get("OK"), r.get("NG"), r.get("未実施"),
+                ])
+            if ps_rows:
+                _step("test_coverage_per_spec")
+                _xlsx_write_sheet(wb, "test_coverage_per_spec",
+                                  "テストカバレッジ — テスト仕様書別",
+                                  ps_cols, ps_rows)
+                _register("test_coverage_per_spec",
+                          "テスト仕様書ごとの1行=1バー版（同一機能IDが"
+                          "複数仕様書に分かれている場合の内訳）",
+                          "test_counts (raw rows)")
+
     # ----- 5) test_density -----------------------------------------------
     if "test_density" in kpi_df.columns:
         cols = [
@@ -13718,6 +14422,75 @@ def generate_excel_report(
         _register("test_density",
                   "1設計書ページあたりのテスト件数",
                   "test_counts + design_pages")
+
+        # 5b) Per-test-spec view — same shape as test_coverage_per_spec.
+        # Density uses the FID-level 設計書ページ数 (looked up from
+        # kpi_df) as the denominator for every spec row, so the sum of
+        # per-spec densities equals the aggregated density.
+        raw_tests_td = (
+            (st.session_state.get("dfs") or {}).get("tests")
+        )
+        if (raw_tests_td is not None and not raw_tests_td.empty
+                and "機能ID" in raw_tests_td.columns
+                and bool(raw_tests_td["機能ID"].duplicated().any())
+                and "設計書ページ数" in kpi_df.columns):
+            pages_map = (
+                kpi_df.dropna(subset=["設計書ページ数"])
+                      .drop_duplicates(subset=["機能ID"])
+                      .set_index("機能ID")["設計書ページ数"]
+                      .astype(float).to_dict()
+            )
+            name_map_td = {}
+            if "機能名称" in kpi_df.columns:
+                name_map_td = (
+                    kpi_df.dropna(subset=["機能名称"])
+                          .drop_duplicates(subset=["機能ID"])
+                          .set_index("機能ID")["機能名称"]
+                          .astype(str).to_dict()
+                )
+            ps_cols = [
+                ("機能ID",         _SRC_MASTER,  ""),
+                ("機能名称",       _SRC_MASTER,  ""),
+                ("仕様書名",       _SRC_TESTS,   "test_counts B列"),
+                ("総設定テスト数", _SRC_TESTS,   ""),
+                ("設計書ページ数", _SRC_DESIGN,
+                 "機能ID単位（仕様書間で共通）"),
+                ("テスト密度",     _SRC_DERIVED,
+                 "= 仕様書ごとの総設定テスト数 / 機能IDの設計書ページ数"),
+            ]
+            ps_rows = []
+            for _, r in raw_tests_td.iterrows():
+                fid = str(r.get("機能ID") or "")
+                if fid not in pages_map:
+                    continue
+                tests_v = pd.to_numeric(
+                    r.get("総設定テスト数"), errors="coerce"
+                )
+                pages_v = pages_map.get(fid)
+                density = None
+                if (pd.notna(tests_v) and pages_v is not None
+                        and float(pages_v) > 0):
+                    density = float(tests_v) / float(pages_v)
+                ps_rows.append([
+                    fid, name_map_td.get(fid, ""),
+                    r.get("仕様書名", ""),
+                    None if pd.isna(tests_v) else int(tests_v),
+                    None if pages_v is None else float(pages_v),
+                    density,
+                ])
+            if ps_rows:
+                _step("test_density_per_spec")
+                _xlsx_write_sheet(
+                    wb, "test_density_per_spec",
+                    "テスト密度 — テスト仕様書別",
+                    ps_cols, ps_rows,
+                )
+                _register(
+                    "test_density_per_spec",
+                    "テスト仕様書ごとの1行=1バー版（分母は機能ID単位の"
+                    "設計書ページ数。仕様書ごとの密度の合計が集計値と一致）",
+                    "test_counts (raw rows) + design_pages",
+                )
 
     # ----- 6) incident_rate ----------------------------------------------
     if "incident_rate" in kpi_df.columns:
@@ -14902,11 +15675,52 @@ def render_charts_tab() -> None:
         _render_category_pdf_section_header(
             "chart_test_coverage", "help_chart_test_coverage", kpi_df,
         )
+        # Toggle only renders when at least one FID has >1 row in the raw
+        # test_counts frame — there's nothing to split otherwise.
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        has_multi_spec = (
+            raw_tests is not None and not raw_tests.empty
+            and "機能ID" in raw_tests.columns
+            and bool(raw_tests["機能ID"].duplicated().any())
+        )
+        if has_multi_spec:
+            mode = st.radio(
+                t("chart_test_coverage_view_label"),
+                options=["aggregated", "per_spec"],
+                format_func=lambda k: t(f"chart_test_coverage_view_{k}"),
+                horizontal=True,
+                key="chart_test_coverage_mode",
+            )
+            if mode == "per_spec":
+                ps_fig = _chart_test_coverage(kpi_df, per_spec=True)
+                if ps_fig is not None:
+                    fig = ps_fig
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_test_density(kpi_df)
     if fig is not None:
         _render_test_density_section_header(kpi_df)
+        # Same multi-spec detection as the test_coverage toggle: only
+        # show the radio when at least one FID has >1 row in raw tests
+        # (otherwise per-spec view is identical to aggregated).
+        raw_tests = (st.session_state.get("dfs") or {}).get("tests")
+        has_multi_spec = (
+            raw_tests is not None and not raw_tests.empty
+            and "機能ID" in raw_tests.columns
+            and bool(raw_tests["機能ID"].duplicated().any())
+        )
+        if has_multi_spec:
+            mode = st.radio(
+                t("chart_test_density_view_label"),
+                options=["aggregated", "per_spec"],
+                format_func=lambda k: t(f"chart_test_density_view_{k}"),
+                horizontal=True,
+                key="chart_test_density_mode",
+            )
+            if mode == "per_spec":
+                ps_fig = _chart_test_density(kpi_df, per_spec=True)
+                if ps_fig is not None:
+                    fig = ps_fig
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_incident_rate(kpi_df)
@@ -15553,6 +16367,74 @@ def render_design_pages_tab() -> None:
 
     edit_col, summary_col, _ = st.columns([2, 2, 3], gap="medium")
     with edit_col:
+        # Excel export / import toolbar above the data_editor. Export reflects
+        # the current in-memory state (no need to commit first); import merges
+        # numeric values into `state` and persists via save_design_pages.
+        export_col, import_col = st.columns(2, gap="small")
+        with export_col:
+            ts_label = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button(
+                label=t("dp_export_label"),
+                data=generate_design_pages_xlsx(
+                    unique_fids, state, name_map),
+                file_name=t("dp_export_filename", ts=ts_label),
+                mime=_mime_for_filename("design_pages.xlsx"),
+                help=t("dp_export_help"),
+                use_container_width=True,
+                key="design_pages_export_btn",
+            )
+        with import_col:
+            with st.popover(t("dp_import_label"),
+                            use_container_width=True,
+                            help=t("dp_import_help")):
+                uploaded = st.file_uploader(
+                    t("dp_import_picker_label"),
+                    type=["xlsx"],
+                    key="design_pages_import_uploader",
+                    accept_multiple_files=False,
+                    label_visibility="collapsed",
+                )
+                if st.button(
+                    t("dp_import_apply_btn"),
+                    key="design_pages_import_apply",
+                    type="primary",
+                    disabled=uploaded is None,
+                    use_container_width=True,
+                ):
+                    try:
+                        parsed = load_design_pages_xlsx(uploaded.getvalue())
+                    except (ValueError, OSError) as exc:
+                        st.error(t("dp_import_error", err=str(exc)))
+                    else:
+                        if not parsed:
+                            st.warning(t("dp_import_no_rows"))
+                        else:
+                            visible = set(unique_fids)
+                            applied = 0
+                            skipped = 0
+                            for fid, n in parsed.items():
+                                if fid in visible:
+                                    state[fid] = int(n)
+                                    applied += 1
+                                else:
+                                    skipped += 1
+                            save_design_pages(
+                                visible,
+                                {f: state.get(f) for f in unique_fids},
+                            )
+                            suffix = (
+                                t("dp_import_skipped_suffix",
+                                  skipped=skipped)
+                                if skipped else ""
+                            )
+                            st.toast(
+                                t("dp_import_success",
+                                  applied=applied,
+                                  skipped_suffix=suffix),
+                                icon="📥",
+                            )
+                            st.rerun()
+
         edited_df = st.data_editor(
             initial_df,
             num_rows="fixed",

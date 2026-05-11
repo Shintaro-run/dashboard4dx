@@ -5,7 +5,7 @@ via a single **Function ID** key. Every byte of data stays on the machine runnin
 the app — no outbound network calls beyond `pip install`.
 
 - **Developer:** Shin & Shiobara
-- **Version:** 1.3.0
+- **Version:** 1.7.1
 - **License:** MIT
 
 ---
@@ -18,12 +18,12 @@ A3-landscape PDF report.
 
 | # | Source (EN / 日本語) | Format | Required structure |
 |---|---|---|---|
-| 1 | Function ID master / 機能ID一覧 | xlsx | sheet `機能一覧`, **col F** = Function ID, **col G** = Function name, **col L** = 機能概要 (free-form description, optional — surfaced as the "機能の説明" section in the drilldown panel and the drilldown PDF). Scan range = row 2 .. last row where col B is filled. Rows whose F cell is empty (section headers, totals) are skipped. Strike-through cells are kept. |
+| 1 | Function ID master / 機能ID一覧 | xlsx | sheet `機能一覧`, **col F** = Function ID, **col G** = Function name, **col L** = 機能概要 (free-form description, optional — surfaced as the "機能の説明" section in the drilldown panel and the drilldown PDF). Scan range = row 2 .. last row where col B is filled. Rows whose F cell is empty (section headers, totals) are skipped. **Rows whose 機能ID cell has strike-through formatting are excluded** (v1.5.0+) — the preflight checklist shows how many rows were skipped and which IDs. |
 | 2 | WBS / WBS | xlsm | sheet `メイン`, data from row 16. Function ID extracted from cells `機能ID：XXXX` / `機能ID:XXXX` / bare `XXXX` in cols **E–I**. Schedule columns: **N** assignee (担当者 on sub-task rows), **P** planned effort, **Q** planned start, **R** planned end, **S** actual start, **T** actual end, **U** actual effort, **V** actual progress %, **AA** planned progress %. Sub-task rows (marked with ● in col L) carry the role keyword (開発/テスト仕様書作成/テスト実施) that drives the 担当者×ロール analytics. |
 | 3 | Redmine defect list / Redmine不具合一覧 | csv | columns: トラッカー, ステータス, 担当者, 実開始日, 実終了日, 機能ID, 問題分類. Filter applied: tracker = `不具合管理`. Dates parsed as `MM/DD/YYYY`. |
-| 4 | Test counts per spec / 仕様書別テスト集計 | csv | positional columns — A = Function ID, C = 総設定テスト数 (planned total = 実施済 + 未実施), D = 実施済, E = OK, F = NG. A Function ID may legitimately appear on multiple rows (one per test spec, e.g. 旧仕様/新仕様); the loader keeps every row and the integration step sums 総設定テスト数 / 実施済 / OK / NG / 未実施 per Function ID before joining onto the master, so every per-FID metric and chart sees the per-Function-ID totals rather than a single spec slice. The 仕様書ごとの内訳 is still surfaced in the test-coverage chart's hover. |
+| 4 | Test counts per spec / 仕様書別テスト集計 | csv | positional columns — A = Function ID, **B = 仕様書ファイル名 (test-spec file name, used for the per-spec view labels)**, C = 総設定テスト数 (planned total = 実施済 + 未実施), D = 実施済, E = OK, F = NG. A Function ID may legitimately appear on multiple rows (one per test spec, e.g. 旧仕様/新仕様); the loader keeps every row and the integration step sums 総設定テスト数 / 実施済 / OK / NG / 未実施 per Function ID before joining onto the master. Both the test-coverage and test-density charts have a **`機能ID別（集計）` ⇄ `テスト仕様書別`** toggle (v1.5.0 / v1.7.0) — column B labels the per-spec bars; if B is blank a sequential `仕様N` fallback is used. The reports (full PDF, category PDF, Excel) emit both views when multi-spec FIDs are present. |
 | 5 | LoC per Function ID / 機能ID別コード行数 | xlsx | sheet `機能ID別サマリ`, A = Function ID, B = LoC. |
-| 6 | Design page counts / 設計書ページ数 | manual form | entered inside the **Design pages** tab; auto-saved to `input/design_pages.json`. |
+| 6 | Design page counts / 設計書ページ数 | manual form | entered inside the **Design pages** tab; auto-saved to `input/design_pages.json`. The tab also has **📤 Excel書き出し** / **📥 Excel取り込み** buttons (v1.4.0+) for bulk-editing — round-trippable `.xlsx` with columns 機能ID / 機能名称 / 設計書ページ数 (sheet `設計書ページ数`). Import is non-destructive: numeric cells update, blanks/non-numeric rows are skipped, and FIDs not in the current master are reported but skipped. |
 | 7 | Calendar / カレンダー | xlsx | optional. Two sheets: `行事` (global events, cols: date / title / description) and `個人非稼働日` (per-assignee non-working days, cols: assignee / start / end / reason). Powers the calendar tab's event layers. |
 | 8 | Team roster / 担当者一覧 | xlsx | optional. Sheet `担当者一覧`, cols: チーム名 / 担当者名 / PC貸与数 / 専用携帯貸与数 / VPNアカウント. Currently surfaced as-is in Settings; the assignee-join with role analytics is not yet wired up. |
 
@@ -136,7 +136,8 @@ Plotly visualisations rebuilt from the joined KPI dataframe and from
 saved snapshot history:
 
 - Progress: planned vs actual (horizontal bars, per Function ID)
-- Test coverage (OK / NG / not run, stacked)
+- Test coverage (OK / NG / not run, stacked) — with a **`機能ID別（集計）` ⇄ `テスト仕様書別`** toggle when the same Function ID appears on multiple test-spec files. Per-spec mode uses one bar per row from the raw test_counts CSV; bar label = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`.
+- Test density (総設定テスト数 ÷ 設計書ページ数) — same toggle. In per-spec mode each spec uses the FID's 設計書ページ数 as the shared denominator, so the per-spec densities decompose the aggregated density (summed bars for a given FID equal the aggregated bar).
 - LoC × NG scatter (size = design pages, colour = risk score)
 - Design pages × LoC scatter (with average-complexity reference line)
 - Risk dimensions heatmap
@@ -271,7 +272,20 @@ reappears if the ID returns later.
 - **Auto-load of design page counts** — same idea for the design-pages
   store; an expander lists every entry as a small table.
 - **User settings persistence** — language choice + thresholds survive
-  app restarts (saved to `.data/user_settings.json`).
+  app restarts. **Stored OUTSIDE the app folder** (v1.7.1+) at the
+  OS-standard per-user config location:
+  - macOS: `~/Library/Application Support/dashboard4dx/user_settings.json`
+  - Linux: `$XDG_CONFIG_HOME/dashboard4dx/user_settings.json`
+    (default `~/.config/dashboard4dx/`)
+  - Windows: `%APPDATA%\dashboard4dx\user_settings.json`
+
+  A legacy file at `input/user_settings.json` (from versions ≤ 1.7.0)
+  is auto-migrated to the new path on first load. Earlier versions
+  silently swallowed write failures when the app folder was read-only
+  (e.g. installs into `C:\Program Files\…` or `/Applications/`),
+  causing thresholds to reset on every PC restart — v1.7.1 logs the
+  failure with the path + OS error, and the new location avoids the
+  read-only-install case entirely.
 - **Session log** — shows the path of the per-session log file under
   `log/`.
 
@@ -279,11 +293,13 @@ reappears if the ID returns later.
 
 ## Storage layout
 
-The app writes to two folders next to `main.py`. Both are auto-created on
-first use and both are gitignored.
+The app writes to two folders next to `main.py` plus one OS-standard
+per-user config dir. All are auto-created on first use; the two repo-
+adjacent folders are gitignored, and the config dir lives outside the
+repo entirely.
 
 ```
-input/
+input/                            (next to main.py, gitignored)
 ├── 2026-04-20/
 │   ├── master/    function_master.xlsx
 │   ├── wbs/       wbs.xlsm
@@ -296,14 +312,14 @@ input/
 │   └── ...
 └── design_pages.json
 
-.data/
-├── design_pages.json      (duplicate pointer — legacy, will be
-│                           pruned once the last pre-v1.0 install
-│                           has re-saved)
-└── user_settings.json     language + threshold selections
-
-log/
+log/                              (next to main.py, gitignored)
 └── log_YYYYMMDDhhmmss.log
+
+# OS-standard per-user config dir (v1.7.1+):
+#   macOS  → ~/Library/Application Support/dashboard4dx/
+#   Linux  → $XDG_CONFIG_HOME/dashboard4dx/ (or ~/.config/dashboard4dx/)
+#   Windows → %APPDATA%\dashboard4dx\
+└── user_settings.json     language + threshold selections
 ```
 
 - `input/<date>/<slot>/<filename>` — every successful upload is mirrored
@@ -312,16 +328,22 @@ log/
   Same filename overwrites; different timestamps live alongside each other,
   forming the trend-chart history.
 - `input/design_pages.json` — current state of the manual page-count form.
+- `<os-config-dir>/dashboard4dx/user_settings.json` — language +
+  threshold selections. Moved out of the app folder in v1.7.1 so deploys
+  into read-only install paths (e.g. `C:\Program Files\…`,
+  `/Applications/`, locked-down VDI profiles) still keep their settings
+  across restarts. Legacy `input/user_settings.json` is auto-migrated on
+  first load.
 - `log/log_YYYYMMDDhhmmss.log` — one file per Streamlit session. Every
   validation error, PDF-generation error, and any other caught exception is
   appended as a structured block (timestamp, category, summary, context,
   full traceback). The on-screen detail is capped at 3000 characters; the
   log file always retains the untruncated version.
 
-If you ever want a clean slate, delete `input/` and `log/` from the file
-system or use the Settings tab. Sample data lives elsewhere, in
-`sample_data/`, which is committed to the repo and never modified by the
-app.
+If you ever want a clean slate, delete `input/`, `log/`, and the OS-
+config directory (path listed above) — or use the Settings tab for the
+per-source resets. Sample data lives elsewhere, in `sample_data/`,
+which is committed to the repo and never modified by the app.
 
 ---
 
