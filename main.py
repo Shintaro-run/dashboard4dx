@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.3"
+APP_VERSION = "1.8.4"
 
 
 def log_error(category: str, summary: str, *,
@@ -3439,6 +3439,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alert_date_label_planned": "Planned end",
         "alert_date_label_unknown": "Date unknown",
         "charts_needs_master": "Upload **Function master** in the Dashboard tab to unlock charts.",
+        "charts_filtered_empty": "The sidebar Function ID filter currently matches **no rows**. Clear the filter (or tick a Function ID) to see charts again.",
         "chart_progress_gap": "Progress: planned vs actual",
         "chart_progress_planned": "planned",
         "chart_progress_actual": "actual",
@@ -4795,6 +4796,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "alert_date_label_planned": "終了予定日",
         "alert_date_label_unknown": "日付不明",
         "charts_needs_master": "Dashboardタブで **機能マスタ** を取り込むとグラフが利用できます。",
+        "charts_filtered_empty": "サイドバーの機能IDフィルタにマッチする行が**ありません**。フィルタを解除する（またはチェックを入れる）と再表示されます。",
         "chart_progress_gap": "進捗: 計画 vs 実績",
         "chart_progress_planned": "計画",
         "chart_progress_actual": "実績",
@@ -8443,10 +8445,52 @@ _INLINE_BAR_CHART_MAX_ROWS = 10_000
 # force Chromium to run many glyph-metric queries when automargin retries,
 # so clip them here. The drill-down panel still has the full name.
 _BAR_LABEL_MAX_CHARS = 36
+# Slightly more generous cap for the per-spec bar labels, which carry an
+# extra "〔spec file name〕" segment that meaningful customer file names
+# routinely overflow. plotly's automargin grows the left margin to fit.
+_BAR_LABEL_SPEC_MAX_CHARS = 56
 
 
 def _clip_label(s: str) -> str:
     return s if len(s) <= _BAR_LABEL_MAX_CHARS else s[: _BAR_LABEL_MAX_CHARS - 1] + "…"
+
+
+def _clip_label_spec(s: str) -> str:
+    """Looser clip used for the second (spec-name) line of per-spec bar
+    labels. Long file names need more room than the FID line."""
+    return (s if len(s) <= _BAR_LABEL_SPEC_MAX_CHARS
+            else s[: _BAR_LABEL_SPEC_MAX_CHARS - 1] + "…")
+
+
+def _per_spec_bar_label(
+    row,
+    name_map: dict,
+    spec_prefix: str,
+    *,
+    sep: str = "<br>",
+) -> str:
+    """Two-line bar label used by per-spec test-coverage / test-density
+    charts. The FID + 機能名称 sits on line 1; the spec file name sits on
+    line 2 inside 〔…〕 so it always has its own width budget — long
+    customer file names no longer get clipped to "Payment_…" on a single
+    crowded line.
+
+    ``sep`` is the line break appropriate for the rendering target:
+    ``"<br>"`` for plotly tick labels, ``"\n"`` for matplotlib.
+
+    Each line is clipped with its own ceiling: the FID line via
+    ``_clip_label`` (36 chars), the spec line via ``_clip_label_spec``
+    (56 chars) — enough room for typical "<モジュール>_<画面>_テスト
+    仕様書.xlsx" patterns without expanding the chart's left margin to
+    the point where the plot area shrinks.
+    """
+    fid = str(row["機能ID"])
+    nm = name_map.get(fid, "")
+    spec = str(row.get("仕様書名", "") or "").strip()
+    if not spec:
+        spec = f"{spec_prefix}{int(row['_seq'])}"
+    head = _clip_label(f"{fid}：{nm}" if nm else fid)
+    return f"{head}{sep}〔{_clip_label_spec(spec)}〕"
 
 
 def _disambiguate_bar_labels(df: pd.DataFrame, col: str = "display") -> pd.DataFrame:
@@ -8796,16 +8840,11 @@ def _chart_test_density(
         df["_seq"] = df.groupby("機能ID").cumcount() + 1
         spec_prefix = t("chart_label_spec_default")
 
-        def _row_label(row):
-            fid = str(row["機能ID"])
-            nm = name_map.get(fid, "")
-            spec = str(row.get("仕様書名", "") or "").strip()
-            if not spec:
-                spec = f"{spec_prefix}{int(row['_seq'])}"
-            head = f"{fid}：{nm}" if nm else fid
-            return f"{head} 〔{spec}〕"
-
-        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        df["display"] = df.apply(
+            lambda r: _per_spec_bar_label(
+                r, name_map, spec_prefix, sep="<br>"),
+            axis=1,
+        )
         df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["test_density"]).copy()
@@ -8876,13 +8915,26 @@ def _chart_test_density(
     )
     fig.add_vline(
         x=threshold, line_width=1, line_dash="dash", line_color="#a02020",
-        annotation_text=f"{t('chart_test_density_threshold_label')} {threshold:g}",
-        annotation_position="top right",
-        annotation_font=dict(color="#a02020", size=11),
     )
-    fig.update_layout(height=max(280, 28 * len(df)),
-                      xaxis_title="tests / page", yaxis_title=None,
-                      margin=_INLINE_MARGIN_LONG_Y)
+    # Threshold label sits ABOVE the plot area (paper-relative y) so the
+    # top-most bar — by definition the most attention-grabbing — never
+    # overlaps the annotation text.
+    fig.add_annotation(
+        x=threshold, y=1.02, xref="x", yref="paper",
+        text=f"{t('chart_test_density_threshold_label')} {threshold:g}",
+        showarrow=False, xanchor="left", yanchor="bottom",
+        font=dict(color="#a02020", size=11),
+    )
+    # per_spec puts two-line tick labels on every bar, so each row needs
+    # extra vertical space to keep both lines readable.
+    bar_px = 40 if per_spec else 28
+    fig.update_layout(
+        height=max(280, bar_px * len(df)),
+        xaxis_title="tests / page", yaxis_title=None,
+        # Extra top padding leaves room for the threshold label outside
+        # the plot area.
+        margin={**_INLINE_MARGIN_LONG_Y, "t": 44},
+    )
     fig.update_yaxes(automargin=True)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
@@ -8973,16 +9025,19 @@ def _chart_incident_rate(
     fig.add_vline(
         x=threshold * 100.0,
         line_width=1, line_dash="dash", line_color="#a02020",
-        annotation_text=(
-            f"{t('chart_incident_rate_threshold_label')} "
-            f"{threshold * 100:g}%"
-        ),
-        annotation_position="top right",
-        annotation_font=dict(color="#a02020", size=11),
     )
-    fig.update_layout(height=max(280, 28 * len(df)),
-                      xaxis_title="%", yaxis_title=None,
-                      margin=_INLINE_MARGIN_LONG_Y)
+    fig.add_annotation(
+        x=threshold * 100.0, y=1.02, xref="x", yref="paper",
+        text=(f"{t('chart_incident_rate_threshold_label')} "
+              f"{threshold * 100:g}%"),
+        showarrow=False, xanchor="left", yanchor="bottom",
+        font=dict(color="#a02020", size=11),
+    )
+    fig.update_layout(
+        height=max(280, 28 * len(df)),
+        xaxis_title="%", yaxis_title=None,
+        margin={**_INLINE_MARGIN_LONG_Y, "t": 44},
+    )
     fig.update_yaxes(automargin=True)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
         fig.add_annotation(**_truncate_note_annotation(len(df), total))
@@ -9046,16 +9101,11 @@ def _chart_test_coverage(
         df["_seq"] = df.groupby("機能ID").cumcount() + 1
         spec_prefix = t("chart_label_spec_default")
 
-        def _row_label(row):
-            fid = str(row["機能ID"])
-            nm = name_map.get(fid, "")
-            spec = str(row.get("仕様書名", "") or "").strip()
-            if not spec:
-                spec = f"{spec_prefix}{int(row['_seq'])}"
-            head = f"{fid}：{nm}" if nm else fid
-            return f"{head} 〔{spec}〕"
-
-        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        df["display"] = df.apply(
+            lambda r: _per_spec_bar_label(
+                r, name_map, spec_prefix, sep="<br>"),
+            axis=1,
+        )
         # Guarantee uniqueness so plotly doesn't collapse colliding rows.
         df = _disambiguate_bar_labels(df, "display")
     else:
@@ -9191,8 +9241,10 @@ def _chart_test_coverage(
                 insidetextanchor="middle",
                 textfont=dict(color="#333333", size=10),
                 customdata=customdata, hovertemplate=hover_tmpl)
+    # per_spec mode renders two-line tick labels; bump the per-bar slot.
+    bar_px = 40 if per_spec else 28
     fig.update_layout(barmode="stack",
-                      height=max(280, 28 * len(df)),
+                      height=max(280, bar_px * len(df)),
                       margin=_INLINE_MARGIN_LONG_Y)
     fig.update_yaxes(automargin=True)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
@@ -10721,16 +10773,13 @@ def _mpl_chart_test_density(
         df["_seq"] = df.groupby("機能ID").cumcount() + 1
         spec_prefix = t("chart_label_spec_default")
 
-        def _row_label(row):
-            fid = str(row["機能ID"])
-            nm = name_map.get(fid, "")
-            spec = str(row.get("仕様書名", "") or "").strip()
-            if not spec:
-                spec = f"{spec_prefix}{int(row['_seq'])}"
-            head = f"{fid}：{nm}" if nm else fid
-            return f"{head} 〔{spec}〕"
-
-        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        # Matplotlib tick labels use "\n" for line breaks (plotly's
+        # "<br>" would render literally here).
+        df["display"] = df.apply(
+            lambda r: _per_spec_bar_label(
+                r, name_map, spec_prefix, sep="\n"),
+            axis=1,
+        )
         df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["test_density"]).copy()
@@ -10835,16 +10884,13 @@ def _mpl_chart_test_coverage(
         df["_seq"] = df.groupby("機能ID").cumcount() + 1
         spec_prefix = t("chart_label_spec_default")
 
-        def _row_label(row):
-            fid = str(row["機能ID"])
-            nm = name_map.get(fid, "")
-            spec = str(row.get("仕様書名", "") or "").strip()
-            if not spec:
-                spec = f"{spec_prefix}{int(row['_seq'])}"
-            head = f"{fid}：{nm}" if nm else fid
-            return f"{head} 〔{spec}〕"
-
-        df["display"] = df.apply(_row_label, axis=1).map(_clip_label)
+        # Matplotlib uses "\n" for line breaks in tick labels (plotly's
+        # "<br>" would render literally here).
+        df["display"] = df.apply(
+            lambda r: _per_spec_bar_label(
+                r, name_map, spec_prefix, sep="\n"),
+            axis=1,
+        )
         df = _disambiguate_bar_labels(df, "display")
     else:
         df = kpi_df.dropna(subset=["OK", "NG", "未実施"], how="all").copy()
@@ -15678,6 +15724,18 @@ def render_charts_tab() -> None:
     kpi_df = get_current_kpi_df()
     if kpi_df is None:
         st.info(t("charts_needs_master"))
+        return
+
+    # Apply the sidebar's Function ID filter once at the top so every
+    # downstream chart, KPI panel, section header (which forms the
+    # category-PDF cache key), and Excel/PDF generation sees the same
+    # narrowed scope. Earlier versions left the filter unwired for
+    # several individual charts (progress / coverage / density / incident-
+    # rate / risk heatmap / loc-vs-NG / design-impl-gap) which is why
+    # customers reported "filter does nothing" on those charts.
+    kpi_df = _apply_global_fid_filter(kpi_df)
+    if kpi_df is not None and kpi_df.empty:
+        st.warning(t("charts_filtered_empty"))
         return
 
     # ----- Export controls (PDF + Excel, top of tab, right-aligned) -------
