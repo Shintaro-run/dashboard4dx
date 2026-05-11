@@ -5,7 +5,7 @@ via a single **Function ID** key. Every byte of data stays on the machine runnin
 the app — no outbound network calls beyond `pip install`.
 
 - **Developer:** Shin & Shiobara
-- **Version:** 1.7.1
+- **Version:** 1.8.0
 - **License:** MIT
 
 ---
@@ -136,8 +136,9 @@ Plotly visualisations rebuilt from the joined KPI dataframe and from
 saved snapshot history:
 
 - Progress: planned vs actual (horizontal bars, per Function ID)
-- Test coverage (OK / NG / not run, stacked) — with a **`機能ID別（集計）` ⇄ `テスト仕様書別`** toggle when the same Function ID appears on multiple test-spec files. Per-spec mode uses one bar per row from the raw test_counts CSV; bar label = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`.
-- Test density (総設定テスト数 ÷ 設計書ページ数) — same toggle. In per-spec mode each spec uses the FID's 設計書ページ数 as the shared denominator, so the per-spec densities decompose the aggregated density (summed bars for a given FID equal the aggregated bar).
+- Test coverage (OK / NG / not run, stacked) — with a **`機能ID別（集計）` ⇄ `テスト仕様書別`** toggle when the same Function ID appears on multiple test-spec files. Per-spec mode uses one bar per row from the raw test_counts CSV; bar label = `{機能ID}：{機能名称} 〔{仕様書ファイル名}〕`. A 並び順 dropdown (v1.8.0+) switches between 注目度順 (default) / 機能ID A→Z / 合計テスト数 / カバレッジ率 / OK率 / NG率.
+- Test density (総設定テスト数 ÷ 設計書ページ数) — same view-toggle plus a 並び順 dropdown (テスト密度 default / 機能ID / 総設定テスト数 / 設計書ページ数). In per-spec mode each spec uses the FID's 設計書ページ数 as the shared denominator, so the per-spec densities decompose the aggregated density (summed bars for a given FID equal the aggregated bar).
+- Incident rate / 障害発生率 (defect_total ÷ 実施済) — with a 並び順 dropdown (v1.8.0+): 障害発生率 default / 機能ID A→Z / 障害件数 / 実施済テスト数.
 - LoC × NG scatter (size = design pages, colour = risk score)
 - Design pages × LoC scatter (with average-complexity reference line)
 - Risk dimensions heatmap

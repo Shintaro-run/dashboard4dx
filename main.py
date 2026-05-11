@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.8.0"
 
 
 def log_error(category: str, summary: str, *,
@@ -3452,6 +3452,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density_view_label": "View",
         "chart_test_density_view_aggregated": "Per Function ID (aggregated)",
         "chart_test_density_view_per_spec": "Per test spec",
+        "chart_test_coverage_sort_label": "Sort by",
+        "chart_test_coverage_sort_attention": "Attention (default)",
+        "chart_test_coverage_sort_fid": "Function ID (A→Z)",
+        "chart_test_coverage_sort_total": "Total tests (most first)",
+        "chart_test_coverage_sort_coverage_rate": "Coverage rate, (OK+NG)/total (low first)",
+        "chart_test_coverage_sort_ok_rate": "OK rate, OK/executed (low first)",
+        "chart_test_coverage_sort_ng_rate": "NG rate, NG/executed (high first)",
+        "chart_test_density_sort_label": "Sort by",
+        "chart_test_density_sort_density": "Test density (low first, default)",
+        "chart_test_density_sort_fid": "Function ID (A→Z)",
+        "chart_test_density_sort_tests": "Total tests (most first)",
+        "chart_test_density_sort_pages": "Design pages (most first)",
+        "chart_incident_rate_sort_label": "Sort by",
+        "chart_incident_rate_sort_rate": "Fault rate (high first, default)",
+        "chart_incident_rate_sort_fid": "Function ID (A→Z)",
+        "chart_incident_rate_sort_defects": "Defect count (most first)",
+        "chart_incident_rate_sort_executed": "Executed tests (most first)",
         "chart_test_density_threshold_label": "threshold",
         "chart_test_density_below_marker": "⚠ low",
         "chart_incident_rate": "Fault rate per Function ID (Redmine, defects/Executed)",
@@ -4785,6 +4802,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density_view_label": "表示切替",
         "chart_test_density_view_aggregated": "機能ID別（集計）",
         "chart_test_density_view_per_spec": "テスト仕様書別",
+        "chart_test_coverage_sort_label": "並び順",
+        "chart_test_coverage_sort_attention": "注目度順（既定）",
+        "chart_test_coverage_sort_fid": "機能ID（A→Z）",
+        "chart_test_coverage_sort_total": "合計テスト数（多い順）",
+        "chart_test_coverage_sort_coverage_rate": "カバレッジ率 (OK+NG)/総数（低い順）",
+        "chart_test_coverage_sort_ok_rate": "OK率 OK/実施済（低い順）",
+        "chart_test_coverage_sort_ng_rate": "NG率 NG/実施済（高い順）",
+        "chart_test_density_sort_label": "並び順",
+        "chart_test_density_sort_density": "テスト密度（低い順・既定）",
+        "chart_test_density_sort_fid": "機能ID（A→Z）",
+        "chart_test_density_sort_tests": "総設定テスト数（多い順）",
+        "chart_test_density_sort_pages": "設計書ページ数（多い順）",
+        "chart_incident_rate_sort_label": "並び順",
+        "chart_incident_rate_sort_rate": "障害発生率（高い順・既定）",
+        "chart_incident_rate_sort_fid": "機能ID（A→Z）",
+        "chart_incident_rate_sort_defects": "障害件数（多い順）",
+        "chart_incident_rate_sort_executed": "実施済テスト数（多い順）",
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
         "chart_test_density_below_marker": "⚠ 不足",
@@ -8665,8 +8699,14 @@ def _incident_rate_threshold() -> float:
                            INCIDENT_RATE_THRESHOLD_DEFAULT)
 
 
+_TEST_DENSITY_SORT_KEYS: tuple[str, ...] = (
+    "density", "fid", "tests", "pages",
+)
+
+
 def _chart_test_density(
     kpi_df: pd.DataFrame, *, per_spec: bool = False,
+    sort_by: str = "density",
 ) -> Optional[go.Figure]:
     """Horizontal bars of 総設定テスト数 ÷ 設計書ページ数 per Function ID.
 
@@ -8675,7 +8715,10 @@ def _chart_test_density(
     `per_spec=True` → one bar per raw test_counts row (= per test-spec
     sheet); each spec uses the *same* FID-level 設計書ページ数 as the
     denominator, so the sum of per-spec densities equals the aggregated
-    density. Threshold line is unchanged."""
+    density. Threshold line is unchanged.
+
+    `sort_by`: see `_TEST_DENSITY_SORT_KEYS`. Default `"density"` matches
+    the pre-existing under-tested-at-top order."""
     if not {"test_density", "総設定テスト数", "設計書ページ数"}.issubset(
             kpi_df.columns):
         return None
@@ -8735,10 +8778,22 @@ def _chart_test_density(
             return None
         df["display"] = _feature_display_series(df).map(_clip_label)
 
-    # Sort ascending so the lowest (under-tested) sit at the top of the bar
-    # chart after the iloc reverse below — matches the convention used by
-    # the other "attention list" charts in this file.
-    df = df.sort_values("test_density", ascending=True)
+    # Apply user-selected sort. iloc[::-1] below means: rows at index 0 of
+    # the sorted df land at the top of the chart, so we sort to put the
+    # "top of chart" candidate first.
+    if sort_by == "fid":
+        df = df.sort_values("機能ID", ascending=True,
+                            key=lambda s: s.astype(str))
+    elif sort_by == "tests":
+        df = df.sort_values("総設定テスト数", ascending=False,
+                            na_position="last")
+    elif sort_by == "pages":
+        df = df.sort_values("設計書ページ数", ascending=False,
+                            na_position="last")
+    else:  # "density" (default) — lowest density at top, matches the
+        # pre-existing "under-tested first" attention list.
+        df = df.sort_values("test_density", ascending=True,
+                            na_position="last")
     total = len(df)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
         df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
@@ -8794,10 +8849,20 @@ def _chart_test_density(
     return fig
 
 
-def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
+_INCIDENT_RATE_SORT_KEYS: tuple[str, ...] = (
+    "rate", "fid", "defects", "executed",
+)
+
+
+def _chart_incident_rate(
+    kpi_df: pd.DataFrame, *, sort_by: str = "rate",
+) -> Optional[go.Figure]:
     """Per-機能ID horizontal bar of Redmine fault rate (defect_total ÷
     実施済). Bars *above* the configured threshold are flagged in red — the
     opposite direction from the test_density chart since here higher = bad.
+
+    `sort_by`: see `_INCIDENT_RATE_SORT_KEYS`. Default `"rate"` matches
+    the pre-existing highest-rate-at-top order.
     """
     needed = {"incident_rate", "defect_total", "実施済"}
     if not needed.issubset(kpi_df.columns):
@@ -8806,7 +8871,19 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     if df.empty:
         return None
     df["display"] = _feature_display_series(df).map(_clip_label)
-    df = df.sort_values("incident_rate", ascending=False)
+    # Apply user-selected sort. As elsewhere, iloc[::-1] below means index
+    # 0 of the sorted df ends up at the top of the chart.
+    if sort_by == "fid":
+        df = df.sort_values("機能ID", ascending=True,
+                            key=lambda s: s.astype(str))
+    elif sort_by == "defects":
+        df = df.sort_values("defect_total", ascending=False,
+                            na_position="last")
+    elif sort_by == "executed":
+        df = df.sort_values("実施済", ascending=False, na_position="last")
+    else:  # "rate" — highest defect rate at top (default).
+        df = df.sort_values("incident_rate", ascending=False,
+                            na_position="last")
     total = len(df)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
         df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
@@ -8867,10 +8944,16 @@ def _chart_incident_rate(kpi_df: pd.DataFrame) -> Optional[go.Figure]:
     return fig
 
 
+_TEST_COVERAGE_SORT_KEYS: tuple[str, ...] = (
+    "attention", "fid", "total", "coverage_rate", "ok_rate", "ng_rate",
+)
+
+
 def _chart_test_coverage(
     kpi_df: pd.DataFrame,
     *,
     per_spec: bool = False,
+    sort_by: str = "attention",
 ) -> Optional[go.Figure]:
     """Stacked OK / NG / 未実施 horizontal bars.
 
@@ -8878,6 +8961,10 @@ def _chart_test_coverage(
     aggregated kpi_df totals. `per_spec=True` → one bar per raw
     test_counts row (i.e. per test-spec sheet) so multi-spec FIDs are
     visible as their separate contributions instead of a single sum.
+
+    `sort_by` controls bar order. Each option has a fixed direction
+    chosen to match attention-list semantics (worst-first where
+    applicable). Supported keys: see `_TEST_COVERAGE_SORT_KEYS`.
     """
     if not {"OK", "NG", "未実施"}.issubset(kpi_df.columns):
         return None
@@ -8930,11 +9017,48 @@ def _chart_test_coverage(
             return None
         df["display"] = _feature_display_series(df).map(_clip_label)
 
-    # Worst-first by NG then 未実施 so head(N) is the attention list.
-    df["_bad"] = df["NG"].fillna(0) + df["未実施"].fillna(0) * 0.5
-    df = df.sort_values("_bad", ascending=False)
+    # Apply the user-selected sort. Each option has a fixed direction so
+    # the chart's "attention list" mental model still holds (the row that
+    # ends up at index 0 of `df` here is the one plotly will draw at the
+    # top of the chart, thanks to the iloc[::-1] reverse below).
+    _ok = df["OK"].fillna(0).astype(float)
+    _ng = df["NG"].fillna(0).astype(float)
+    _nr = df["未実施"].fillna(0).astype(float)
+    _tot = _ok + _ng + _nr
+    _exec = _ok + _ng
+    if sort_by == "fid":
+        # A→Z top-to-bottom: smallest FID string at top of chart.
+        df = df.assign(_sort=df["機能ID"].astype(str)).sort_values(
+            "_sort", ascending=True)
+    elif sort_by == "total":
+        # Largest total at top.
+        df = df.assign(_sort=_tot).sort_values("_sort", ascending=False)
+    elif sort_by == "coverage_rate":
+        # Lowest coverage at top (attention list). NaN = no tests at all,
+        # sent to the bottom so the actionable rows surface first.
+        rate = pd.Series(np.where(_tot > 0, _exec / _tot, np.nan),
+                         index=df.index)
+        df = df.assign(_sort=rate).sort_values(
+            "_sort", ascending=True, na_position="last")
+    elif sort_by == "ok_rate":
+        # Lowest OK/実施済 at top. NaN (実施済=0) → bottom.
+        rate = pd.Series(np.where(_exec > 0, _ok / _exec, np.nan),
+                         index=df.index)
+        df = df.assign(_sort=rate).sort_values(
+            "_sort", ascending=True, na_position="last")
+    elif sort_by == "ng_rate":
+        # Highest NG/実施済 at top. NaN (実施済=0) → bottom.
+        rate = pd.Series(np.where(_exec > 0, _ng / _exec, np.nan),
+                         index=df.index)
+        df = df.assign(_sort=rate).sort_values(
+            "_sort", ascending=False, na_position="last")
+    else:  # "attention" — current worst-first composite (default).
+        df = df.assign(_sort=_ng + _nr * 0.5).sort_values(
+            "_sort", ascending=False)
     total = len(df)
     if total > _INLINE_BAR_CHART_MAX_ROWS:
+        # First N rows already sit at the "top of chart" end after the
+        # sort above; head() keeps exactly those.
         df = df.head(_INLINE_BAR_CHART_MAX_ROWS)
     df = df.iloc[::-1]
     ok_vals = df["OK"].fillna(0).astype(int)
@@ -15683,44 +15807,77 @@ def render_charts_tab() -> None:
             and "機能ID" in raw_tests.columns
             and bool(raw_tests["機能ID"].duplicated().any())
         )
-        if has_multi_spec:
-            mode = st.radio(
-                t("chart_test_coverage_view_label"),
-                options=["aggregated", "per_spec"],
-                format_func=lambda k: t(f"chart_test_coverage_view_{k}"),
-                horizontal=True,
-                key="chart_test_coverage_mode",
+        # Controls row: view toggle (when applicable) + sort selectbox.
+        view_col, sort_col, _spacer = st.columns(
+            [3, 3, 4], gap="small", vertical_alignment="bottom",
+        )
+        with view_col:
+            if has_multi_spec:
+                mode = st.radio(
+                    t("chart_test_coverage_view_label"),
+                    options=["aggregated", "per_spec"],
+                    format_func=lambda k: t(
+                        f"chart_test_coverage_view_{k}"),
+                    horizontal=True,
+                    key="chart_test_coverage_mode",
+                )
+            else:
+                mode = "aggregated"
+        with sort_col:
+            sort_by_cov = st.selectbox(
+                t("chart_test_coverage_sort_label"),
+                options=list(_TEST_COVERAGE_SORT_KEYS),
+                format_func=lambda k: t(f"chart_test_coverage_sort_{k}"),
+                key="chart_test_coverage_sort",
             )
-            if mode == "per_spec":
-                ps_fig = _chart_test_coverage(kpi_df, per_spec=True)
-                if ps_fig is not None:
-                    fig = ps_fig
+        # Rebuild with the chosen sort (and per_spec when toggled on).
+        rebuilt = _chart_test_coverage(
+            kpi_df,
+            per_spec=(mode == "per_spec"),
+            sort_by=sort_by_cov,
+        )
+        if rebuilt is not None:
+            fig = rebuilt
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_test_density(kpi_df)
     if fig is not None:
         _render_test_density_section_header(kpi_df)
-        # Same multi-spec detection as the test_coverage toggle: only
-        # show the radio when at least one FID has >1 row in raw tests
-        # (otherwise per-spec view is identical to aggregated).
         raw_tests = (st.session_state.get("dfs") or {}).get("tests")
         has_multi_spec = (
             raw_tests is not None and not raw_tests.empty
             and "機能ID" in raw_tests.columns
             and bool(raw_tests["機能ID"].duplicated().any())
         )
-        if has_multi_spec:
-            mode = st.radio(
-                t("chart_test_density_view_label"),
-                options=["aggregated", "per_spec"],
-                format_func=lambda k: t(f"chart_test_density_view_{k}"),
-                horizontal=True,
-                key="chart_test_density_mode",
+        view_col, sort_col, _spacer = st.columns(
+            [3, 3, 4], gap="small", vertical_alignment="bottom",
+        )
+        with view_col:
+            if has_multi_spec:
+                mode = st.radio(
+                    t("chart_test_density_view_label"),
+                    options=["aggregated", "per_spec"],
+                    format_func=lambda k: t(
+                        f"chart_test_density_view_{k}"),
+                    horizontal=True,
+                    key="chart_test_density_mode",
+                )
+            else:
+                mode = "aggregated"
+        with sort_col:
+            sort_by_td = st.selectbox(
+                t("chart_test_density_sort_label"),
+                options=list(_TEST_DENSITY_SORT_KEYS),
+                format_func=lambda k: t(f"chart_test_density_sort_{k}"),
+                key="chart_test_density_sort",
             )
-            if mode == "per_spec":
-                ps_fig = _chart_test_density(kpi_df, per_spec=True)
-                if ps_fig is not None:
-                    fig = ps_fig
+        rebuilt = _chart_test_density(
+            kpi_df,
+            per_spec=(mode == "per_spec"),
+            sort_by=sort_by_td,
+        )
+        if rebuilt is not None:
+            fig = rebuilt
         st.plotly_chart(fig, use_container_width=True)
 
     fig = _chart_incident_rate(kpi_df)
@@ -15728,6 +15885,18 @@ def render_charts_tab() -> None:
         _render_category_pdf_section_header(
             "chart_incident_rate", "help_chart_incident_rate", kpi_df,
         )
+        sort_col, _spacer = st.columns([3, 7], gap="small",
+                                       vertical_alignment="bottom")
+        with sort_col:
+            sort_by_ir = st.selectbox(
+                t("chart_incident_rate_sort_label"),
+                options=list(_INCIDENT_RATE_SORT_KEYS),
+                format_func=lambda k: t(f"chart_incident_rate_sort_{k}"),
+                key="chart_incident_rate_sort",
+            )
+        rebuilt = _chart_incident_rate(kpi_df, sort_by=sort_by_ir)
+        if rebuilt is not None:
+            fig = rebuilt
         st.plotly_chart(fig, use_container_width=True)
 
     col1, col2 = st.columns(2, gap="medium")
