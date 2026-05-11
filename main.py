@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.8.3"
 
 
 def log_error(category: str, summary: str, *,
@@ -3516,6 +3516,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "global_fid_filter_upload_hint": "Upload the Function ID master to unlock the filter.",
         "global_fid_filter_select_all": "Select all",
         "global_fid_filter_clear": "Clear",
+        "global_fid_filter_search_label": "Search",
+        "global_fid_filter_search_placeholder": "Type part of a Function ID…",
+        "global_fid_filter_search_no_match": "No Function ID matches \"{query}\".",
+        "global_fid_filter_search_count": "Showing {shown} / {total}",
         "kpi_missing_header": "**Cannot compute — missing inputs:**",
         "source_label_tests":   "Test counts CSV",
         "source_label_code":    "Code (LoC) XLSX",
@@ -4867,6 +4871,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "global_fid_filter_upload_hint": "機能IDマスタを取り込むとフィルタが使えます。",
         "global_fid_filter_select_all": "全選択",
         "global_fid_filter_clear": "クリア",
+        "global_fid_filter_search_label": "検索",
+        "global_fid_filter_search_placeholder": "機能IDの一部を入力…",
+        "global_fid_filter_search_no_match": "「{query}」に一致する機能IDはありません。",
+        "global_fid_filter_search_count": "表示中 {shown} / 全 {total} 件",
         "kpi_missing_header": "**計算不可 — 未入力:**",
         "source_label_tests":   "テスト集計CSV",
         "source_label_code":    "コード行数XLSX",
@@ -17074,9 +17082,16 @@ def _render_global_fid_filter() -> None:
     sees the freshly loaded master and offers every ID as a choice.
 
     Each Function ID gets its own checkbox under a scrollable container,
-    plus a 全選択 / クリア pair of buttons. The public selection is
-    derived on demand by `_get_global_fids` reading the checkbox state,
-    so tabs that run earlier in the rerun still see the up-to-date set.
+    plus a 全選択 / クリア pair of buttons and a search box. The public
+    selection is derived on demand by `_get_global_fids` reading the
+    checkbox state, so tabs that run earlier in the rerun still see the
+    up-to-date set.
+
+    The search box is a case-insensitive substring filter on the FID
+    string (NFKC-normalised so full-width input matches half-width FIDs
+    in the master). Filtering does NOT affect the underlying selection —
+    checkboxes for non-matching FIDs simply hide while their session
+    state is preserved, so the global selection survives across searches.
     """
     with st.sidebar:
         st.subheader(t("global_fid_filter_title"))
@@ -17086,23 +17101,50 @@ def _render_global_fid_filter() -> None:
             return
         st.caption(t("global_fid_filter_help"))
 
+        # NFKC + uppercase the query so 'auth' / 'ＡＵＴＨ' both match
+        # 'AUTH001'. FIDs in `options` are already uppercased ASCII via
+        # `_normalize_fid`, so a simple `in` check suffices afterwards.
+        raw_query = st.text_input(
+            t("global_fid_filter_search_label"),
+            key="_fid_search",
+            placeholder=t("global_fid_filter_search_placeholder"),
+        )
+        query = unicodedata.normalize("NFKC", raw_query or "").strip().upper()
+        visible = (
+            [fid for fid in options if query in fid] if query else options
+        )
+
         c1, c2 = st.columns(2)
+        # Select-all / Clear operate on the *currently visible* set so they
+        # pair naturally with the search box (e.g. "filter to PAY → click
+        # 全選択 to grab every payment FID"). When the search box is empty
+        # `visible == options`, restoring the pre-search behaviour.
         if c1.button(t("global_fid_filter_select_all"),
                      use_container_width=True,
                      key="_fid_cb_select_all"):
-            for fid in options:
+            for fid in visible:
                 st.session_state[f"{_FID_CB_KEY_PREFIX}{fid}"] = True
             st.rerun()
         if c2.button(t("global_fid_filter_clear"),
                      use_container_width=True,
                      key="_fid_cb_clear"):
-            for fid in options:
+            for fid in visible:
                 st.session_state[f"{_FID_CB_KEY_PREFIX}{fid}"] = False
             st.rerun()
 
         with st.container(height=320, border=True):
-            for fid in options:
-                st.checkbox(fid, key=f"{_FID_CB_KEY_PREFIX}{fid}")
+            if not visible:
+                st.caption(t("global_fid_filter_search_no_match",
+                             query=raw_query))
+            else:
+                for fid in visible:
+                    st.checkbox(fid, key=f"{_FID_CB_KEY_PREFIX}{fid}")
+
+        # Match counter — only when actively filtering, so the default
+        # state stays uncluttered.
+        if query:
+            st.caption(t("global_fid_filter_search_count",
+                         shown=len(visible), total=len(options)))
 
         n = len(_get_global_fids())
         if n == 0:
