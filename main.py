@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.1"
+APP_VERSION = "1.8.2"
 
 
 def log_error(category: str, summary: str, *,
@@ -3471,6 +3471,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_incident_rate_sort_executed": "Executed tests (most first)",
         "chart_test_density_threshold_label": "threshold",
         "chart_test_density_below_marker": "⚠ low",
+        "chart_bar_label_current": "Current",
         "chart_incident_rate": "Fault rate per Function ID (Redmine, defects/Executed)",
         "chart_incident_rate_threshold_label": "threshold",
         "chart_incident_rate_above_marker": "⚠ high",
@@ -4822,6 +4823,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "chart_test_density": "機能ID別テスト密度（テスト件数に関する充足率）",
         "chart_test_density_threshold_label": "閾値",
         "chart_test_density_below_marker": "⚠ 不足",
+        "chart_bar_label_current": "現状",
         "chart_incident_rate": "機能ID別 障害発生率（Redmine, 障害件数/実施済）",
         "chart_incident_rate_threshold_label": "閾値",
         "chart_incident_rate_above_marker": "⚠ 超過",
@@ -8834,6 +8836,7 @@ def _chart_test_density(
         densities,
     ])
     below_marker = t("chart_test_density_below_marker")
+    current_label = t("chart_bar_label_current")
     hover_tmpl = (
         "<b>%{y}</b><br>"
         "総設定テスト数: %{customdata[0]}  "
@@ -8842,8 +8845,12 @@ def _chart_test_density(
         f" (閾値: {threshold:g})"
         "<extra></extra>"
     )
+    # Flagged bars (below threshold) get a richer label so the magnitude
+    # of the shortfall is visible without hovering. Non-flagged bars stay
+    # as just the value so the chart doesn't get noisy.
     bar_texts = [
-        f"{v:.2f} {below_marker}" if b else f"{v:.2f}"
+        (f"{current_label}：{v:.2f} {below_marker}：{threshold - v:.2f}"
+         if b else f"{v:.2f}")
         for v, b in zip(densities, below)
     ]
     text_colors = ["#a02020" if b else "#555555" for b in below]
@@ -8924,17 +8931,22 @@ def _chart_incident_rate(
         rates * 100.0,
     ])
     above_marker = t("chart_incident_rate_above_marker")
+    current_label = t("chart_bar_label_current")
+    threshold_pct = threshold * 100.0
     hover_tmpl = (
         "<b>%{y}</b><br>"
         f"{t('col_defect_total')}: %{{customdata[0]}}  "
         f"実施済: %{{customdata[1]}}<br>"
         f"{t('col_incident_rate')}: %{{customdata[2]:.2f}}%"
-        f" (閾値: {threshold * 100:g}%)"
+        f" (閾値: {threshold_pct:g}%)"
         "<extra></extra>"
     )
     pct_vals = rates * 100.0
+    # Flagged bars (above threshold) carry both the current rate and the
+    # threshold overshoot. Non-flagged bars stay compact.
     bar_texts = [
-        f"{v:.1f}% {above_marker}" if a else f"{v:.1f}%"
+        (f"{current_label}：{v:.1f}% {above_marker}：{v - threshold_pct:.1f}%"
+         if a else f"{v:.1f}%")
         for v, a in zip(pct_vals, above)
     ]
     text_colors = ["#a02020" if a else "#555555" for a in above]
