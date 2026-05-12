@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.4"
+APP_VERSION = "1.8.5"
 
 
 def log_error(category: str, summary: str, *,
@@ -1532,7 +1532,7 @@ DEFECT_COLS = {
     "assignee": "担当者",
     "actual_start": "実開始日",
     "actual_end": "実終了日",
-    "function_id": "機能ID",
+    "function_id": "発生機能ID",
     "problem_class": "問題分類",
 }
 

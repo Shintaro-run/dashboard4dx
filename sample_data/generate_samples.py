@@ -433,6 +433,12 @@ def make_defects() -> Path:
     # who only works on those features ends up with defect_total = 0
     # and demos the marker.sizemin floor in the bubble map.
     defect_eligible_fids = [f for f in UNIQUE_IDS if f not in CLEAN_FIDS]
+    # Real Redmine exports carry BOTH 機能ID (the function the ticket was
+    # initially filed against — frequently left blank during triage) and
+    # 発生機能ID (where the defect actually surfaced — far more reliably
+    # populated). The dashboard aggregates on 発生機能ID for that reason.
+    # We mirror that asymmetry: 発生機能ID is always filled, 機能ID is
+    # blank ~40% of the time, otherwise echoes 発生機能ID.
     rows = []
     for i in range(80):
         fid = random.choice(defect_eligible_fids)
@@ -442,6 +448,7 @@ def make_defects() -> Path:
         # 35% have no actual end date (unresolved)
         end = (start + timedelta(days=random.randint(1, 30))
                if random.random() > 0.35 else None)
+        primary_fid = "" if random.random() < 0.4 else fid
         # Defect tracker exports dates in MM/DD/YYYY (US-style).
         rows.append({
             "トラッカー": tracker,
@@ -449,7 +456,8 @@ def make_defects() -> Path:
             "担当者": random.choice(assignees),
             "実開始日": start.strftime("%m/%d/%Y"),
             "実終了日": end.strftime("%m/%d/%Y") if end else "",
-            "機能ID": fid,
+            "機能ID": primary_fid,
+            "発生機能ID": fid,
             "問題分類": random.choice(classes),
         })
 
