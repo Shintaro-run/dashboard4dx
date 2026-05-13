@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.5"
+APP_VERSION = "1.8.6"
 
 
 def log_error(category: str, summary: str, *,
@@ -14483,7 +14483,9 @@ def generate_excel_report(
             rows.append([r.get(c) for (c, _h, _s, _d) in hero_specs])
         _step("hero")
         _xlsx_write_sheet(wb, "hero",
-                          "Hero — 全機能ID 全メトリクス", cols, rows)
+                          "Hero — 全機能ID 全メトリクス"
+                          "（出典: function_master / WBS / test_counts / "
+                          "code_counts / Redmine defects）", cols, rows)
 
         # ---- Spotlight columns (boss-requested 10) ----------------------
         # Highlight only on the hero sheet — these are the columns the
@@ -14539,7 +14541,8 @@ def generate_excel_report(
                  r.get("gap")] for _, r in df.iterrows()]
         _step("progress_gap")
         _xlsx_write_sheet(wb, "progress_gap",
-                          "進捗ギャップ (planned vs actual)", cols, rows)
+                          "進捗ギャップ (planned vs actual)"
+                          "（出典: WBS）", cols, rows)
         _register("progress_gap",
                   "予定と実績の進捗差分", "WBS")
 
@@ -14563,7 +14566,8 @@ def generate_excel_report(
                 for _, r in kpi_df.iterrows()]
         _step("test_coverage")
         _xlsx_write_sheet(wb, "test_coverage",
-                          "テストカバレッジ", cols, rows)
+                          "テストカバレッジ"
+                          "（出典: test_counts ＋ 計算値）", cols, rows)
         _register("test_coverage",
                   "機能IDごとのテスト件数と実施・成功率",
                   "test_counts + 計算値")
@@ -14616,7 +14620,8 @@ def generate_excel_report(
             if ps_rows:
                 _step("test_coverage_per_spec")
                 _xlsx_write_sheet(wb, "test_coverage_per_spec",
-                                  "テストカバレッジ — テスト仕様書別",
+                                  "テストカバレッジ — テスト仕様書別"
+                                  "（出典: test_counts 生データ）",
                                   ps_cols, ps_rows)
                 _register("test_coverage_per_spec",
                           "テスト仕様書ごとの1行=1バー版（同一機能IDが"
@@ -14637,7 +14642,8 @@ def generate_excel_report(
                  r.get("test_density")] for _, r in kpi_df.iterrows()]
         _step("test_density")
         _xlsx_write_sheet(wb, "test_density",
-                          "テスト密度", cols, rows)
+                          "テスト密度"
+                          "（出典: test_counts ＋ design_pages）", cols, rows)
         _register("test_density",
                   "1設計書ページあたりのテスト件数",
                   "test_counts + design_pages")
@@ -14701,7 +14707,8 @@ def generate_excel_report(
                 _step("test_density_per_spec")
                 _xlsx_write_sheet(
                     wb, "test_density_per_spec",
-                    "テスト密度 — テスト仕様書別",
+                    "テスト密度 — テスト仕様書別"
+                    "（出典: test_counts 生データ ＋ design_pages）",
                     ps_cols, ps_rows,
                 )
                 _register(
@@ -14725,7 +14732,9 @@ def generate_excel_report(
                  r.get("incident_rate")] for _, r in kpi_df.iterrows()]
         _step("incident_rate")
         _xlsx_write_sheet(wb, "incident_rate",
-                          "障害発生率 (Redmine)", cols, rows)
+                          "障害発生率"
+                          "（出典: Redmine defects ＋ test_counts）",
+                          cols, rows)
         _register("incident_rate",
                   "実施済テスト数あたりの障害件数",
                   "redmine + test_counts")
@@ -14741,7 +14750,9 @@ def generate_excel_report(
         rows = [[str(r["機能ID"]), r.get("機能名称"),
                  r.get("LoC"), r.get("NG")] for _, r in kpi_df.iterrows()]
         _step("loc_vs_ng")
-        _xlsx_write_sheet(wb, "loc_vs_ng", "LoC vs NG", cols, rows)
+        _xlsx_write_sheet(wb, "loc_vs_ng",
+                          "LoC vs NG"
+                          "（出典: code_counts ＋ test_counts）", cols, rows)
         _register("loc_vs_ng", "コード規模と不具合件数の関係",
                   "code_counts + test_counts")
 
@@ -14759,7 +14770,8 @@ def generate_excel_report(
                  r.get("complexity")] for _, r in kpi_df.iterrows()]
         _step("design_impl_gap")
         _xlsx_write_sheet(wb, "design_impl_gap",
-                          "設計と実装のギャップ", cols, rows)
+                          "設計と実装のギャップ"
+                          "（出典: design_pages ＋ code_counts）", cols, rows)
         _register("design_impl_gap",
                   "設計書ページ数とLoCの比較", "design_pages + code_counts")
 
@@ -14780,7 +14792,8 @@ def generate_excel_report(
                  r.get("risk_score")] for _, r in kpi_df.iterrows()]
         _step("risk_heatmap")
         _xlsx_write_sheet(wb, "risk_heatmap",
-                          "リスクヒートマップ 元データ", cols, rows)
+                          "リスクヒートマップ 元データ"
+                          "（出典: 計算値）", cols, rows)
         _register("risk_heatmap",
                   "リスクスコア構成要素", "計算値")
 
@@ -14821,7 +14834,8 @@ def generate_excel_report(
             rows.append(row)
         _step("loc_trend")
         _xlsx_write_sheet(wb, "loc_trend",
-                          "LoC トレンド（横持ち）", cols, rows)
+                          "LoC トレンド（横持ち）"
+                          "（出典: code_counts スナップショット）", cols, rows)
         _register("loc_trend",
                   "機能ID × スナップショット日付（LoC）",
                   "code_counts スナップショット")
@@ -14859,7 +14873,8 @@ def generate_excel_report(
             rows.append(row)
         _step("test_trend")
         _xlsx_write_sheet(wb, "test_trend",
-                          "総設定テスト数 トレンド（横持ち）", cols, rows)
+                          "総設定テスト数 トレンド（横持ち）"
+                          "（出典: test_counts スナップショット）", cols, rows)
         _register("test_trend",
                   "機能ID × スナップショット日付（総設定テスト数）",
                   "test_counts スナップショット")
@@ -14897,7 +14912,8 @@ def generate_excel_report(
             ]
             _step("bug_trend")
             _xlsx_write_sheet(wb, "bug_trend",
-                              "不具合トレンド（週次・横持ち）", cols, rows)
+                              "不具合トレンド（週次・横持ち）"
+                              "（出典: Redmine defects）", cols, rows)
             _register("bug_trend",
                       "週次の発生・解決と累積（未解決＝差分）",
                       "redmine defects")
@@ -14920,7 +14936,8 @@ def generate_excel_report(
                     for k, v in counts.items()]
             _step("defect_class")
             _xlsx_write_sheet(wb, "defect_class",
-                              "問題分類 集計", cols, rows)
+                              "問題分類 集計"
+                              "（出典: Redmine defects）", cols, rows)
             _register("defect_class",
                       "問題分類別の件数と割合", "redmine defects")
 
@@ -14950,7 +14967,9 @@ def generate_excel_report(
                 r.get("delay_days"),
             ])
         _step("gantt")
-        _xlsx_write_sheet(wb, "gantt", "ガントチャート 元データ",
+        _xlsx_write_sheet(wb, "gantt",
+                          "ガントチャート 元データ"
+                          "（出典: WBS）",
                           cols, rows)
         _register("gantt",
                   "WBS スケジュール一覧 (予定/実績)", "WBS")
@@ -14974,7 +14993,8 @@ def generate_excel_report(
             rows.append(row_vals)
         _step("defects_raw")
         _xlsx_write_sheet(wb, "defects_raw",
-                          "Redmine 不具合 生データ", cols, rows)
+                          "Redmine 不具合 生データ"
+                          "（出典: Redmine defects）", cols, rows)
         _register("defects_raw",
                   "Redmineから取り込んだ不具合の全行", "redmine defects")
 
