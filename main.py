@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.6"
+APP_VERSION = "1.8.7"
 
 
 def log_error(category: str, summary: str, *,
@@ -10326,12 +10326,14 @@ def _collect_fid_history(function_id: str) -> pd.DataFrame:
         sub = df_snap[df_snap["機能ID"] == function_id]
         if sub.empty:
             continue
-        r = sub.iloc[0]
+        # Multi-spec FIDs (旧仕様/新仕様) hold more than one row per
+        # Function ID in test_counts — sum across them so the trend
+        # line matches the kpi_df aggregate (see integrate_master).
         bucket = rows.setdefault(snap_date, {})
         for c in ("総設定テスト数", "実施済", "OK", "NG", "未実施"):
             if c in sub.columns:
-                v = r.get(c)
-                bucket[c] = float(v) if pd.notna(v) else None
+                vals = pd.to_numeric(sub[c], errors="coerce")
+                bucket[c] = float(vals.sum()) if vals.notna().any() else None
     for snap_date, _, df_snap in load_all_snapshots_for_slot(
         "code", load_code_counts
     ):
@@ -12930,17 +12932,26 @@ def _collect_all_fids_history() -> dict[str, pd.DataFrame]:
     ):
         if "機能ID" not in df_snap.columns:
             continue
-        for _, r in df_snap.iterrows():
-            fid = r.get("機能ID")
-            if pd.isna(fid):
-                continue
-            fid_s = str(fid)
+        # Multi-spec FIDs (旧仕様/新仕様) hold more than one row per
+        # Function ID in test_counts — sum across them so per-FID trend
+        # values match the kpi_df aggregate (see integrate_master).
+        sum_cols = [c for c in
+                    ("総設定テスト数", "実施済", "OK", "NG", "未実施")
+                    if c in df_snap.columns]
+        if not sum_cols:
+            continue
+        agg = (df_snap.dropna(subset=["機能ID"])
+                      .assign(**{c: pd.to_numeric(df_snap[c],
+                                                   errors="coerce")
+                                  for c in sum_cols})
+                      .groupby("機能ID", as_index=False)[sum_cols].sum())
+        for _, r in agg.iterrows():
+            fid_s = str(r["機能ID"])
             bucket = rows_by_fid.setdefault(fid_s, {}).setdefault(
                 snap_date, {})
-            for c in ("総設定テスト数", "実施済", "OK", "NG", "未実施"):
-                if c in df_snap.columns:
-                    v = r.get(c)
-                    bucket[c] = float(v) if pd.notna(v) else None
+            for c in sum_cols:
+                v = r.get(c)
+                bucket[c] = float(v) if pd.notna(v) else None
 
     for snap_date, _, df_snap in load_all_snapshots_for_slot(
         "code", load_code_counts
