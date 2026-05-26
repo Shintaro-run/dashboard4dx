@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.8.7"
+APP_VERSION = "1.8.8"
 
 
 def log_error(category: str, summary: str, *,
@@ -1843,7 +1843,7 @@ def generate_roster_template(sample: bool = True) -> bytes:
 # ETL: Calendar (global events + per-assignee non-working days)
 # =============================================================================
 CAL_EVENT_SHEET = "イベント"
-CAL_EVENT_COLS_ORDER = ["日付", "タイトル", "説明"]
+CAL_EVENT_COLS_ORDER = ["開始日", "終了日", "タイトル", "説明"]
 CAL_NONWORK_SHEET = "非稼働日"
 CAL_NONWORK_COLS_ORDER = ["担当者名", "開始日", "終了日", "理由"]
 # On-calendar display range. Editable here; used by render to jump the
@@ -1962,6 +1962,10 @@ def _jp_holidays_in_range(start: date, end: date) -> list[tuple[date, str]]:
 def load_calendar(file_bytes: bytes) -> pd.DataFrame:
     """Parse the calendar xlsx (2 sheets) into one long-form dataframe.
 
+    Both sheets carry 開始日 / 終了日 columns; a blank 終了日 collapses to
+    a single-day entry, and inverted ranges are auto-swapped rather than
+    dropped.
+
     Returned columns:
       kind          "event" or "nonwork"
       assignee       担当者名 (nonwork only; '' for events)
@@ -1989,16 +1993,21 @@ def load_calendar(file_bytes: bytes) -> pd.DataFrame:
             for r in rows[1:]:
                 if r is None:
                     continue
-                d = _to_date(r[0]) if len(r) > 0 else None
-                title = (str(r[1] or "").strip()
-                         if len(r) > 1 else "")
-                if d is None or not title:
+                start = _to_date(r[0]) if len(r) > 0 else None
+                end = _to_date(r[1]) if len(r) > 1 else None
+                title = (str(r[2] or "").strip()
+                         if len(r) > 2 else "")
+                if start is None or not title:
                     continue
-                desc = (str(r[2] or "").strip()
-                        if len(r) > 2 else "")
+                if end is None:
+                    end = start
+                if end < start:
+                    start, end = end, start
+                desc = (str(r[3] or "").strip()
+                        if len(r) > 3 else "")
                 out.append({
                     "kind": "event", "assignee": "",
-                    "start_date": d, "end_date": d,
+                    "start_date": start, "end_date": end,
                     "title": title, "description": desc,
                 })
 
@@ -2064,24 +2073,36 @@ def generate_calendar_template(sample: bool = True) -> bytes:
 
     # Jp holidays first — users can delete rows they don't want, and the
     # "description" column is preset with 公休 so it's obvious on a glance.
-    seed_rows: list[tuple[date, str, str]] = []
+    # Consecutive holiday dates (e.g., GW 5/3–5/5) are merged into a single
+    # row whose title joins the per-day names with "・" so multi-day stretches
+    # render as one event instead of three.
+    seed_rows: list[tuple[date, date, str, str]] = []
+    jp_runs: list[tuple[date, date, list[str]]] = []
     for d, name in _jp_holidays_in_range(CAL_DISPLAY_START, CAL_DISPLAY_END):
-        seed_rows.append((d, name, "公休（日本の祝日）"))
+        if jp_runs and (d - jp_runs[-1][1]).days == 1:
+            s, _e, names = jp_runs[-1]
+            jp_runs[-1] = (s, d, names + [name])
+        else:
+            jp_runs.append((d, d, [name]))
+    for s, e, names in jp_runs:
+        seed_rows.append((s, e, "・".join(names), "公休（日本の祝日）"))
 
     if sample:
         seed_rows.extend([
-            (date(2025, 4, 1),  "年度開始",        "全社キックオフ"),
-            (date(2025, 10, 1), "下期キックオフ",  "半期レビュー+方針"),
-            (date(2025, 12, 25),"全社MTG（年末）", ""),
+            (date(2025, 4, 1),  date(2025, 4, 1),  "年度開始",        "全社キックオフ"),
+            (date(2025, 10, 1), date(2025, 10, 1), "下期キックオフ",  "半期レビュー+方針"),
+            (date(2025, 12, 25),date(2025, 12, 25),"全社MTG（年末）", ""),
         ])
     # Chronological order for editing comfort.
     seed_rows.sort(key=lambda r: r[0])
-    for i, (d, title, desc) in enumerate(seed_rows, start=2):
-        ws_e.cell(row=i, column=1, value=d)
+    for i, (s, e, title, desc) in enumerate(seed_rows, start=2):
+        ws_e.cell(row=i, column=1, value=s)
         ws_e.cell(row=i, column=1).number_format = "yyyy-mm-dd"
-        ws_e.cell(row=i, column=2, value=title)
-        ws_e.cell(row=i, column=3, value=desc)
-    for col_idx, width in enumerate([14, 28, 40], start=1):
+        ws_e.cell(row=i, column=2, value=e)
+        ws_e.cell(row=i, column=2).number_format = "yyyy-mm-dd"
+        ws_e.cell(row=i, column=3, value=title)
+        ws_e.cell(row=i, column=4, value=desc)
+    for col_idx, width in enumerate([14, 14, 32, 40], start=1):
         ws_e.column_dimensions[ws_e.cell(row=1, column=col_idx)
                                  .column_letter].width = width
 
