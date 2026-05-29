@@ -604,10 +604,11 @@ def make_roster() -> Path:
 
 
 def make_calendar() -> Path:
-    """2-sheet calendar xlsx. Events sheet starts from the main-side
-    template (which seeds all 2024–2027 Japanese holidays) and appends
-    our demo company events on top. Non-working sheet is hand-rolled so
-    the demo names line up with the WBS roster.
+    """3-sheet calendar xlsx (イベント / 祝日・休日 / 非稼働日). The base
+    template seeds all 2024–2027 Japanese holidays into the 祝日・休日 sheet;
+    on top of that we append demo company events (イベント), a couple of
+    company days off (祝日・休日, 区分=会社休日), and per-assignee non-working
+    rows that line up with the WBS roster.
 
     Re-uses main.generate_calendar_template so the sample calendar ships
     the same holiday list as any template a user downloads from the
@@ -621,22 +622,66 @@ def make_calendar() -> Path:
     out = OUT_DIR / "calendar.xlsx"
     out.write_bytes(_app.generate_calendar_template(sample=False))
 
-    # Reopen to add demo events + non-working entries on top of holidays.
+    # Reopen to add demo events / company holidays / non-working entries.
     from openpyxl import load_workbook as _load
+    from datetime import date as _date
     wb = _load(out)
     ws_e = wb["イベント"]
-    # Append demo events right after the last holiday row.
+    # Events sheet ships empty (holidays now live on their own sheet), so the
+    # demo events start at row 2. Schema is 開始日 / 終了日 / タイトル / 説明 /
+    # ステータス (5 cols). Events are anchored around 2026-05/06/07 so the
+    # current-month grid and the timeline both stay lively, and every status
+    # (開始前 / 対応中 / 完了 / 問題あり) appears at least once — including a
+    # couple of multi-day spans to exercise the Gantt-style timeline.
     next_row = ws_e.max_row + 1
     demo_events = [
-        (date(2026, 1, 15), "キックオフMTG",      "全社キックオフ"),
-        (date(2026, 3, 15), "Designレビュー",     "中間レビュー+意思決定"),
-        (date(2026, 4, 20), "リリース判定会議",   "Goサインの有無確認"),
-        (date(2026, 5, 20), "ポストモーテム",     "品質振り返り"),
+        # start,            end,                title,              desc,                  status
+        # ---- 5月: 完了/対応中/問題あり が密に並ぶ現行フェーズ ----
+        (date(2026, 5, 1),  date(2026, 5, 1),  "月初定例MTG",        "全体進捗の共有",       "完了"),
+        (date(2026, 5, 7),  date(2026, 5, 9),  "要件追加レビュー",    "顧客と仕様確定",       "完了"),
+        (date(2026, 5, 11), date(2026, 5, 11), "コードフリーズ",      "機能実装の締切",       "完了"),
+        (date(2026, 5, 13), date(2026, 5, 15), "結合テスト",          "I/F結合の確認",        "対応中"),
+        (date(2026, 5, 18), date(2026, 5, 22), "システムテスト",      "本番相当環境で実施",   "対応中"),
+        (date(2026, 5, 20), date(2026, 5, 20), "セキュリティ診断",    "脆弱性スキャン",       "問題あり"),
+        (date(2026, 5, 25), date(2026, 5, 25), "リリース判定会議",    "Goサインの有無確認",   "問題あり"),
+        (date(2026, 5, 27), date(2026, 5, 29), "ユーザー受入テスト",  "顧客立会いで確認",     "対応中"),
+        (date(2026, 5, 29), date(2026, 6, 2),  "本番リリース準備",    "手順リハーサル",       "対応中"),
+        # ---- 6月: これから始まる開始前タスク中心 ----
+        (date(2026, 6, 3),  date(2026, 6, 3),  "本番リリース",        "計画リリース日",       "開始前"),
+        (date(2026, 6, 5),  date(2026, 6, 5),  "リリース後レビュー",  "初動の振り返り",       "開始前"),
+        (date(2026, 6, 10), date(2026, 6, 10), "ポストモーテム",      "品質振り返り",         "開始前"),
+        (date(2026, 6, 15), date(2026, 6, 19), "次フェーズ計画",      "スコープ確定",         "開始前"),
+        (date(2026, 6, 22), date(2026, 6, 22), "顧客報告会",          "成果と次期提案",       "開始前"),
+        (date(2026, 6, 25), date(2026, 6, 26), "設計レビュー",        "次期機能の設計確認",   "開始前"),
+        # ---- 7月: 下期の立ち上げ ----
+        (date(2026, 7, 1),  date(2026, 7, 1),  "下期キックオフ",      "全社方針共有",         "開始前"),
+        (date(2026, 7, 8),  date(2026, 7, 8),  "要件定義WS",          "次期要件の洗い出し",   "開始前"),
+        (date(2026, 7, 15), date(2026, 7, 17), "プロトタイプ評価",    "PoCの妥当性確認",      "開始前"),
+        (date(2026, 7, 23), date(2026, 7, 23), "中間報告",            "進捗の社内共有",       "開始前"),
+        (date(2026, 7, 30), date(2026, 7, 31), "月末締め・棚卸し",    "課題整理と次月計画",   "開始前"),
     ]
-    for i, (d, title, desc) in enumerate(demo_events, start=next_row):
-        ws_e.cell(row=i, column=1, value=d).number_format = "yyyy-mm-dd"
-        ws_e.cell(row=i, column=2, value=title)
-        ws_e.cell(row=i, column=3, value=desc)
+    for i, (s, e, title, desc, status) in enumerate(demo_events, start=next_row):
+        ws_e.cell(row=i, column=1, value=s).number_format = "yyyy-mm-dd"
+        ws_e.cell(row=i, column=2, value=e).number_format = "yyyy-mm-dd"
+        ws_e.cell(row=i, column=3, value=title)
+        ws_e.cell(row=i, column=4, value=desc)
+        ws_e.cell(row=i, column=5, value=status)
+
+    # Append a few company days off (区分=会社休日) to the 祝日・休日 sheet,
+    # anchored in 2026 so they show up around the demo timeframe. National
+    # holidays are already seeded by the template.
+    ws_h = wb["祝日・休日"]
+    h_row = ws_h.max_row + 1
+    company_holidays = [
+        (_date(2026, 6, 1),  _date(2026, 6, 1),  "創立記念日",     "会社休日"),
+        (_date(2026, 8, 12), _date(2026, 8, 14), "夏季一斉休業",   "会社休日"),
+        (_date(2026, 12, 29),_date(2027, 1, 3),  "年末年始休業",   "会社休日"),
+    ]
+    for i, (s, e, name, kindtype) in enumerate(company_holidays, start=h_row):
+        ws_h.cell(row=i, column=1, value=s).number_format = "yyyy-mm-dd"
+        ws_h.cell(row=i, column=2, value=e).number_format = "yyyy-mm-dd"
+        ws_h.cell(row=i, column=3, value=name)
+        ws_h.cell(row=i, column=4, value=kindtype)
 
     # Fill the 非稼働日 sheet (empty in template; we seed realistic rows
     # that match WBS assignee names so the 担当者×ロール demo stays coherent).
