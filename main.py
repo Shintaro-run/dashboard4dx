@@ -91,7 +91,7 @@ def _get_logger() -> logging.Logger:
 # the title bar reads this at render time, and PDF/Excel cache signatures
 # include it so a code update auto-invalidates any session-cached bytes
 # (otherwise a previously-generated file would keep being downloaded).
-APP_VERSION = "1.12.1"
+APP_VERSION = "1.13.0"
 
 
 def log_error(category: str, summary: str, *,
@@ -1902,6 +1902,19 @@ _CAL_STATUS_BADGE = {
 _CAL_EVENT_DEFAULT_BG = "#7c4db0"
 _CAL_EVENT_DEFAULT_BORDER = "#5e3a8a"
 
+# --- テスト layer ----------------------------------------------------------
+# A separate, independently-toggleable kind="test" layer that lives ALONGSIDE
+# events / holidays / non-working days (it is NOT folded into the event layer).
+# Source = an optional 17-column「テスト」sheet (the NS test-management master,
+# 1 row = 機能ID × テスト種別 × ケース). Only rows with a 予定開始 date land on
+# the calendar; test bands share the four status colours but are drawn hatched
+# so they read as "test" at a glance.
+CAL_TEST_SHEET = "テスト"
+# 「テスト状況」(master) → カレンダーのステータス(色) への 1:1 マップ.
+_CAL_TEST_STATUS_MAP = {
+    "未": "開始前", "実施中": "対応中", "終了": "完了", "課題発生中": "問題あり",
+}
+
 
 def _cal_status_colors(status) -> tuple[str, str]:
     """Return (background, border) hex for an event status. Blank/unknown
@@ -2185,6 +2198,49 @@ def load_calendar(file_bytes: bytes) -> pd.DataFrame:
                     "kind": "nonwork", "assignee": assignee,
                     "start_date": start, "end_date": end,
                     "title": reason, "description": "", "status": "",
+                })
+
+    # --- Test sheet (NSテスト管理マスター, 17列) ---------------------------
+    # kind="test"; an INDEPENDENT layer parallel to events/holidays/non-working
+    # (its own show/hide toggle). Columns are read BY HEADER NAME (the sheet is
+    # the full management master, not the event schema). Only rows that carry a
+    # 予定開始 date can be placed on the calendar; the rest (種別だけ決まって
+    # 日程未定) are skipped. 「テスト状況」maps onto the four event statuses so
+    # test bands colour-code by progress just like events do.
+    if CAL_TEST_SHEET in wb.sheetnames:
+        ws = wb[CAL_TEST_SHEET]
+        rows = list(ws.iter_rows(values_only=True))
+        if rows:
+            header = [str(c or "").strip() for c in rows[0]]
+            col = {h: i for i, h in enumerate(header)}
+
+            def _tg(r, name):
+                i = col.get(name)
+                return r[i] if (i is not None and i < len(r)) else None
+
+            for r in rows[1:]:
+                if r is None:
+                    continue
+                fid = str(_tg(r, "機能ID") or "").strip()
+                ttype = str(_tg(r, "テスト種別") or "").strip()
+                start = _to_date(_tg(r, "予定開始"))
+                end = _to_date(_tg(r, "予定終了"))
+                if not fid or not ttype or start is None:
+                    continue
+                if end is None:
+                    end = start
+                if end < start:
+                    start, end = end, start
+                raw_status = str(_tg(r, "テスト状況") or "").strip()
+                status = _CAL_TEST_STATUS_MAP.get(raw_status, "")
+                if status not in CAL_EVENT_STATUSES:
+                    status = ""
+                desc = str(_tg(r, "テスト概要") or "").strip()
+                out.append({
+                    "kind": "test", "assignee": "",
+                    "start_date": start, "end_date": end,
+                    "title": f"[{fid}] {ttype}", "description": desc,
+                    "status": status,
                 })
 
     return pd.DataFrame(out, columns=[
@@ -4857,6 +4913,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_rail_hint":      "⇄ scroll horizontally to browse all sources",
         "calendar_layer_events":  "Show events",
         "calendar_layer_nonwork": "Show non-working days",
+        "calendar_layer_test":    "Show tests",
         "calendar_layer_backlog": "Show Backlog",
         "calendar_grid_heading":     "Month grid (all events, status-coloured)",
         "calendar_grid_jpeg":        "📷 Save month grid as JPEG",
@@ -6182,6 +6239,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "src_rail_hint":      "⇄ 横にスクロールして全ソースを閲覧",
         "calendar_layer_events":  "イベント表示",
         "calendar_layer_nonwork": "非稼働表示",
+        "calendar_layer_test":    "テスト表示",
         "calendar_layer_backlog": "Backlog 表示",
         "calendar_grid_heading":     "月間グリッド（全イベント・ステータス色）",
         "calendar_grid_jpeg":        "📷 月間グリッドをJPEGで保存",
@@ -11404,13 +11462,15 @@ def _cal_session_df():
 
 
 def _cal_collect(cal_df, win_start: date, win_end: date, *,
-                 show_events=True, show_holiday=True, show_nonwork=True):
+                 show_events=True, show_holiday=True, show_nonwork=True,
+                 show_test=True):
     """Build per-day buckets over the inclusive window [win_start, win_end].
 
-    Returns (events_by_day, nonwork_by_day, holiday_by_day) where:
+    Returns (events_by_day, nonwork_by_day, holiday_by_day, test_by_day) where:
       events_by_day[d]  -> list of (title, status)
       nonwork_by_day[d] -> list of label strings
       holiday_by_day[d] -> (name, 区分)   区分 ∈ {"祝日","会社休日"}
+      test_by_day[d]    -> list of (title, status)   (kind="test" layer)
 
     The show_* flags mirror the calendar tab's layer toggles. Holidays come
     from the uploaded 祝日・休日 sheet (kind="holiday"); when shown, any day in
@@ -11420,6 +11480,7 @@ def _cal_collect(cal_df, win_start: date, win_end: date, *,
     events_by_day: dict[date, list[tuple[str, str]]] = {}
     nonwork_by_day: dict[date, list[str]] = {}
     holiday_by_day: dict[date, tuple[str, str]] = {}
+    test_by_day: dict[date, list[tuple[str, str]]] = {}
     if cal_df is not None and not cal_df.empty:
         for _, r in cal_df.iterrows():
             s = _to_pydate(r.get("start_date"))
@@ -11433,6 +11494,8 @@ def _cal_collect(cal_df, win_start: date, win_end: date, *,
                 continue
             if kind == "holiday" and not show_holiday:
                 continue
+            if kind == "test" and not show_test:
+                continue
             title = str(r.get("title") or "")
             status = str(r.get("status") or "").strip()
             assignee = str(r.get("assignee") or "")
@@ -11442,6 +11505,8 @@ def _cal_collect(cal_df, win_start: date, win_end: date, *,
             while d <= last:
                 if kind == "event":
                     events_by_day.setdefault(d, []).append((title, status))
+                elif kind == "test":
+                    test_by_day.setdefault(d, []).append((title, status))
                 elif kind == "nonwork":
                     label = (f"{assignee}: {title}"
                              if assignee and title else (assignee or title))
@@ -11462,7 +11527,7 @@ def _cal_collect(cal_df, win_start: date, win_end: date, *,
             if d not in holiday_by_day and d in nat:
                 holiday_by_day[d] = (nat[d], "祝日")
             d = d + timedelta(days=1)
-    return events_by_day, nonwork_by_day, holiday_by_day
+    return events_by_day, nonwork_by_day, holiday_by_day, test_by_day
 
 
 # WBS schedule band colours on the calendar (planned grey, actual blue — blue
@@ -11478,6 +11543,8 @@ def _cal_legend_handles(*, with_wbs=False):
     h = [Patch(facecolor=_CAL_STATUS_COLOR[s], edgecolor="none", label=s)
          for s in CAL_EVENT_STATUSES]
     h += [
+        Patch(facecolor="#d9d9d9", edgecolor="#2b2b2b", hatch="////",
+              label="テスト"),
         Patch(facecolor="#8f9a6c", edgecolor="none", label="非稼働"),
         Patch(facecolor=_CAL_HOLIDAY_COLOR["祝日"], edgecolor="none",
               label="祝日"),
@@ -11503,10 +11570,12 @@ def _text_on(hex_color: str) -> str:
 
 
 def _cal_spans(cal_df, win_start: date, win_end: date, *,
-               show_events=True, show_nonwork=True):
-    """Event & non-working spans (clipped to the window) for band rendering.
-    Each item: {start, end, label, color, kind}. Sorted earliest-first, then
-    longest-first so long bands settle into the lower lanes."""
+               show_events=True, show_nonwork=True, show_test=True):
+    """Event & non-working & test spans (clipped to the window) for band
+    rendering. Each item: {start, end, label, color, kind}. Sorted
+    earliest-first, then longest-first so long bands settle into lower lanes.
+    Test spans (kind="test") share the status colours; the grid draws them
+    hatched so they're distinguishable from real events."""
     spans: list[dict] = []
     if cal_df is None or getattr(cal_df, "empty", True):
         return spans
@@ -11516,7 +11585,9 @@ def _cal_spans(cal_df, win_start: date, win_end: date, *,
             continue
         if kind == "nonwork" and not show_nonwork:
             continue
-        if kind not in ("event", "nonwork"):
+        if kind == "test" and not show_test:
+            continue
+        if kind not in ("event", "nonwork", "test"):
             continue
         s = _to_pydate(r.get("start_date"))
         e = _to_pydate(r.get("end_date")) or s
@@ -11526,7 +11597,7 @@ def _cal_spans(cal_df, win_start: date, win_end: date, *,
             e = s
         if e < win_start or s > win_end:
             continue
-        if kind == "event":
+        if kind in ("event", "test"):
             label = str(r.get("title") or "")
             status = str(r.get("status") or "").strip()
             color = _CAL_STATUS_COLOR.get(status, _CAL_EVENT_DEFAULT_BG)
@@ -11630,9 +11701,12 @@ def _mpl_draw_grid(weeks_dates, spans, holiday_by_day, today_d, title, *,
             x1 = (c1 + 1) * cell_w - 0.05
             top = y_base + cell_h - HEADER - lane * LANE_H
             bh = LANE_H - 0.06
+            is_test = sp.get("kind") == "test"
             ax.add_patch(Rectangle((x0, top - bh), x1 - x0, bh,
-                         facecolor=sp["color"], edgecolor="white",
-                         linewidth=0.6, zorder=2))
+                         facecolor=sp["color"],
+                         edgecolor="#2b2b2b" if is_test else "white",
+                         linewidth=0.9 if is_test else 0.6,
+                         hatch="////" if is_test else None, zorder=2))
             maxc = max(1, int((x1 - x0) / 0.085))
             lab = sp["label"]
             if len(lab) > maxc:
@@ -11656,7 +11730,7 @@ def _mpl_draw_grid(weeks_dates, spans, holiday_by_day, today_d, title, *,
     ax.set_title(title, fontsize=15, pad=22)
     with_wbs = any(sp.get("kind") == "wbs" for sp in spans)
     ax.legend(handles=_cal_legend_handles(with_wbs=with_wbs), loc="lower center",
-              bbox_to_anchor=(0.5, -0.04), ncol=11 if with_wbs else 9,
+              bbox_to_anchor=(0.5, -0.04), ncol=12 if with_wbs else 10,
               fontsize=8, frameon=False)
     fig.tight_layout()
     return _mpl_save(fig)
@@ -11682,10 +11756,11 @@ def _mpl_calendar_month(anchor: date, today_d: date, *, extra_spans=None,
     win_start = date(y, m, 1)
     win_end = date(y, m, _pycal.monthrange(y, m)[1])
     cal = _cal_session_df()
-    _, _, hbd = _cal_collect(cal, win_start, win_end, **flags)
+    _, _, hbd, _ = _cal_collect(cal, win_start, win_end, **flags)
     spans = _cal_spans(cal, win_start, win_end,
                        show_events=flags.get("show_events", True),
-                       show_nonwork=flags.get("show_nonwork", True))
+                       show_nonwork=flags.get("show_nonwork", True),
+                       show_test=flags.get("show_test", True))
     spans += _clip_spans(extra_spans, win_start, win_end)
     spans.sort(key=lambda sp: (sp["start"], -(sp["end"] - sp["start"]).days))
     weeks_dates = [[(date(y, m, dd) if dd else None) for dd in wk]
@@ -11700,10 +11775,11 @@ def _mpl_calendar_week(anchor: date, today_d: date, *, extra_spans=None,
     win_start = anchor - timedelta(days=offset)
     win_end = win_start + timedelta(days=6)
     cal = _cal_session_df()
-    _, _, hbd = _cal_collect(cal, win_start, win_end, **flags)
+    _, _, hbd, _ = _cal_collect(cal, win_start, win_end, **flags)
     spans = _cal_spans(cal, win_start, win_end,
                        show_events=flags.get("show_events", True),
-                       show_nonwork=flags.get("show_nonwork", True))
+                       show_nonwork=flags.get("show_nonwork", True),
+                       show_test=flags.get("show_test", True))
     spans += _clip_spans(extra_spans, win_start, win_end)
     spans.sort(key=lambda sp: (sp["start"], -(sp["end"] - sp["start"]).days))
     week_dates = [win_start + timedelta(days=i) for i in range(7)]
@@ -11715,10 +11791,11 @@ def _mpl_calendar_week(anchor: date, today_d: date, *, extra_spans=None,
 def _mpl_calendar_day(anchor: date, today_d: date, *, extra_spans=None,
                       **flags):
     """Single-day agenda listing every WBS / event / non-working / holiday."""
-    ebd, nbd, hbd = _cal_collect(_cal_session_df(), anchor, anchor, **flags)
+    ebd, nbd, hbd, tbd = _cal_collect(_cal_session_df(), anchor, anchor, **flags)
     evs = ebd.get(anchor, [])
     nws = nbd.get(anchor, [])
     hol = hbd.get(anchor)
+    tev = tbd.get(anchor, [])
     wbs_today = [sp for sp in (extra_spans or [])
                  if sp["start"] <= anchor <= sp["end"]]
 
@@ -11736,6 +11813,12 @@ def _mpl_calendar_day(anchor: date, today_d: date, *, extra_spans=None,
         for et, es in evs:
             label = f"● {et}" + (f"  [{es}]" if es else "")
             items.append((label, _CAL_STATUS_COLOR.get(es,
+                          _CAL_EVENT_DEFAULT_BG), False))
+    if tev:
+        items.append(("― テスト ―", "#666", True))
+        for tt, ts in tev:
+            label = f"● {tt}" + (f"  [{ts}]" if ts else "")
+            items.append((label, _CAL_STATUS_COLOR.get(ts,
                           _CAL_EVENT_DEFAULT_BG), False))
     if nws:
         items.append(("― 非稼働 ―", "#666", True))
@@ -11833,9 +11916,10 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
 
     win_start, win_end = _cal_window(anchor, mode)
 
-    rows: list[tuple[date, date, str, str]] = []
+    rows: list[tuple[date, date, str, str, str]] = []
     for _, r in cal_df.iterrows():
-        if r.get("kind") != "event":
+        k = r.get("kind")
+        if k not in ("event", "test"):
             continue
         s = _to_pydate(r.get("start_date"))
         e = _to_pydate(r.get("end_date")) or s
@@ -11846,7 +11930,7 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         if e < win_start or s > win_end:           # outside the window
             continue
         rows.append((s, e, str(r.get("title") or ""),
-                     str(r.get("status") or "").strip()))
+                     str(r.get("status") or "").strip(), str(k)))
     if not rows:
         return None
     rows.sort(key=lambda t: (t[0], t[1]))
@@ -11866,14 +11950,21 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
     fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
 
     labels = [""] * n
-    for i, (s, e, title, status) in enumerate(rows):
+    for i, (s, e, title, status, kind) in enumerate(rows):
         yp = n - 1 - i                              # row 0 (earliest) on top
-        labels[yp] = title if len(title) <= 26 else title[:25] + "…"
+        is_test = kind == "test"
+        # Prefix test rows so the y-axis label itself says "this is a test"
+        # even in greyscale / when the hatch is subtle. Plain JP text only —
+        # geometric glyphs (▣ etc.) tofu in the matplotlib CJK font.
+        lab = ("テスト: " + title) if is_test else title
+        labels[yp] = lab if len(lab) <= 26 else lab[:25] + "…"
         bs = mdates.date2num(max(s, win_start))
         be = mdates.date2num(min(e, win_end) + timedelta(days=1))
         color = _CAL_STATUS_COLOR.get(status, _CAL_EVENT_DEFAULT_BG)
         ax.barh(yp, be - bs, left=bs, height=0.62, color=color,
-                edgecolor="white", linewidth=0.5, zorder=3)
+                edgecolor="#2b2b2b" if is_test else "white",
+                linewidth=0.9 if is_test else 0.5,
+                hatch="////" if is_test else None, zorder=3)
 
     ax.set_yticks(range(n))
     ax.set_yticklabels(labels, fontsize=8)
@@ -11902,7 +11993,7 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         ax.text(mdates.date2num(today_d), n - 0.3, " 今日",
                 color="#c98f00", fontsize=8, va="bottom", ha="left")
 
-    title_txt = (f"イベントタイムライン  "
+    title_txt = (f"イベント／テスト タイムライン  "
                  f"{win_start:%Y-%m-%d} 〜 {win_end:%Y-%m-%d}")
     if truncated:
         title_txt += f"（先頭{n}件のみ表示 / 他{truncated}件）"
@@ -11912,10 +12003,12 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         Patch(facecolor=_CAL_STATUS_COLOR[s], edgecolor="none", label=s)
         for s in CAL_EVENT_STATUSES
     ] + [Patch(facecolor=_CAL_EVENT_DEFAULT_BG, edgecolor="none",
-               label="ステータスなし")]
+               label="ステータスなし"),
+         Patch(facecolor="#d9d9d9", edgecolor="#2b2b2b", hatch="////",
+               label="テスト(斜線)")]
     ax.legend(handles=legend_handles, loc="upper center",
               bbox_to_anchor=(0.5, -0.12 / max(1.0, fig_h / 4)),
-              ncol=5, fontsize=9, frameon=False)
+              ncol=6, fontsize=9, frameon=False)
 
     fig.tight_layout()
     return _mpl_save(fig)
@@ -11930,29 +12023,30 @@ def generate_todo_xlsx(tasks: list[dict]) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "TODO"
-    headers = ["タイトル", "開始日", "終了日", "ステータス", "説明"]
+    headers = ["種別", "タイトル", "開始日", "終了日", "ステータス", "説明"]
     for c, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=c, value=h)
         cell.font = Font(bold=True)
         cell.alignment = Alignment(vertical="center")
     for i, tk in enumerate(tasks, start=2):
-        ws.cell(row=i, column=1, value=tk.get("title", ""))
+        ws.cell(row=i, column=1, value=tk.get("種別", "イベント"))
+        ws.cell(row=i, column=2, value=tk.get("title", ""))
         s = tk.get("start")
         e = tk.get("end")
-        cs = ws.cell(row=i, column=2, value=s)
+        cs = ws.cell(row=i, column=3, value=s)
         if s is not None:
             cs.number_format = "yyyy-mm-dd"
-        ce = ws.cell(row=i, column=3, value=e)
+        ce = ws.cell(row=i, column=4, value=e)
         if e is not None:
             ce.number_format = "yyyy-mm-dd"
-        ws.cell(row=i, column=4, value=tk.get("status", ""))
-        ws.cell(row=i, column=5, value=tk.get("desc", ""))
+        ws.cell(row=i, column=5, value=tk.get("status", ""))
+        ws.cell(row=i, column=6, value=tk.get("desc", ""))
         fillhex = _CAL_STATUS_XLSX_FILL.get(tk.get("status", ""))
         if fillhex:
             fill = PatternFill("solid", fgColor=fillhex)
-            for c in range(1, 6):
+            for c in range(1, 7):
                 ws.cell(row=i, column=c).fill = fill
-    for c, w in enumerate([32, 13, 13, 12, 40], 1):
+    for c, w in enumerate([8, 32, 13, 13, 12, 40], 1):
         ws.column_dimensions[ws.cell(row=1, column=c).column_letter].width = w
     ws.freeze_panes = "A2"
     buf = io.BytesIO()
@@ -16928,7 +17022,7 @@ def render_calendar_tab() -> None:
     # calendar's own layers (events / holidays / non-working). The old
     # FullCalendar-only overlays (defects / Backlog) were dropped when the
     # calendars were unified — defects & Backlog keep their dedicated tabs.
-    layer_cols = st.columns(6)
+    layer_cols = st.columns(7)
     with layer_cols[0]:
         show_planned = st.checkbox(t("calendar_layer_planned"), value=True,
                                    key="cal_layer_planned")
@@ -16949,6 +17043,10 @@ def render_calendar_tab() -> None:
     with layer_cols[5]:
         show_nonwork = st.checkbox(t("calendar_layer_nonwork"), value=True,
                                    key="cal_layer_nonwork")
+    with layer_cols[6]:
+        # テスト layer — independent show/hide, parallel to events/holiday/nonwork
+        show_test = st.checkbox(t("calendar_layer_test"), value=True,
+                                key="cal_layer_test")
 
     if selected_fids:
         kpi_df = kpi_df[kpi_df["機能ID"].astype(str).isin(selected_fids)].copy()
@@ -17116,7 +17214,7 @@ def render_calendar_tab() -> None:
         cal_png, _cw, _ch = _mpl_chart_calendar(
             anchor, view_mode, today_d, extra_spans=wbs_spans,
             show_events=show_events, show_holiday=show_holiday,
-            show_nonwork=show_nonwork)
+            show_nonwork=show_nonwork, show_test=show_test)
         # NB: streamlit 1.39 's st.image takes use_column_width (NOT
         # use_container_width — that's 1.40+); the wrong kwarg raises a
         # TypeError that the surrounding except would silently swallow.
@@ -17158,18 +17256,21 @@ def render_calendar_tab() -> None:
 
     todo_rows: list[dict] = []
     if cal_df is not None and not cal_df.empty:
-        # Events ONLY — holidays / non-working days live on their own sheets
-        # and must never appear here. The 公休 guard also drops legacy
-        # holiday rows that old-format files left in the イベント sheet.
-        ev = cal_df[cal_df["kind"] == "event"]
-        for _, r in ev.iterrows():
+        # Events AND tests — both share the four-status vocabulary, so both
+        # belong in the status-filtered TODO list (tests carry a 種別 tag so
+        # they stay distinguishable). Holidays / non-working days live on
+        # their own sheets and must never appear here; the 公休 guard also
+        # drops legacy holiday rows old-format files left in the イベント sheet.
+        td = cal_df[cal_df["kind"].isin(["event", "test"])]
+        for _, r in td.iterrows():
+            kind = str(r.get("kind") or "")
             sd = _to_pydate(r.get("start_date"))
             ed = _to_pydate(r.get("end_date")) or sd
             title = str(r.get("title") or "").strip()
             if not title:
                 continue
             desc = str(r.get("description") or "")
-            if "公休" in desc:                       # legacy holiday row
+            if kind == "event" and "公休" in desc:   # legacy holiday row
                 continue
             status = str(r.get("status") or "").strip()
             if status not in CAL_EVENT_STATUSES:
@@ -17182,7 +17283,9 @@ def render_calendar_tab() -> None:
                 sub = ""
             todo_rows.append({"title": title, "status": status,
                               "sub": sub, "start": sd, "end": ed,
-                              "desc": desc, "sort": sd or date.max})
+                              "desc": desc, "sort": sd or date.max,
+                              "kind": kind,
+                              "種別": "テスト" if kind == "test" else "イベント"})
 
     if not todo_rows:
         st.caption(t("calendar_no_events"))
@@ -17223,12 +17326,17 @@ def render_calendar_tab() -> None:
                     if status == "完了" else ""
                 slabel = status or t("todo_nostatus")
                 sub = f" ・ {t_['sub']}" if t_["sub"] else ""
+                kind_tag = (
+                    '<span style="background:#2b2b2b;color:#fff;'
+                    'font-size:0.66rem;border-radius:3px;padding:1px 5px;'
+                    'margin-right:5px;vertical-align:middle;">テスト</span>'
+                    if t_.get("kind") == "test" else "")
                 st.markdown(
                     f'<div style="background:#{fill};border-left:5px solid '
                     f'{accent};border-radius:6px;padding:8px 12px;margin:4px 0;'
                     f'box-shadow:0 1px 2px rgba(0,0,0,0.06);">'
                     f'<span style="font-size:0.95rem;{strike}">{badge} '
-                    f'{t_["title"]}</span>'
+                    f'{kind_tag}{t_["title"]}</span>'
                     f'<span style="color:#7a7a7a;font-size:0.78rem;">'
                     f'　[{slabel}]{sub}</span></div>',
                     unsafe_allow_html=True,
