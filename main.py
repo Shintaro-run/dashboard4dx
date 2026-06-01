@@ -11817,7 +11817,7 @@ def _mpl_calendar_day(anchor: date, today_d: date, *, extra_spans=None,
     if tev:
         items.append(("― テスト ―", "#666", True))
         for tt, ts in tev:
-            label = f"▣ {tt}" + (f"  [{ts}]" if ts else "")
+            label = f"● {tt}" + (f"  [{ts}]" if ts else "")
             items.append((label, _CAL_STATUS_COLOR.get(ts,
                           _CAL_EVENT_DEFAULT_BG), False))
     if nws:
@@ -11916,9 +11916,10 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
 
     win_start, win_end = _cal_window(anchor, mode)
 
-    rows: list[tuple[date, date, str, str]] = []
+    rows: list[tuple[date, date, str, str, str]] = []
     for _, r in cal_df.iterrows():
-        if r.get("kind") != "event":
+        k = r.get("kind")
+        if k not in ("event", "test"):
             continue
         s = _to_pydate(r.get("start_date"))
         e = _to_pydate(r.get("end_date")) or s
@@ -11929,7 +11930,7 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         if e < win_start or s > win_end:           # outside the window
             continue
         rows.append((s, e, str(r.get("title") or ""),
-                     str(r.get("status") or "").strip()))
+                     str(r.get("status") or "").strip(), str(k)))
     if not rows:
         return None
     rows.sort(key=lambda t: (t[0], t[1]))
@@ -11949,14 +11950,21 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
     fig, ax = plt.subplots(figsize=(_MPL_WIDTH_IN, fig_h), dpi=_MPL_DPI)
 
     labels = [""] * n
-    for i, (s, e, title, status) in enumerate(rows):
+    for i, (s, e, title, status, kind) in enumerate(rows):
         yp = n - 1 - i                              # row 0 (earliest) on top
-        labels[yp] = title if len(title) <= 26 else title[:25] + "…"
+        is_test = kind == "test"
+        # Prefix test rows so the y-axis label itself says "this is a test"
+        # even in greyscale / when the hatch is subtle. Plain JP text only —
+        # geometric glyphs (▣ etc.) tofu in the matplotlib CJK font.
+        lab = ("テスト: " + title) if is_test else title
+        labels[yp] = lab if len(lab) <= 26 else lab[:25] + "…"
         bs = mdates.date2num(max(s, win_start))
         be = mdates.date2num(min(e, win_end) + timedelta(days=1))
         color = _CAL_STATUS_COLOR.get(status, _CAL_EVENT_DEFAULT_BG)
         ax.barh(yp, be - bs, left=bs, height=0.62, color=color,
-                edgecolor="white", linewidth=0.5, zorder=3)
+                edgecolor="#2b2b2b" if is_test else "white",
+                linewidth=0.9 if is_test else 0.5,
+                hatch="////" if is_test else None, zorder=3)
 
     ax.set_yticks(range(n))
     ax.set_yticklabels(labels, fontsize=8)
@@ -11985,7 +11993,7 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         ax.text(mdates.date2num(today_d), n - 0.3, " 今日",
                 color="#c98f00", fontsize=8, va="bottom", ha="left")
 
-    title_txt = (f"イベントタイムライン  "
+    title_txt = (f"イベント／テスト タイムライン  "
                  f"{win_start:%Y-%m-%d} 〜 {win_end:%Y-%m-%d}")
     if truncated:
         title_txt += f"（先頭{n}件のみ表示 / 他{truncated}件）"
@@ -11995,10 +12003,12 @@ def _mpl_chart_event_timeline(cal_df, anchor: date, mode: str, today_d: date):
         Patch(facecolor=_CAL_STATUS_COLOR[s], edgecolor="none", label=s)
         for s in CAL_EVENT_STATUSES
     ] + [Patch(facecolor=_CAL_EVENT_DEFAULT_BG, edgecolor="none",
-               label="ステータスなし")]
+               label="ステータスなし"),
+         Patch(facecolor="#d9d9d9", edgecolor="#2b2b2b", hatch="////",
+               label="テスト(斜線)")]
     ax.legend(handles=legend_handles, loc="upper center",
               bbox_to_anchor=(0.5, -0.12 / max(1.0, fig_h / 4)),
-              ncol=5, fontsize=9, frameon=False)
+              ncol=6, fontsize=9, frameon=False)
 
     fig.tight_layout()
     return _mpl_save(fig)
