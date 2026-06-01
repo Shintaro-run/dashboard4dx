@@ -12013,29 +12013,30 @@ def generate_todo_xlsx(tasks: list[dict]) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "TODO"
-    headers = ["タイトル", "開始日", "終了日", "ステータス", "説明"]
+    headers = ["種別", "タイトル", "開始日", "終了日", "ステータス", "説明"]
     for c, h in enumerate(headers, 1):
         cell = ws.cell(row=1, column=c, value=h)
         cell.font = Font(bold=True)
         cell.alignment = Alignment(vertical="center")
     for i, tk in enumerate(tasks, start=2):
-        ws.cell(row=i, column=1, value=tk.get("title", ""))
+        ws.cell(row=i, column=1, value=tk.get("種別", "イベント"))
+        ws.cell(row=i, column=2, value=tk.get("title", ""))
         s = tk.get("start")
         e = tk.get("end")
-        cs = ws.cell(row=i, column=2, value=s)
+        cs = ws.cell(row=i, column=3, value=s)
         if s is not None:
             cs.number_format = "yyyy-mm-dd"
-        ce = ws.cell(row=i, column=3, value=e)
+        ce = ws.cell(row=i, column=4, value=e)
         if e is not None:
             ce.number_format = "yyyy-mm-dd"
-        ws.cell(row=i, column=4, value=tk.get("status", ""))
-        ws.cell(row=i, column=5, value=tk.get("desc", ""))
+        ws.cell(row=i, column=5, value=tk.get("status", ""))
+        ws.cell(row=i, column=6, value=tk.get("desc", ""))
         fillhex = _CAL_STATUS_XLSX_FILL.get(tk.get("status", ""))
         if fillhex:
             fill = PatternFill("solid", fgColor=fillhex)
-            for c in range(1, 6):
+            for c in range(1, 7):
                 ws.cell(row=i, column=c).fill = fill
-    for c, w in enumerate([32, 13, 13, 12, 40], 1):
+    for c, w in enumerate([8, 32, 13, 13, 12, 40], 1):
         ws.column_dimensions[ws.cell(row=1, column=c).column_letter].width = w
     ws.freeze_panes = "A2"
     buf = io.BytesIO()
@@ -17245,18 +17246,21 @@ def render_calendar_tab() -> None:
 
     todo_rows: list[dict] = []
     if cal_df is not None and not cal_df.empty:
-        # Events ONLY — holidays / non-working days live on their own sheets
-        # and must never appear here. The 公休 guard also drops legacy
-        # holiday rows that old-format files left in the イベント sheet.
-        ev = cal_df[cal_df["kind"] == "event"]
-        for _, r in ev.iterrows():
+        # Events AND tests — both share the four-status vocabulary, so both
+        # belong in the status-filtered TODO list (tests carry a 種別 tag so
+        # they stay distinguishable). Holidays / non-working days live on
+        # their own sheets and must never appear here; the 公休 guard also
+        # drops legacy holiday rows old-format files left in the イベント sheet.
+        td = cal_df[cal_df["kind"].isin(["event", "test"])]
+        for _, r in td.iterrows():
+            kind = str(r.get("kind") or "")
             sd = _to_pydate(r.get("start_date"))
             ed = _to_pydate(r.get("end_date")) or sd
             title = str(r.get("title") or "").strip()
             if not title:
                 continue
             desc = str(r.get("description") or "")
-            if "公休" in desc:                       # legacy holiday row
+            if kind == "event" and "公休" in desc:   # legacy holiday row
                 continue
             status = str(r.get("status") or "").strip()
             if status not in CAL_EVENT_STATUSES:
@@ -17269,7 +17273,9 @@ def render_calendar_tab() -> None:
                 sub = ""
             todo_rows.append({"title": title, "status": status,
                               "sub": sub, "start": sd, "end": ed,
-                              "desc": desc, "sort": sd or date.max})
+                              "desc": desc, "sort": sd or date.max,
+                              "kind": kind,
+                              "種別": "テスト" if kind == "test" else "イベント"})
 
     if not todo_rows:
         st.caption(t("calendar_no_events"))
@@ -17310,12 +17316,17 @@ def render_calendar_tab() -> None:
                     if status == "完了" else ""
                 slabel = status or t("todo_nostatus")
                 sub = f" ・ {t_['sub']}" if t_["sub"] else ""
+                kind_tag = (
+                    '<span style="background:#2b2b2b;color:#fff;'
+                    'font-size:0.66rem;border-radius:3px;padding:1px 5px;'
+                    'margin-right:5px;vertical-align:middle;">テスト</span>'
+                    if t_.get("kind") == "test" else "")
                 st.markdown(
                     f'<div style="background:#{fill};border-left:5px solid '
                     f'{accent};border-radius:6px;padding:8px 12px;margin:4px 0;'
                     f'box-shadow:0 1px 2px rgba(0,0,0,0.06);">'
                     f'<span style="font-size:0.95rem;{strike}">{badge} '
-                    f'{t_["title"]}</span>'
+                    f'{kind_tag}{t_["title"]}</span>'
                     f'<span style="color:#7a7a7a;font-size:0.78rem;">'
                     f'　[{slabel}]{sub}</span></div>',
                     unsafe_allow_html=True,
